@@ -25,12 +25,13 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 RULINGS_DIR = Path("data/rulings")
 BATCH_SIZE = 100
 
-SourceType = Literal["ntis", "tt", "court"]
+SourceType = Literal["ntis", "tt", "court", "nts"]
 
 _NAMESPACE_MAP: dict[str, str] = {
     "ntis": "tax-ruling-ntis",
     "tt": "tax-ruling-tt",
     "court": "tax-ruling-court",
+    "nts": "tax-ruling-nts",   # 국세법령정보시스템 (질의회신·판단사례·세법해석례)
 }
 
 
@@ -142,7 +143,7 @@ def embed_and_upload_rulings(source: str = "all") -> int:
     sources: list[str] = list(_NAMESPACE_MAP.keys()) if source == "all" else [source]
     invalid = [s for s in sources if s not in _NAMESPACE_MAP]
     if invalid:
-        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, all")
+        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, nts, all")
 
     embed_client, embed_model, dimension = _build_embed_client()
     print(f"임베딩 모델: {embed_model} (dim={dimension})")
@@ -161,8 +162,13 @@ def embed_and_upload_rulings(source: str = "all") -> int:
             print(f"  레코드 없음 — 건너뜀")
             continue
 
-        print(f"  {len(records)}건 로드 완료")
-        chunks = [_build_chunk(rec, src) for rec in records]
+        # deprecated(폐지) 예규 제외
+        active = [r for r in records if not r.get("deprecated")]
+        skipped = len(records) - len(active)
+        if skipped:
+            print(f"  deprecated 제외: {skipped}건")
+        print(f"  {len(active)}건 로드 완료")
+        chunks = [_build_chunk(rec, src) for rec in active]
 
         uploaded = _upload_to_namespace(index, embed_client, embed_model, chunks, namespace)
         total_upserted += uploaded
