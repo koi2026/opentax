@@ -12,7 +12,7 @@ RAG 파이프라인 진입점 — L1~L5 통합
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Set
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Literal, Optional, Set, Union
 
 from .confirmation import ConfirmationResult, check_confirmation
 from .fact_checker import FactCheckResult, check_facts
@@ -361,3 +361,144 @@ async def run_rag_pipeline(
             result.debate_record = {"error": str(e)}
 
     return result
+
+
+async def run_rag_pipeline_stream(
+    query: RAGQueryInput,
+    retriever: TaxLawRetriever,
+    llm_fn_stream_fn: Callable,
+    fact_json: Optional[dict] = None,
+    enable_debate: bool = False,
+    debate_auto_promote: bool = True,
+    confirmed: Optional[Dict[str, bool]] = None,
+    query_mode: Literal["report", "consulting"] = "report",
+) -> AsyncGenerator[Union[str, PipelineResult], None]:
+    """파이프라인 스트리밍 버전.
+
+    Yields:
+        str: "PROGRESS:메시지" (단계 진행 상태) 또는 Claude reasoning 텍스트 조각
+        PipelineResult: 최종 결과 (마지막에 한 번만 yield)
+    """
+    # ── L1.5 Confirmation ──────────────────────────────────────────────────
+    confirmation = check_confirmation(confirmed)
+    if not confirmation.can_proceed:
+        from .tax_answer import TaxVerdict
+        yield PipelineResult(
+            answer=TaxAnswer(
+                answer="다음 항목을 먼저 확인해 주세요:\n" + "\n".join(
+                    f"- {q}" for q in confirmation.unconfirmed_questions
+                ),
+                verdict=TaxVerdict.NEEDS_VERIFICATION,
+                confidence=0.0,
+                citations=[], chunk_ids=[],
+                missing_facts=confirmation.unconfirmed_questions,
+                warnings=["확인서 미완료 — 판단을 진행할 수 없습니다."],
+                expert_review_signals=[],
+            ),
+            fact_check=FactCheckResult(can_proceed=True),
+            enriched_query="",
+            blocked_at_confirmation=True,
+        )
+        return
+
+    # ── L2 Fact Check ──────────────────────────────────────────────────────
+    fact_check = check_facts(query)
+    if not fact_check.can_proceed:
+        yield PipelineResult(
+            answer=TaxAnswer(
+                answer="판단에 필요한 사실관계가 불충분합니다. 아래 항목을 추가로 확인해 주세요.",
+                verdict="needs_verification",
+                confidence=0.0,
+                missing_facts=fact_check.missing_fact_texts(),
+                warnings=[f"크리티컬 정보 {len(fact_check.critical_missing)}건 누락으로 추론 중단"],
+            ),
+            fact_check=fact_check,
+            enriched_query="",
+            blocked_at_l2=True,
+        )
+        return
+
+    # ── L3 Query Enrichment ─────────────────────────────────────────────────
+    enriched_query = build_rag_query(query, fact_check.danger_flags)
+    llm_missing_hints = fact_check.missing_fact_texts()
+
+    # ── L4a Retrieval ───────────────────────────────────────────────────────
+    yield "PROGRESS:관련 법령 조문 검색 중..."
+    chunks = retriever.retrieve_with_buchik(query)
+    retrieved_ids: Set[str] = {c.metadata.chunk_id for c in chunks}
+
+    # ── 모델 라우팅 ─────────────────────────────────────────────────────────
+    from src.retrieval.llm_fn import choose_model  # lazy import — domain→retrieval 방향 역전 방지
+    model = choose_model(len(fact_check.danger_flags), len(llm_missing_hints))
+    model_label = "Haiku" if "haiku" in model.lower() else "Sonnet"
+    yield f"PROGRESS:AI {model_label} 법령 해석 중 ({len(chunks)}개 조문)..."
+
+    # ── L4b LLM Streaming ───────────────────────────────────────────────────
+    raw_answer: Optional[TaxAnswer] = None
+    async for item in llm_fn_stream_fn(enriched_query, chunks, llm_missing_hints, fact_json, model_override=model):
+        if isinstance(item, str):
+            yield item  # reasoning 텍스트 조각
+        elif hasattr(item, "verdict"):
+            raw_answer = item  # TaxAnswer
+
+    if raw_answer is None:
+        raw_answer = TaxAnswer(
+            answer="AI 추론 중 오류가 발생했습니다.",
+            verdict="needs_verification",
+            confidence=0.0,
+            chunk_ids=list(retrieved_ids),
+            warnings=["스트리밍 오류"],
+        )
+
+    # chunk_ids / missing_facts 동기화
+    if not raw_answer.chunk_ids:
+        raw_answer = raw_answer.with_update(chunk_ids=list(retrieved_ids))
+    combined_missing = list(set(raw_answer.missing_facts + llm_missing_hints))
+    raw_answer = raw_answer.with_update(missing_facts=combined_missing)
+
+    # ── L5 Output Validation ────────────────────────────────────────────────
+    validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags)
+
+    result = PipelineResult(
+        answer=validated,
+        fact_check=fact_check,
+        enriched_query=enriched_query,
+        retrieved_chunks=chunks,
+        query_mode=query_mode,
+    )
+
+    # ── Consulting Scenarios ─────────────────────────────────────────────────
+    if query_mode == "consulting":
+        result.consulting_scenarios = _build_consulting_scenarios(query, validated, fact_json)
+
+    # ── Red-Blue 논쟁 ────────────────────────────────────────────────────────
+    if enable_debate and fact_json:
+        try:
+            from src.eval.debate import run_red_blue_debate, should_debate
+            if should_debate(result):
+                yield "PROGRESS:Red Team 검증 중..."
+                debate = await run_red_blue_debate(
+                    fact_json=fact_json,
+                    pipeline_result=result,
+                    auto_promote=debate_auto_promote,
+                )
+                result.debate_record = {
+                    "debate_id": debate.debate_id,
+                    "outcome": debate.outcome,
+                    "challenge_type": debate.red_challenge.get("challenge_type"),
+                    "revised_verdict": debate.blue_defense.get("revised_verdict"),
+                    "promoted_to_golden": debate.promoted_to_golden,
+                }
+                if debate.outcome == "red_won":
+                    revised = debate.blue_defense.get("revised_verdict", validated.verdict)
+                    result.answer = validated.with_update(
+                        verdict=revised,
+                        warnings=validated.warnings + [
+                            f"[Red Team 수정] {debate.red_challenge.get('challenge_type')}: "
+                            f"{debate.blue_defense.get('defense_text', '')[:100]}"
+                        ],
+                    )
+        except Exception as e:
+            result.debate_record = {"error": str(e)}
+
+    yield result

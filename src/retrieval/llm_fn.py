@@ -23,6 +23,7 @@ load_dotenv()
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_FAST_MODEL = os.getenv("CLAUDE_FAST_MODEL", "claude-haiku-4-5-20251001")
 
 # 프롬프트 캐싱 — system prompt를 ephemeral 캐시로 고정해 TTFT 단축
 # few_shot_block은 요청마다 달라지므로 캐시 블록에 포함하지 않음
@@ -33,6 +34,16 @@ _SYSTEM_BLOCKS = [
         "cache_control": {"type": "ephemeral"},
     }
 ]
+
+
+def choose_model(danger_flag_count: int, missing_count: int) -> str:
+    """danger_flags >= 2 이거나 missing_facts 있으면 Sonnet, 그 외 Haiku.
+
+    Haiku는 Sonnet 대비 3~5배 빠르고 단순 비과세 판단에 충분한 정확도를 보임.
+    """
+    if danger_flag_count >= 2 or missing_count > 0:
+        return CLAUDE_MODEL
+    return CLAUDE_FAST_MODEL
 
 
 _MAX_CHUNK_CHARS = 800  # 조문 원문 최대 전달 길이 (토큰 절약 — 핵심 내용은 앞부분에 집중)
@@ -90,6 +101,7 @@ async def llm_fn(
     chunks: List[RetrievedChunk],
     missing_hints: List[str],
     fact_json: Optional[dict] = None,
+    model_override: Optional[str] = None,
 ) -> TaxAnswer:
     """
     업스트림 시그니처 — 검색된 청크와 누락 힌트로 TaxAnswer 생성.
@@ -115,9 +127,10 @@ async def llm_fn(
 
     client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
+    model = model_override or CLAUDE_MODEL
 
     message = await client.messages.create(
-        model=CLAUDE_MODEL,
+        model=model,
         max_tokens=1200,
         system=_SYSTEM_BLOCKS,
         messages=[{"role": "user", "content": user_prompt}],
@@ -175,6 +188,7 @@ async def llm_fn_stream(
     chunks: List[RetrievedChunk],
     missing_hints: List[str],
     fact_json: Optional[dict] = None,
+    model_override: Optional[str] = None,
 ) -> AsyncGenerator[Union[str, TaxAnswer], None]:
     """
     Claude 스트리밍 버전. 
@@ -195,12 +209,13 @@ async def llm_fn_stream(
 
     client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
+    model = model_override or CLAUDE_MODEL
 
     full_text = ""
     in_reasoning = False
-    
+
     async with client.messages.stream(
-        model=CLAUDE_MODEL,
+        model=model,
         max_tokens=1500,
         system=_SYSTEM_BLOCKS,
         messages=[{"role": "user", "content": user_prompt}],
