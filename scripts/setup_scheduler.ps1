@@ -1,8 +1,9 @@
 # Law + area-designation change detection - Windows Task Scheduler registration
 # Run as Administrator: .\scripts\setup_scheduler.ps1
 #
-# Schedule: 07:30 / 12:30 / 18:30 / 23:00 (하루 4회)
-# 이유: 규제지역 고시는 장중(업무 시간)에 발표되며 양도세 판단에 즉시 영향.
+# Schedule: 09:00 / 18:00 (하루 2회)
+# 09:00 — 전날/새벽 발표 반영
+# 18:00 — 장중(오전 10~11시) 보도자료 반영
 
 $TaskName    = "TaxRAG-LawChangeDetect"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -20,11 +21,9 @@ $Action = New-ScheduledTaskAction `
     -Argument $ArgString `
     -WorkingDirectory $ProjectRoot
 
-# 하루 4회 트리거 (07:30 / 12:30 / 18:30 / 23:00)
-$Trigger0730 = New-ScheduledTaskTrigger -Daily -At "07:30"
-$Trigger1230 = New-ScheduledTaskTrigger -Daily -At "12:30"
-$Trigger1830 = New-ScheduledTaskTrigger -Daily -At "18:30"
-$Trigger2300 = New-ScheduledTaskTrigger -Daily -At "23:00"
+# 하루 2회 트리거 (09:00 / 18:00)
+$Trigger0900 = New-ScheduledTaskTrigger -Daily -At "09:00"
+$Trigger1800 = New-ScheduledTaskTrigger -Daily -At "18:00"
 
 $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
@@ -41,15 +40,15 @@ if ($existing) {
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
-    -Trigger @($Trigger0730, $Trigger1230, $Trigger1830, $Trigger2300) `
+    -Trigger @($Trigger0900, $Trigger1800) `
     -Settings $Settings `
-    -Description "Tax-RAG: 법령 개정 + 규제지역 변경 감지 + Pinecone reindex (하루 4회)" `
+    -Description "Tax-RAG: 법령 개정 + 규제지역 변경 감지 + Pinecone reindex (하루 2회)" `
     -RunLevel Highest
 
 Write-Host ""
 Write-Host "=== 등록 완료 ==="
 Write-Host "Task     : $TaskName"
-Write-Host "Schedule : 07:30 / 12:30 / 18:30 / 23:00 (하루 4회)"
+Write-Host "Schedule : 09:00 / 18:00 (하루 2회)"
 Write-Host "Log      : $LogDir\law_change_detect.log"
 Write-Host ""
 Write-Host "수동 실행:"
