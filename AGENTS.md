@@ -136,17 +136,46 @@ src/services/tier_router.py  — 상담 3티어 라우터 [NEW]
 
 **calculator 원칙:** 비거주자 세율·부담부증여 포함. 법인은 법인세 대상이므로 L2에서 차단.
 
-### Phase 5 — Ruling DB & RLVR
+### Phase 5 — Ruling DB & RLVR ✅ 코드 완성
 
-| 태스크 | 파일 | 핵심 |
+| 태스크 | 파일 | 상태 |
 |--------|------|------|
-| 유권해석 DB 1단계 | `data/rulings/` | ntis/tt/court 500건+ |
-| 유권해석 DB 2단계 | Pinecone 3개 namespace | `tax-ruling-ntis/tt/court` |
-| verdict_matcher | `src/eval/verdict_matcher.py` | binary reward 자동 계산 |
-| Red-Blue 무한루프 | `src/eval/debate.py` | 다모델 교차검색, 루프 종료 조건 명확화 |
-| BGE 파인튜닝 | `data/finetune/` | red_won 케이스에서 pair 추출 |
+| 세법해석정비 수집기 | `src/ingestion/collect_rulings_revision.py` | ✅ 완성 |
+| 유권해석 수집기 (질의회신·판단사례) | `src/ingestion/collect_rulings_nts.py` | ✅ 완성 |
+| 판례·결정례 JSON API 수집기 | `src/ingestion/collect_rulings_decisions.py` | ✅ 완성 |
+| 세법집행기준 PDF 파서 | `src/ingestion/collect_rulings_pdf.py` | ✅ 완성 |
+| embed_rulings (4개 namespace) | `src/ingestion/embed_rulings.py` | ✅ 완성 |
+| verdict_matcher | `src/eval/verdict_matcher.py` | ✅ 완성 |
+| Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
+| Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
+| BGE 파인튜닝 | `scripts/extract_reranker_pairs.py` | ⏳ red_wins 50건 대기 중 |
 
-**루프 종료 조건:** 양팀 모두 근거 소진 + 예규 공백 확인 → tier_router.py 분기 → Premium 상담 연결.
+**수집 실행 순서 (사용자 실행):**
+```bash
+# 1. 폐지 예규 목록 먼저
+python -m src.ingestion.collect_rulings_revision --tax transfer
+
+# 2. 예규·질의회신
+python -m src.ingestion.collect_rulings_nts --tax 양도소득세
+
+# 3. 심판청구 판례
+python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도
+
+# 4. PDF (세법집행기준)
+python -m src.ingestion.collect_rulings_pdf
+
+# 5. Pinecone 업로드
+python -m src.ingestion.embed_rulings nts
+python -m src.ingestion.embed_rulings decisions
+python -m src.ingestion.embed_rulings pdf
+```
+
+**Pinecone 네임스페이스:**
+- `tax-ruling-nts` — 질의회신·판단사례·세법해석례
+- `tax-ruling-decisions` — 심판청구·이의신청·판례
+- `tax-ruling-pdf` — 세법집행기준
+
+**source_label 체계:** 모든 Citation에 한국어 출처 표시. LLM 컨텍스트에도 `▶ 출처:` 포함.
 
 ### Phase 6 — Service Layer (장기)
 
@@ -212,11 +241,19 @@ class TaxVerdict(str, Enum):
 
 ```python
 @dataclass
+class Citation:
+    chunk_id: str
+    article: str        # 예: "소득세법 시행령 제154조 제1항"
+    excerpt: str        # 관련 조문 발췌
+    law_version: str    # 적용 법령 버전 (시행일 기준)
+    source_label: str   # 출처 한국어 표시 — "법령 (소득세법)", "국세청 질의회신", "조세심판원 심판청구" 등
+
+@dataclass
 class TaxAnswer:
     answer: str
     verdict: str
     confidence: float
-    citations: List[Citation]   # chunk_id 포함 — 없으면 phantom 처리
+    citations: List[Citation]   # chunk_id + source_label 포함 — 없으면 phantom 처리
     chunk_ids: List[str]
     missing_facts: List[str]
     warnings: List[str]
@@ -247,9 +284,15 @@ tax-rag/
 │   │   ├── pinecone_client.py
 │   │   └── reranker.py          # BGE-Reranker-v2-m3
 │   ├── ingestion/
-│   │   ├── collect.py           # law.go.kr XML 수집
-│   │   ├── embed.py             # 임베딩 + Pinecone 업로드
-│   │   └── admin_notices.py     # 행정/금융 고시 수집
+│   │   ├── collect.py                    # law.go.kr XML 수집
+│   │   ├── embed.py                      # 임베딩 + Pinecone 업로드 (source_label 포함)
+│   │   ├── embed_rulings.py              # 유권해석 임베딩 (nts/decisions/pdf 등)
+│   │   ├── collect_rulings_revision.py   # 세법해석정비 — deprecated_ids.json 관리
+│   │   ├── collect_rulings_nts.py        # 질의회신·판단사례·세법해석례·쟁점별사례
+│   │   ├── collect_rulings_decisions.py  # 판례·결정례 JSON API (action.do)
+│   │   ├── collect_rulings_pdf.py        # 세법집행기준 PDF 파서
+│   │   ├── area_designation_pipeline.py  # 규제지역 변경 감지 3-tier
+│   │   └── admin_notices.py              # 행정/금융 고시 수집
 │   ├── api/
 │   │   ├── chat_api.py          # POST /api/v1/chat + chat_turn()
 │   │   ├── fact_input.py        # FactInput → RAGQueryInput 변환 팩토리
@@ -269,14 +312,21 @@ tax-rag/
 │   ├── rag.py                   # 레거시 shim (신규 로직 추가 금지)
 │   └── ui.py                    # Streamlit 채팅 UI (판단 로직 추가 금지)
 ├── data/
-│   ├── golden/        # qa_pairs.json (debate 누적)
-│   ├── debates/       # 개별 논쟁 기록
-│   ├── red_wins/      # Red 승리 케이스
-│   ├── blue_wins/     # Blue 방어 성공 케이스
-│   ├── rulings/       # 유권해석 DB (ntis/, tt/, court/)
-│   ├── feedback/      # 피드백 JSONL (.gitignore)
-│   ├── raw/           # law.go.kr XML (.gitignore)
-│   └── processed/     # 파싱 JSON 청크 (.gitignore)
+│   ├── golden/              # qa_pairs.json (debate 누적)
+│   ├── debates/             # 개별 논쟁 기록 (.gitignore)
+│   ├── red_wins/            # Red 승리 케이스 (.gitignore)
+│   ├── blue_wins/           # Blue 방어 성공 케이스 (.gitignore)
+│   ├── rulings/
+│   │   ├── nts/             # 질의회신·판단사례·세법해석례 (taxlaw.nts.go.kr)
+│   │   ├── decisions/       # 판례·결정례 (action.do JSON API)
+│   │   ├── pdf/             # 세법집행기준 파싱 결과
+│   │   ├── pdf_source/      # 원본 PDF 드롭 폴더 (양도소득세 집행기준-2024.pdf)
+│   │   ├── deprecated_ids.json   # 폐지 예규 ID 목록
+│   │   └── revision_cases.json   # 세법해석정비 전체 목록
+│   ├── area_designations/   # 규제지역 수동 기준표 + 소스 상태
+│   ├── feedback/            # 피드백 JSONL (.gitignore)
+│   ├── raw/                 # law.go.kr XML (.gitignore)
+│   └── processed/           # 파싱 JSON 청크 (.gitignore)
 ├── tests/
 └── scripts/
 ```
@@ -319,7 +369,17 @@ pip install -r requirements.txt
 cp .env.example .env
 
 python -m src.ingestion.collect       # 법령 수집
-python -m src.ingestion.embed         # Pinecone 업로드
+python -m src.ingestion.embed         # 법령 Pinecone 업로드
+
+# 유권해석 DB 수집 (순서 중요)
+python -m src.ingestion.collect_rulings_revision --tax transfer   # 폐지 예규 목록
+python -m src.ingestion.collect_rulings_nts --tax 양도소득세        # 질의회신·판단사례
+python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도
+python -m src.ingestion.collect_rulings_pdf                        # 세법집행기준 PDF
+python -m src.ingestion.embed_rulings nts                          # Pinecone 업로드
+python -m src.ingestion.embed_rulings decisions
+python -m src.ingestion.embed_rulings pdf
+
 streamlit run src/ui.py               # UI 실행
 python -m src.api.mcp_server --sse    # MCP 서버 (HTTP SSE)
 python -m src.eval.eval               # 골든셋 평가
@@ -341,12 +401,16 @@ pytest                                # 테스트
 
 ### 유권해석 계층 (구속력 순서)
 
-| 기관 | 종류 | 특징 |
-|------|------|------|
-| 기획재정부 | 세법해석 사전답변, 예규 | 최상위 — 국세청도 따라야 함 |
-| 국세청 (ntis.go.kr) | 예규, 질의회신, 심사결정 | 실무 기준, 건수 가장 많음 |
-| 조세심판원 (tt.go.kr) | 결정례 | 납세자 불복 케이스, binary 정답 |
-| 대법원 | 판결 | 최종 권위, 건수 적음 |
+| 기관 | 종류 | 수집 방법 | source_label |
+|------|------|-----------|--------------|
+| 기획재정부 | 세법해석 사전답변·예규 | taxlaw.nts.go.kr 통합 (ic/qt 타입) | 국세청 세법해석례 |
+| 국세청 | 예규·질의회신·심사결정 | taxlaw.nts.go.kr (qt/pd/hotissue) | 국세청 질의회신 |
+| 조세심판원 | 심판청구 결정례 | taxlaw.nts.go.kr action.do API | 조세심판원 심판청구 |
+| 대법원 | 판결 | taxlaw.nts.go.kr action.do API | 대법원 판례 |
+| 국세청 (집행기준) | 양도소득세 집행기준 | PDF 파서 (`collect_rulings_pdf.py`) | 세법집행기준 |
+
+> **통합 수집 원칙**: tt.go.kr / ntis.go.kr 별도 스크래핑 불필요. taxlaw.nts.go.kr 하나에서 전부 수집 가능.
+> **세법해석정비** 먼저 실행 → `deprecated_ids.json` 생성 → 폐지 예규가 RAG에 들어가지 않음.
 
 ### 핵심 판단 요소
 

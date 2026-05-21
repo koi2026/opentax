@@ -41,6 +41,13 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 - [x] linked_buchik_ids 본칙↔부칙 연결 + retrieve_with_buchik 실동작
 - [x] 부칙 applicability_anchor 구조화 파싱 (`_extract_buchik_anchor()`, 8개 패턴)
 - [x] 주민등록 ≠ 실질 거주 특례 발굴 인터뷰 (`src/services/residence_interview.py`)
+- [x] Red-Win 누적 배치 러너 (`scripts/accumulate_red_wins.py`) — 골든케이스 30개 + 합성 경계케이스로 BGE reranker 파인튜닝용 50건 수집
+- [x] 세법해석정비 수집기 (`src/ingestion/collect_rulings_revision.py`) — deprecated 예규 ID 자동 관리, `data/rulings/deprecated_ids.json`
+- [x] 유권해석 DB 수집기 3종:
+  - `src/ingestion/collect_rulings_nts.py` — 질의회신(qt)/판단사례(pd)/세법해석례(ic)/자주찾는쟁점별사례(hotissue), POST 필터 + 쟁점 자동 순회
+  - `src/ingestion/collect_rulings_decisions.py` — 판례·결정례 JSON API (`POST action.do`, `dcmClCdCtl=["001_08"]`심판청구, `icldVcbCtl=["양도"]`)
+  - `src/ingestion/collect_rulings_pdf.py` — 세법집행기준 PDF 파서 (pdfplumber, `data/rulings/pdf_source/` 드롭)
+- [x] Citation.source_label + SOURCE_LABELS — 법령/예규/심판청구 등 한국어 출처 라벨 전 파이프라인 관통 (`tax_answer.py`, `embed_rulings.py`, `llm_fn.py`, `embed.py`)
 
 ---
 
@@ -54,15 +61,13 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
   - linked_buchik_ids, applicability_anchor, article_type 신규 필드 반영
 - [ ] **스케줄러 등록** — 관리자 PowerShell에서 `.\scripts\setup_scheduler.ps1`
   - 매일 23:00 자동 감지 + Pinecone 업로드
-- [ ] **유권해석 DB 수집** — taxlaw.nts.go.kr 통합 수집
-  - **순서**: ① 세법해석정비(deprecated 목록) → ② 예규/질의회신 → ③ 판례·결정례
-  - `python -m src.ingestion.collect_rulings_revision --tax transfer`
-  - `python -m src.ingestion.collect_rulings_nts --tax 양도소득세`
-  - `python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도`
-  - **판례·결정례 API**: `POST taxlaw.nts.go.kr/action.do` (JSON API, XHR 확인)
-    - `actionId=ASIPDI002PR01`, `dcmClCdCtl=["001_08"]`(심판청구), `icldVcbCtl=["양도"]`
-    - 심판청구 24,904건 중 양도 키워드 필터 → 수천 건 예상
-  - 수집 후 embed → `python -m src.ingestion.embed_rulings decisions`
+- [ ] **유권해석 DB 수집 실행** — 코드 완성, 데이터 수집만 남음
+  - **순서**: ① → ② → ③ → ④ 순으로 실행
+  - ① `python -m src.ingestion.collect_rulings_revision --tax transfer`  (deprecated ID 먼저)
+  - ② `python -m src.ingestion.collect_rulings_nts --tax 양도소득세`
+  - ③ `python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도`
+  - ④ `python -m src.ingestion.collect_rulings_pdf`  (세법집행기준 PDF, `data/rulings/pdf_source/` 에 넣고 실행)
+  - ⑤ 수집 후 embed → `python -m src.ingestion.embed_rulings nts` / `decisions` / `pdf`
 
 ---
 
@@ -73,7 +78,10 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 - [x] 행정 레이어 지도 시각화 — `src/pages/area_map.py` (pydeck 지도 + 기준일 필터 + 구역별 현황)
 - [x] 유권해석 DB 2단계 파이프라인 — `src/ingestion/embed_rulings.py` (ntis/tt/court 청킹·임베딩)
 - [x] 컨설팅 모드 UI — `src/ui.py` 사이드바 모드 토글, 시뮬레이션 파라미터, 시나리오 비교표 렌더링
-- [ ] BGE reranker 파인튜닝 — red_won 케이스 50건+ 축적 후 (`scripts/extract_reranker_pairs.py` 활용)
+- [ ] **BGE reranker 파인튜닝** — red_won 케이스 50건+ 축적 후 (`scripts/extract_reranker_pairs.py` 활용)
+  - `python -m scripts.accumulate_red_wins --phase 1` 으로 골든케이스 replay
+  - `python -m scripts.accumulate_red_wins --phase 2` 로 합성 경계케이스 추가
+  - 현재 `data/red_wins/` 건수 확인 후 50건 초과 시 파인튜닝 진행
 
 ---
 
