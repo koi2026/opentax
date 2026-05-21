@@ -16,6 +16,11 @@ data/processed/
 data/feedback/*.jsonl
 data/eval_results/*.json
 
+# Debate / red-win runtime outputs
+data/debates/
+data/red_wins/
+data/blue_wins/
+
 # Environment
 .env
 *.env
