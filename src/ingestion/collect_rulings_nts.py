@@ -4,7 +4,8 @@
 수집 대상:
   - 질의회신 (qt): /qt/USEQTJ001M.do (목록) → /qt/USEQTJ002P.do (상세)
   - 판단사례 (pd): /pd/USEPDI001M.do (목록) → /pd/USEPDI002P.do (상세)
-  - 세법해석례 (해석): /ic/USEICI001M.do (목록) → /ic/USEICI002P.do (상세)
+  - 세법해석례 (ic): /ic/USEICI001M.do (목록) → /ic/USEICI002P.do (상세)
+  - 자주찾는쟁점별사례 (hotissue): /qt/USEQTH001M.do (목록, POST 필터)
 
 저장 위치: data/rulings/nts/{type}_{ntstBscId}.json
 
@@ -13,12 +14,12 @@ JSON 스키마 (embed_rulings.py 호환):
   source_type, doc_number, url, deprecated
 
 사용법:
-    python -m src.ingestion.collect_rulings_nts                     # 전체
-    python -m src.ingestion.collect_rulings_nts --type qt           # 질의회신만
-    python -m src.ingestion.collect_rulings_nts --type ic           # 세법해석례만
-    python -m src.ingestion.collect_rulings_nts --tax 양도소득세     # 세목 필터
+    python -m src.ingestion.collect_rulings_nts                          # 전체
+    python -m src.ingestion.collect_rulings_nts --type qt                # 질의회신만
+    python -m src.ingestion.collect_rulings_nts --type hotissue          # 자주찾는쟁점별사례
+    python -m src.ingestion.collect_rulings_nts --tax 양도소득세          # 세목 필터
     python -m src.ingestion.collect_rulings_nts --dry-run
-    python -m src.ingestion.collect_rulings_nts --resume            # 기존 파일 스킵
+    python -m src.ingestion.collect_rulings_nts --resume                 # 기존 파일 스킵
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ BASE_URL = "https://taxlaw.nts.go.kr"
 NTS_DIR = Path("data/rulings/nts")
 
 # 수집 유형 설정
+# post_filter=True 인 경우 목록 조회를 POST form으로 세목 필터링
 RULING_TYPES = {
     "qt": {
         "name": "질의회신",
@@ -46,6 +48,12 @@ RULING_TYPES = {
         "name": "판단사례",
         "list_path": "/pd/USEPDI001M.do",
         "detail_path": "/pd/USEPDI002P.do",
+    },
+    "hotissue": {
+        "name": "자주찾는쟁점별사례",
+        "list_path": "/qt/USEQTH001M.do",
+        "detail_path": "/qt/USEQTH002P.do",
+        "post_filter": True,   # 세목 필터를 POST로 전송
     },
     "ic": {
         "name": "세법해석례",
@@ -73,29 +81,48 @@ _TAX_KEYWORDS = {
 
 # ── 목록 페이지 수집 ──────────────────────────────────────────────────────────
 
+def _extract_dropdown_options(soup: BeautifulSoup, select_name: str) -> list[str]:
+    """select 태그에서 option value 목록 반환 (빈 값 제외)."""
+    sel = soup.find("select", {"name": select_name}) or soup.find("select", {"id": select_name})
+    if not sel:
+        return []
+    return [o["value"] for o in sel.find_all("option") if o.get("value", "").strip()]
+
+
 def _fetch_list_page(
     session: requests.Session,
     ruling_type: str,
     page: int,
     tax_name: str,
-) -> tuple[list[str], int]:
-    """목록 페이지에서 ntstBscId 목록과 총 건수 반환."""
+    issue_code: str = "",
+) -> tuple[list[str], int, list[str]]:
+    """목록 페이지에서 ntstBscId 목록, 총 건수, 쟁점 옵션 반환.
+
+    hotissue 타입은 POST form으로 세목·쟁점 필터를 전송한다.
+    쟁점 옵션은 첫 페이지 호출 시만 의미 있다.
+    """
     cfg = RULING_TYPES[ruling_type]
     url = BASE_URL + cfg["list_path"]
+    use_post = cfg.get("post_filter", False)
 
-    params = {
+    form_data = {
         "pageIndex": page,
         "pageUnit": 100,
         "searchSeMkNm": tax_name,
+        "searchJngtNm": issue_code,   # 쟁점 코드 (빈값=전체)
         "searchContents": "",
+        "searchDocNo": "",
     }
 
     try:
-        resp = session.get(url, params=params, headers=_HEADERS, timeout=15)
+        if use_post:
+            resp = session.post(url, data=form_data, headers=_HEADERS, timeout=15)
+        else:
+            resp = session.get(url, params=form_data, headers=_HEADERS, timeout=15)
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"  목록 요청 오류 (page={page}): {e}")
-        return [], 0
+        return [], 0, []
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -107,7 +134,10 @@ def _fetch_list_page(
         if m:
             total = int(m.group(1).replace(",", ""))
 
-    # ntstBscId 추출 — href 패턴에서
+    # 쟁점 드롭다운 옵션 (hotissue 첫 페이지에서 수집)
+    issue_options = _extract_dropdown_options(soup, "searchJngtNm")
+
+    # ntstBscId 추출 — href 패턴
     ids: list[str] = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -115,14 +145,14 @@ def _fetch_list_page(
         if m:
             ids.append(m.group(1))
 
-    # onclick 패턴도 체크 (일부 사이트는 JS onclick으로 링크)
+    # onclick 패턴 fallback
     if not ids:
         for tag in soup.find_all(attrs={"onclick": True}):
             m = re.search(r"ntstBscId['\"]?\s*[,=]\s*['\"]?(\d+)", tag["onclick"])
             if m:
                 ids.append(m.group(1))
 
-    return list(dict.fromkeys(ids)), total  # 중복 제거, 순서 유지
+    return list(dict.fromkeys(ids)), total, issue_options
 
 
 # ── 상세 페이지 파싱 ──────────────────────────────────────────────────────────
@@ -353,16 +383,29 @@ def collect_rulings(
 
         # 목록 수집
         all_ids: list[str] = []
-        first_ids, total = _fetch_list_page(session, rtype, 1, tax_name)
+        first_ids, total, issue_options = _fetch_list_page(session, rtype, 1, tax_name)
         all_ids.extend(first_ids)
 
-        pages = max(1, (total + 99) // 100) if total else 1
-        print(f"  총 {total}건 / {pages}페이지")
-
-        for page in range(2, pages + 1):
-            ids, _ = _fetch_list_page(session, rtype, page, tax_name)
-            all_ids.extend(ids)
-            time.sleep(delay * 0.5)
+        # hotissue: 쟁점=빈값으로 전체가 나오는지 확인, 안 되면 쟁점별 순회
+        if cfg.get("post_filter") and issue_options and total == 0:
+            print(f"  쟁점별 순회 모드: {len(issue_options)}개 쟁점")
+            for issue in issue_options:
+                iss_ids, iss_total, _ = _fetch_list_page(session, rtype, 1, tax_name, issue)
+                all_ids.extend(iss_ids)
+                iss_pages = max(1, (iss_total + 99) // 100)
+                for page in range(2, iss_pages + 1):
+                    ids, _, _ = _fetch_list_page(session, rtype, page, tax_name, issue)
+                    all_ids.extend(ids)
+                    time.sleep(delay * 0.5)
+                print(f"    쟁점 [{issue}]: {iss_total}건")
+                time.sleep(delay)
+        else:
+            pages = max(1, (total + 99) // 100) if total else 1
+            print(f"  총 {total}건 / {pages}페이지")
+            for page in range(2, pages + 1):
+                ids, _, _ = _fetch_list_page(session, rtype, page, tax_name)
+                all_ids.extend(ids)
+                time.sleep(delay * 0.5)
 
         all_ids = list(dict.fromkeys(all_ids))  # 중복 제거
         print(f"  수집된 ID: {len(all_ids)}개")
