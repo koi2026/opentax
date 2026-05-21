@@ -28,62 +28,47 @@ PROCESSED_DIR = Path("data/processed")
 BATCH_SIZE = 100  # Pinecone upsert 배치 크기
 
 # ── Stage 1 필터 태깅 규칙 ─────────────────────────────────────────────────────
-# (law_name, article_number_prefix) → (entity_scopes, topic_tags)
-# 업스트림 Stage 1 symbolic filter 의 entity_scope / tax_type 매칭에 사용
+# 조문→태그 매핑은 src/infra/article_tag_map.json에서 로드.
+# 신규 조문 추가 시 JSON만 수정하면 되며 코드 변경 불필요.
+
+_TAG_MAP_PATH = Path(__file__).parent.parent / "infra" / "article_tag_map.json"
+_TAG_MAP: dict = {}
+
+
+def _load_tag_map() -> dict:
+    global _TAG_MAP
+    if not _TAG_MAP:
+        try:
+            _TAG_MAP = json.loads(_TAG_MAP_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            _TAG_MAP = {}
+    return _TAG_MAP
+
 
 def _tag_chunk(law_name: str, article_number: str, full_text: str) -> dict:
     """
-    조문 정보 기반 규칙 태깅.
+    조문 정보 기반 규칙 태깅 (article_tag_map.json 주도).
     entity_scopes: ["주택", "분양권", "조합원입주권", "토지", ...]
     topic_tags: ["1세대1주택비과세", "장기보유특별공제", ...]
     tax_types: ["transfer"] (현재 수집 대상 전체)
     """
-    art = article_number.strip().lstrip("제").split("조")[0].replace("의", ".")
-    # "89", "97.2", "154" 등으로 정규화
+    tag_map = _load_tag_map()
 
-    entity_scopes: list[str] = []
-    topic_tags: list[str] = []
+    # 법령명 공백 제거로 JSON 키 정규화 ("소득세법 시행령" → "소득세법시행령")
+    law_key = law_name.replace(" ", "")
+    law_entry: dict = tag_map.get(law_key) or tag_map.get(law_name) or {}
 
-    # 소득세법 / 소득세법 시행령 → 주택 중심 (분양권·입주권 포함)
-    if "소득세법" in law_name:
-        entity_scopes.append("주택")
+    entity_scopes: list[str] = list(law_entry.get("default_entity_scopes", []))
+    topic_tags: list[str] = list(law_entry.get("default_topic_tags", []))
 
-        art_num = article_number.lstrip("제").split("조")[0]
-        if art_num in ("89",):
-            topic_tags += ["1세대1주택비과세"]
-        if art_num in ("95",):
-            topic_tags += ["장기보유특별공제"]
-        if art_num in ("97의2", "97.2"):
-            topic_tags += ["1세대1주택비과세", "이월과세"]
-        if art_num in ("104",):
-            topic_tags += ["다주택중과", "세율"]
-        if "시행령" in law_name:
-            if art_num in ("154",):
-                topic_tags += ["1세대1주택비과세"]
-            if art_num in ("155",):
-                topic_tags += ["1세대1주택비과세", "일시적2주택", "상속주택"]
-            if art_num in ("155의3",):
-                topic_tags += ["1세대1주택비과세", "상생임대"]
-                entity_scopes.append("상생임대")
-            if art_num in ("156의2", "156의3"):
-                topic_tags += ["분양권입주권"]
-                entity_scopes += ["분양권", "조합원입주권"]
-            if art_num in ("167의10",):
-                topic_tags += ["다주택중과"]
-            if art_num in ("159의4",):
-                topic_tags += ["장기보유특별공제"]
+    articles: dict = law_entry.get("articles", {})
+    art_num = article_number.strip().lstrip("제").split("조")[0]
+    art_entry: dict = articles.get(art_num, {})
 
-    # 조세특례제한법 → 임대주택·농어촌주택 특례
-    if "조세특례제한법" in law_name:
-        entity_scopes.append("주택")
-        topic_tags += ["조특법감면"]
-        art_num = article_number.lstrip("제").split("조")[0]
-        if art_num in ("97의3", "97의4", "97의5"):
-            topic_tags += ["장기임대주택"]
-        if art_num in ("99의4",):
-            topic_tags += ["장기임대주택"]
+    topic_tags += art_entry.get("topic_tags", [])
+    entity_scopes += art_entry.get("entity_scopes", [])
 
-    # 부칙/별표 태그
+    # 부칙 태그
     if "부칙" in full_text[:50] or "부  칙" in full_text[:50]:
         topic_tags.append("부칙경과조치")
 
@@ -186,12 +171,17 @@ def embed_and_upload(chunks_path: Optional[Path] = None) -> int:
                 "law_name": law_name,
                 "article_number": article_number,
                 "article_title": chunk.get("article_title", ""),
+                "article_type": chunk.get("article_type", ""),  # "본문" | "부칙"
                 # Pinecone $lte/$gte는 숫자 타입 전용 — YYYYMMDD 정수로 저장
                 "effective_date": int(chunk["effective_date"]) if chunk.get("effective_date") else 0,
                 "expiration_date": int(chunk["expiration_date"]) if chunk.get("expiration_date") else 99991231,
                 "version_mst": chunk.get("version_mst", chunk.get("law_mst", "")),
                 "law_category": chunk.get("law_category", ""),
                 "source": "law.go.kr",
+                # 본칙↔부칙 연결 — retrieve_with_buchik()가 이 목록으로 부칙 청크를 자동 보강
+                "linked_buchik_ids": chunk.get("linked_buchik_ids", []),
+                # 부칙 적용례 앵커 — "transfer_date"|"acquisition_date"|"contract_date"|"gift_date"|"death_date"|"effective_date"
+                "applicability_anchor": chunk.get("applicability_anchor", "effective_date"),
                 # Stage 1 symbolic filter용 태그 (업스트림 entity_scope/tax_type 매칭)
                 "entity_scopes": tags["entity_scopes"],
                 "topic_tags": tags["topic_tags"],
@@ -208,6 +198,66 @@ def embed_and_upload(chunks_path: Optional[Path] = None) -> int:
         time.sleep(0.2)  # rate limit 방지
 
     print(f"\n[완료] {total_upserted}개 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
+    return total_upserted
+
+
+def embed_and_upload_chunks(chunks: list[dict]) -> int:
+    """
+    청크 리스트를 직접 받아 임베딩 후 Pinecone에 업로드.
+    detect_law_changes.py 등에서 신규 버전만 부분 업로드할 때 사용.
+    반환값: upsert된 벡터 수
+    """
+    if not chunks:
+        return 0
+    if not PINECONE_API_KEY:
+        raise RuntimeError("PINECONE_API_KEY가 필요합니다")
+
+    embed_client, embed_model, dimension = _build_embed_client()
+    pc = Pinecone(api_key=PINECONE_API_KEY)
+    index = _get_or_create_index(pc, dimension)
+
+    total_upserted = 0
+    batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
+
+    for batch in tqdm(batches, desc="신규 버전 업로드"):
+        texts = [c.get("full_text", "") for c in batch]
+        try:
+            vectors = _embed_texts(embed_client, embed_model, texts)
+        except Exception as e:
+            print(f"\n임베딩 오류 (배치 건너뜀): {e}")
+            continue
+
+        upsert_payload = []
+        for chunk, vec in zip(batch, vectors):
+            law_name = chunk.get("law_name", "")
+            article_number = chunk.get("article_number", "")
+            full_text = chunk.get("full_text", "")
+            tags = _tag_chunk(law_name, article_number, full_text)
+            metadata = {
+                "law_name": law_name,
+                "article_number": article_number,
+                "article_title": chunk.get("article_title", ""),
+                "article_type": chunk.get("article_type", ""),
+                "effective_date": int(chunk["effective_date"]) if chunk.get("effective_date") else 0,
+                "expiration_date": int(chunk["expiration_date"]) if chunk.get("expiration_date") else 99991231,
+                "version_mst": chunk.get("version_mst", chunk.get("law_mst", "")),
+                "law_category": chunk.get("law_category", ""),
+                "source": "law.go.kr",
+                "linked_buchik_ids": chunk.get("linked_buchik_ids", []),
+                "entity_scopes": tags["entity_scopes"],
+                "topic_tags": tags["topic_tags"],
+                "tax_types": tags["tax_types"],
+                "full_text": full_text[:4000],
+            }
+            upsert_payload.append(
+                {"id": chunk["id"], "values": vec, "metadata": metadata}
+            )
+
+        index.upsert(vectors=upsert_payload, namespace=PINECONE_NAMESPACE)
+        total_upserted += len(upsert_payload)
+        time.sleep(0.2)
+
+    print(f"\n[완료] {total_upserted}개 신규 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
     return total_upserted
 
 

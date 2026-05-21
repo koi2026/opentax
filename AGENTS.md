@@ -46,21 +46,133 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 
     ▼
 src/domain/pipeline.py  — L1~L5 오케스트레이터
-    ├── L2: fact_checker.py       사실관계 완전성 검사, can_proceed=False → LLM 차단
-    ├── L3: query_enrichment.py   danger_flags → 조문 키워드 주입
-    ├── L4a: retriever_impl.py    Pinecone 날짜/entity_scope 필터 → BGE Reranker
-    ├── L4b: llm_fn.py            Claude API 추론 (golden_injector few-shot 포함)
-    └── L5: output_validator.py   phantom citation 검사, 신뢰도 상한 조정
+    ├── [L1.5 NEW] confirmation.py    사용자 확약 4항목 Gate — No 시 완전 차단
+    ├── L2: fact_checker.py           사실관계 완전성 검사, can_proceed=False → LLM 차단
+    ├── L3: query_enrichment.py       danger_flags → 조문 키워드 주입
+    │       + special_case_finder.py  [NEW] 특례 발굴 스캐너
+    ├── L4a: retriever_impl.py        Pinecone 날짜/entity_scope 필터 → BGE Reranker
+    │         (hybrid: dense+sparse)  [NEW] BM25 조문번호 exact match
+    ├── L4b: llm_fn.py                Claude API 추론 (golden_injector few-shot 포함)
+    ├── L5: output_validator.py       phantom citation 검사, 신뢰도 상한 조정
+    └── [L6 NEW] tax_calculator.py   납부세액까지 결정론 계산 (LLM 없음)
     ▼
-TaxAnswer (verdict / confidence / citations / missing_facts / warnings)
+TaxAnswer (verdict / confidence / citations / missing_facts / warnings / expert_review_signals)
+    + ApplicableSpecialCase 목록 (확정 / 가능 / 검토_필요)
+    + TaxCalculation (납부세액, 가산세, 지방소득세)
     ▼  [confidence<0.8 또는 danger_flags>=2일 때]
-src/eval/debate.py  — Red-Blue 논쟁 엔진
-    ├── Red Team: 6가지 오류 유형 검증
+src/eval/debate.py  — Red-Blue 논쟁 엔진 (무한루프)
+    ├── Red Team: 6가지 오류 유형 검증 + 다모델 교차검색 (할루시네이션 방지)
     ├── Blue Team: missing_articles 재검색 후 반박
+    ├── 루프 종료: 양팀 모두 인정 + 예규 공백 → tier_router.py로 분기
     └── 결과 → data/debates/ + data/red_wins/ or data/blue_wins/
          └── blue_won/no_contest → data/golden/qa_pairs.json (골든셋 누적)
               └── src/eval/golden_injector.py → 다음 L4 few-shot 주입 (우로보로스 루프)
+    ▼  [논쟁 소진 후]
+src/services/tier_router.py  — 상담 3티어 라우터 [NEW]
+    ├── Bot: 자료 재요청 (필수 서식 미제출)
+    ├── Quick Check: 세무사 채팅 (사실관계 불명, 5~10만원)
+    └── Premium: 대면/전화 풀패키지 (예규 공백·3주택+, 30~50만원)
 ```
+
+---
+
+## 개발 로드맵
+
+> CCG(Claude+Codex+Gemini) 3모델 합의 로드맵. 2026-05-21 확정.
+
+### 설계 원칙 (3모델 합의)
+
+1. **결정론 코드 우선** — 날짜 계산·세액 계산에 LLM 개입 금지. LLM은 법령 해석 윤활유만.
+2. **수동 기준표 우선, API 검증** — 조정대상지역 등 법적 데이터는 수동 기준표가 1급. API 불안정 대비.
+3. **하드코딩 상수 전면 금지** — TaxConstantsRegistry에서 날짜 기준으로 조회.
+4. **확인서 양방향 연동** — 확인서 No → 파이프라인 차단, 답변 절대 출력 안 됨.
+5. **특례 발굴 = 핵심 경쟁력** — SpecialCaseFinder가 세무사도 놓치는 특례를 먼저 발굴.
+6. **유권해석 없음 = 수익 기회** — "논쟁의 여지 있음"을 3티어 상담 전환 트리거로 활용.
+
+### Phase 1 — Foundation (즉시 시작)
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| S1-1 TaxConstantsRegistry | `src/domain/tax_constants.py` | 모든 상수 날짜 기준 버전 dict |
+| S1-2 DateResolver | `src/domain/date_resolver.py` | min(잔금일,등기일) 결정론 |
+| S1-3 AcquisitionTimeline | `src/domain/acquisition_timeline.py` | 상속/증여 취득일 승계 코드 |
+| S1-4 Confirmation Gate | `src/domain/confirmation.py` | 4항목 L1.5 차단 |
+| S1-5 article_tag_map | `src/infra/article_tag_map.json` | 태그 외부화 |
+| S1-6 Multi-anchor filter | `src/retrieval/retriever_impl.py` | 날짜 앵커 분기 |
+
+**S1-4 확인서 4항목 (전부 차단, No 시 재요청):**
+1. 세대원 전원 주택수 (오피스텔·분양권·입주권·지분·상속주택 포함)
+2. 잔금지급일/등기접수일 중 빠른 날 정확히 입력 확인
+3. 특수관계인 간 거래 없음 (§101 부당행위계산부인)
+4. 실질 거주 요건 — 주민등록 외 거주 사실 확인
+
+### Phase 2 — Search Enhancement
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| S2-1 AreaDesignation 3종 | `src/ingestion/admin_notices.py` | 조정+투기과열+토지거래허가 통합 |
+| S2-2 Hybrid Search | `src/retrieval/retriever_impl.py` | Pinecone dense+sparse BM25 |
+| S2-3 법령 커버리지 | `src/ingestion/collect.py` | 지방세법·국세기본법, YEARS_BACK=30 |
+| S2-4 chunk_id 마이그레이션 | Pinecone reindex | 부칙 수집 완료 후 |
+
+**S2-1 설계:** `AreaDesignationRecord(region_code, area_type, designated_at, released_at, source)` + `resolve_area_status(region, date, area_type)` 통합 함수. 수동 기준표 `data/area_designations/manual_table.json`이 1급 데이터.
+
+### Phase 3 — Special Case Engine
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| S3-1 SpecialCaseFinder | `src/domain/special_case_finder.py` | 전 조특법 특례 망라, certainty 3단계 |
+| S3-2 별표 수동 등록 | `data/tax_tables/ltshd_rate_table_{1,2}.json` | 표1/표2 수동 → TaxConstantsRegistry |
+
+**특례 발굴 UX:** 결과 말미에 "AI가 N개의 절세 기회를 발견했습니다" → 추가 자료 요청 or 세무사 연결 CTA.
+
+### Phase 4 — Calculator & Type Routing
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| S4-1 TaxCalculator | `src/calculator/tax_calculator.py` | 납부세액+가산세 결정론 |
+| S4-2 query_mode | `src/domain/pipeline.py` | report|consulting 얇은 분기 |
+| S4-3 E2E 테스트 러너 | `tests/` | 100케이스, golden 자동 기록 |
+
+**calculator 원칙:** 비거주자 세율·부담부증여 포함. 법인은 법인세 대상이므로 L2에서 차단.
+
+### Phase 5 — Ruling DB & RLVR
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| 유권해석 DB 1단계 | `data/rulings/` | ntis/tt/court 500건+ |
+| 유권해석 DB 2단계 | Pinecone 3개 namespace | `tax-ruling-ntis/tt/court` |
+| verdict_matcher | `src/eval/verdict_matcher.py` | binary reward 자동 계산 |
+| Red-Blue 무한루프 | `src/eval/debate.py` | 다모델 교차검색, 루프 종료 조건 명확화 |
+| BGE 파인튜닝 | `data/finetune/` | red_won 케이스에서 pair 추출 |
+
+**루프 종료 조건:** 양팀 모두 근거 소진 + 예규 공백 확인 → tier_router.py 분기 → Premium 상담 연결.
+
+### Phase 6 — Service Layer (장기)
+
+| 태스크 | 핵심 |
+|--------|------|
+| 3-티어 상담 라우터 | Bot(무료) → Quick Check(5~10만원) → Premium(30~50만원) |
+| 실질 거주 특례 인터뷰 | 주민등록 ≠ 실질 거주 발굴 → 1세대1주택 비과세 유지 가능성 탐색 |
+| 행정 레이어 지도 시각화 | 조정+투기과열+토지거래허가 시점별 지도 오버레이 |
+| 유형2 시뮬레이션 | 양도/증여/부담부증여 세액 비교 |
+
+### 평가 지표 (KPI)
+
+| 지표 | 정의 | 목표 |
+|------|------|------|
+| 세액 정확도 | 납부세액 오차 0원 | 100% |
+| 특례 발굴율 | AI 제안 특례 중 세무사 확정 비율 | >70% |
+| 초안 완성도 | 세무사 수정 없이 승인한 비율 | >80% |
+| recall@k | 필수 조문 검색 성공률 | >95% |
+| Tax-Gap 감소액 | AI 미사용 대비 납세자 절세 평균액 | 측정 후 목표 설정 |
+
+### 추가 논의 필요 (다모델 공동 검토 예정)
+
+- BM25 sparse 인코딩 최적화 방식 (article_number 필드 설계)
+- 유권해석 크롤링 허용 여부 + 데이터 라이선스 검토
+- 평가 지표 가중치 확정
+- 별표 이미지 OCR 파이프라인 도입 시점
 
 ---
 

@@ -69,35 +69,98 @@ class ChatResponse(BaseModel):
 
 # ── 핵심 로직 ─────────────────────────────────────────────────────────────────
 
+from typing import Any, AsyncGenerator, Optional, Union
+
+
+async def chat_turn_stream(
+    fact_json: Optional[dict] = None,
+    question: Optional[str] = None,
+    session_id: Optional[str] = None,
+    enable_debate: bool = False,
+    query_mode: str = "report",
+) -> AsyncGenerator[Union[str, dict[str, Any]], None]:
+    """
+    채팅 1턴 스트리밍 처리 함수.
+    진행 상태(str), Claude 추론 과정(str), 최종 결과(dict)를 순차적으로 yield 한다.
+    """
+    sid = session_id or str(uuid.uuid4())[:8]
+
+    if fact_json:
+        from src.api.fact_input import FactInput, fact_input_to_rag_query
+        from src.domain.pipeline import run_rag_pipeline_stream, PipelineResult
+        from src.retrieval.retriever_impl import PineconeTaxLawRetriever
+        from src.retrieval.llm_fn import llm_fn_stream
+
+        fact_for_schema = {k: v for k, v in fact_json.items() if not k.startswith("simulation_") and k != "necessary_expenses"}
+        query = fact_input_to_rag_query(FactInput(**fact_for_schema))
+        retriever = PineconeTaxLawRetriever()
+
+        async for item in run_rag_pipeline_stream(
+            query, retriever, llm_fn_stream,
+            fact_json=fact_json,
+            enable_debate=enable_debate,
+            query_mode=query_mode,
+        ):
+            if isinstance(item, str):
+                yield item
+            elif isinstance(item, PipelineResult):
+                ans = item.answer
+                citations_str = [
+                    c.article if hasattr(c, "article") else str(c)
+                    for c in ans.citations
+                ]
+                yield {
+                    "session_id": sid,
+                    "verdict": ans.verdict,
+                    "answer": ans.answer,
+                    "confidence": ans.confidence,
+                    "citations": citations_str,
+                    "chunk_ids": ans.chunk_ids,
+                    "missing_facts": ans.missing_facts,
+                    "warnings": ans.warnings,
+                    "blocked": item.blocked_at_l2,
+                    "mode": "pipeline",
+                    "consulting_scenarios": item.consulting_scenarios,
+                    "debate_record": item.debate_record,
+                }
+    else:
+        # 자연어 질문은 아직 스트리밍 미지원 (레거시)
+        res = await chat_turn(question=question, session_id=sid)
+        yield res
+
+
 async def chat_turn(
     fact_json: Optional[dict] = None,
     question: Optional[str] = None,
     session_id: Optional[str] = None,
     enable_debate: bool = False,
+    query_mode: str = "report",
 ) -> dict[str, Any]:
     """
     채팅 1턴 처리 함수. Streamlit UI에서 직접 호출 가능.
 
     fact_json 있음 → L1-L5 파이프라인 (verdict 포함)
     fact_json 없음 → 레거시 answer_with_citations (자연어 질문)
+    query_mode: "report" | "consulting" — consulting이면 consulting_scenarios 포함 반환
     """
     sid = session_id or str(uuid.uuid4())[:8]
 
     if fact_json:
         # ── L1-L5 파이프라인 경로 ──────────────────────────────────────────
-        from src.rag import answer_with_pipeline
         from src.api.fact_input import FactInput, fact_input_to_rag_query
         from src.domain.pipeline import run_rag_pipeline
         from src.retrieval.retriever_impl import PineconeTaxLawRetriever
         from src.retrieval.llm_fn import llm_fn
-        from src.api.fact_input import FactInput
 
-        query = fact_input_to_rag_query(FactInput(**fact_json))
+        # simulation_* 키는 FactInput 스키마 외부 → 파싱 전 분리
+        fact_for_schema = {k: v for k, v in fact_json.items() if not k.startswith("simulation_") and k != "necessary_expenses"}
+        query = fact_input_to_rag_query(FactInput(**fact_for_schema))
         retriever = PineconeTaxLawRetriever()
         result = await run_rag_pipeline(
             query, retriever, llm_fn,
             fact_json=fact_json,
             enable_debate=enable_debate,
+            query_mode=query_mode,
         )
 
         ans = result.answer
@@ -116,6 +179,7 @@ async def chat_turn(
             "warnings": ans.warnings,
             "blocked": result.blocked_at_l2,
             "mode": "pipeline",
+            "consulting_scenarios": result.consulting_scenarios,
         }
 
     elif question:

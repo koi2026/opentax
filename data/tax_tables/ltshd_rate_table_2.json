@@ -1,0 +1,11 @@
+{
+  "_comment": "장기보유특별공제율 표2 — 1세대1주택 (소득세법 §95②, 별표2). 보유기간+거주기간 합산.",
+  "effective_from": "2021-01-01",
+  "anchor_key": "transfer_date",
+  "note": "보유율(4%/년) + 거주율(4%/년) 합산. 최대 80% (보유20년 + 거주20년 초과 시).",
+  "holding_rate_per_year": 0.04,
+  "residence_rate_per_year": 0.04,
+  "min_holding_years": 2,
+  "min_residence_years": 2,
+  "max_total_rate": 0.80
+}

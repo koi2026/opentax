@@ -21,19 +21,14 @@ from datetime import date
 from enum import Enum
 from typing import List, Optional
 
-# 고가주택 기준 (소득세법 §89①3호, 시행령 §156의2)
-HIGH_VALUE_THRESHOLD = 1_200_000_000  # 12억 원
+from .tax_constants import TaxConstantsRegistry as _TCR
 
-# 상생임대 한시 적용 기간 (소득세법 시행령 §155의3)
-SANGSAENG_WINDOW_START = date(2021, 12, 20)
-SANGSAENG_WINDOW_END = date(2024, 12, 31)
-SANGSAENG_MAX_INCREASE_RATE = 0.05  # 임대료 5% 이내 인상
-
-# 다주택자 중과세 한시 배제 기간 (소득세법 §104①, 소령 §167의10)
-# Codex 검증: 일반 유예는 2026-05-09 종료. 2026-05-10 이후는 경과규정만.
-# → 법령 청크가 transfer_date 기준으로 버전 필터하면 자동 처리.
-#   별도 필드 불필요. 단, 경과규정 커버 시 land_trade_permit_application_date 필요할 수 있음.
-HEAVY_TAX_SUSPENSION_END = date(2026, 5, 9)
+# backward-compat aliases — use TaxConstantsRegistry.get() for version-aware lookups
+HIGH_VALUE_THRESHOLD: int = _TCR.get("HIGH_VALUE_THRESHOLD", date.today())
+SANGSAENG_WINDOW_START: date = _TCR.get("SANGSAENG_WINDOW_START", date.today())
+SANGSAENG_WINDOW_END: date = _TCR.get("SANGSAENG_WINDOW_END", date.today())
+SANGSAENG_MAX_INCREASE_RATE: float = _TCR.get("SANGSAENG_MAX_INCREASE_RATE", date.today())
+HEAVY_TAX_SUSPENSION_END: date = _TCR.get("HEAVY_TAX_SUSPENSION_END", date.today())
 
 
 # ── Enums ──────────────────────────────────────────────────────────────────
@@ -265,15 +260,18 @@ class SangsaengRentalDetail:
 
     @property
     def contract_in_window(self) -> bool:
-        return SANGSAENG_WINDOW_START <= self.contract_date <= SANGSAENG_WINDOW_END
+        window_start: date = _TCR.get("SANGSAENG_WINDOW_START", self.contract_date)
+        window_end: date = _TCR.get("SANGSAENG_WINDOW_END", self.contract_date)
+        return window_start <= self.contract_date <= window_end
 
     @property
     def requirements_met(self) -> bool:
         """① 계약일 범위 ② 직전계약 존재 ③ 5% 이내 ④ 2년 이상"""
+        max_rate: float = _TCR.get("SANGSAENG_MAX_INCREASE_RATE", self.contract_date)
         return (
             self.contract_in_window
             and self.has_prior_contract
-            and self.increase_rate <= SANGSAENG_MAX_INCREASE_RATE
+            and self.increase_rate <= max_rate
             and self.contract_period_months >= 24
         )
 
@@ -901,8 +899,11 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
             "해외이주": ResidenceExemptionType.OVERSEAS_EMIGRATION,
             "취학": ResidenceExemptionType.UNAVOIDABLE_RELOCATION,
             "근무": ResidenceExemptionType.UNAVOIDABLE_RELOCATION,
+            "직장이전": ResidenceExemptionType.UNAVOIDABLE_RELOCATION,
+            "요양": ResidenceExemptionType.UNAVOIDABLE_RELOCATION,
             "수용": ResidenceExemptionType.EXPROPRIATION,
             "임대사업자거주주택": ResidenceExemptionType.RENTAL_BUSINESS_OWN_HOUSE,
+            "임대등록말소": ResidenceExemptionType.RENTAL_BUSINESS_OWN_HOUSE,
         }
         for keyword, etype in exemption_map.items():
             if keyword in str(exemption_reason):
@@ -956,6 +957,10 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
                 parent_age_at_merge=int(fl.get("parent_age_at_merge", 60)),
                 parent_has_severe_illness=bool(fl.get("parent_has_severe_illness")),
             )
+
+    # 농어촌주택 (조특법 §99의4)
+    if fl.get("is_rural_house") or up.get("asset_kind") == "농어촌주택":
+        sc.is_rural_house = True
 
     # 다가구
     if up.get("asset_kind") == "다가구":

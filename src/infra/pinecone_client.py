@@ -34,10 +34,16 @@ def query_pinecone(
     top_k: int = 20,
     namespace: str = PINECONE_NAMESPACE,
     filter_dict: Optional[dict] = None,
+    sparse_vector: Optional[dict] = None,
+    alpha: Optional[float] = None,
 ) -> list[dict]:
-    """벡터 검색 — matches 리스트 반환 (없으면 빈 리스트)."""
+    """벡터 검색 — matches 리스트 반환 (없으면 빈 리스트).
+
+    sparse_vector: {"indices": [...], "values": [...]} for BM25 hybrid search.
+    alpha: 0.0 = pure sparse, 1.0 = pure dense, 0.75 = typical hybrid. None = dense only.
+    """
     index = get_pinecone_index()
-    kwargs = dict(
+    kwargs: dict = dict(
         vector=vector,
         top_k=top_k,
         namespace=namespace,
@@ -45,5 +51,13 @@ def query_pinecone(
     )
     if filter_dict:
         kwargs["filter"] = filter_dict
+
+    if sparse_vector is not None and alpha is not None:
+        kwargs["vector"] = [v * alpha for v in vector]
+        kwargs["sparse_vector"] = {
+            "indices": sparse_vector["indices"],
+            "values": [v * (1 - alpha) for v in sparse_vector["values"]],
+        }
+
     result = index.query(**kwargs)
     return result.get("matches", []) or []

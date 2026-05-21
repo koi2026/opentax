@@ -30,6 +30,14 @@ class LawId(str, Enum):
     SPECIAL_TAX_ACT = "special_tax_treatment_act"              # 조세특례제한법
     SPECIAL_TAX_DECREE = "special_tax_treatment_decree"        # 조세특례제한법 시행령
     SPECIAL_TAX_RULE = "special_tax_treatment_rule"            # 조세특례제한법 시행규칙
+    LOCAL_TAX_ACT = "local_tax_act"                            # 지방세법
+    LOCAL_TAX_DECREE = "local_tax_enforcement_decree"          # 지방세법 시행령
+    LOCAL_TAX_RULE = "local_tax_enforcement_rule"              # 지방세법 시행규칙
+    FRAMEWORK_TAX_ACT = "framework_tax_act"                    # 국세기본법
+    FRAMEWORK_TAX_DECREE = "framework_tax_enforcement_decree"  # 국세기본법 시행령
+    FRAMEWORK_TAX_RULE = "framework_tax_enforcement_rule"      # 국세기본법 시행규칙
+    INHERITANCE_TAX_ACT = "inheritance_tax_act"                # 상속세 및 증여세법
+    INHERITANCE_TAX_DECREE = "inheritance_tax_enforcement_decree"  # 상속세 및 증여세법 시행령
 
 
 class AmendmentType(str, Enum):
@@ -64,6 +72,19 @@ class ApplicabilityRuleType(str, Enum):
     GYEONGGWAJOCHIUI = "경과조치"
     DEEMED_DATE = "의제취득일"
     SPECIAL_CASE = "특례"
+
+
+class ApplicabilityAnchor(str, Enum):
+    """
+    부칙 적용례가 어떤 날짜 기준으로 적용되는지 구조화.
+    수집 시 정규식으로 추출 → Pinecone 메타데이터에 저장 → retriever에서 하드필터 활용.
+    """
+    TRANSFER_DATE = "transfer_date"          # "이 법 시행 이후 양도하는 분부터"
+    ACQUISITION_DATE = "acquisition_date"    # "취득하는 분부터"
+    CONTRACT_DATE = "contract_date"          # "계약 체결분부터"
+    GIFT_DATE = "gift_date"                  # "증여받는 분부터"
+    DEATH_DATE = "death_date"                # "상속이 개시되는 분부터"
+    EFFECTIVE_DATE = "effective_date"        # 기본 — 시행일 기준
 
 
 class TopicTag(str, Enum):

@@ -1,0 +1,88 @@
+{
+  "_comment": "조문→태그 매핑. law_type: 소득세법|소득세법시행령|조세특례제한법|조세특례제한법시행령. 신규 조문 추가 시 JSON만 수정.",
+  "소득세법": {
+    "default_entity_scopes": ["주택"],
+    "articles": {
+      "89": {
+        "topic_tags": ["1세대1주택비과세"],
+        "entity_scopes": []
+      },
+      "95": {
+        "topic_tags": ["장기보유특별공제"],
+        "entity_scopes": []
+      },
+      "97의2": {
+        "topic_tags": ["1세대1주택비과세", "이월과세"],
+        "entity_scopes": []
+      },
+      "97.2": {
+        "topic_tags": ["1세대1주택비과세", "이월과세"],
+        "entity_scopes": []
+      },
+      "104": {
+        "topic_tags": ["다주택중과", "세율"],
+        "entity_scopes": []
+      }
+    }
+  },
+  "소득세법시행령": {
+    "default_entity_scopes": ["주택"],
+    "articles": {
+      "154": {
+        "topic_tags": ["1세대1주택비과세"],
+        "entity_scopes": []
+      },
+      "155": {
+        "topic_tags": ["1세대1주택비과세", "일시적2주택", "상속주택"],
+        "entity_scopes": []
+      },
+      "155의3": {
+        "topic_tags": ["1세대1주택비과세", "상생임대"],
+        "entity_scopes": ["상생임대"]
+      },
+      "156의2": {
+        "topic_tags": ["분양권입주권"],
+        "entity_scopes": ["분양권", "조합원입주권"]
+      },
+      "156의3": {
+        "topic_tags": ["분양권입주권"],
+        "entity_scopes": ["분양권", "조합원입주권"]
+      },
+      "159의4": {
+        "topic_tags": ["장기보유특별공제"],
+        "entity_scopes": []
+      },
+      "167의10": {
+        "topic_tags": ["다주택중과"],
+        "entity_scopes": []
+      }
+    }
+  },
+  "조세특례제한법": {
+    "default_entity_scopes": ["주택"],
+    "default_topic_tags": ["조특법감면"],
+    "articles": {
+      "97의3": {
+        "topic_tags": ["조특법감면", "장기임대주택"],
+        "entity_scopes": []
+      },
+      "97의4": {
+        "topic_tags": ["조특법감면", "장기임대주택"],
+        "entity_scopes": []
+      },
+      "97의5": {
+        "topic_tags": ["조특법감면", "장기임대주택"],
+        "entity_scopes": []
+      },
+      "99의4": {
+        "topic_tags": ["조특법감면", "장기임대주택"],
+        "entity_scopes": []
+      }
+    }
+  },
+  "조세특례제한법시행령": {
+    "default_entity_scopes": ["주택"],
+    "default_topic_tags": ["조특법감면"],
+    "articles": {}
+  }
+}

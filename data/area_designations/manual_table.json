@@ -1,0 +1,210 @@
+[
+  {
+    "region": "서울특별시",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": null,
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 강남구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 서초구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 송파구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 강남구",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": null,
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 서초구",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": null,
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 송파구",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": null,
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 용산구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 마포구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 성동구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 노원구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 강동구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2024-01-05",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "서울특별시 강남구",
+    "area_type": "투기지역",
+    "designated_at": "2017-08-03",
+    "released_at": "2023-01-05",
+    "announcement_no": "기획재정부고시 제2017-17호",
+    "source_url": "https://www.moef.go.kr"
+  },
+  {
+    "region": "서울특별시 서초구",
+    "area_type": "투기지역",
+    "designated_at": "2017-08-03",
+    "released_at": "2023-01-05",
+    "announcement_no": "기획재정부고시 제2017-17호",
+    "source_url": "https://www.moef.go.kr"
+  },
+  {
+    "region": "서울특별시 송파구",
+    "area_type": "투기지역",
+    "designated_at": "2017-08-03",
+    "released_at": "2023-01-05",
+    "announcement_no": "기획재정부고시 제2017-17호",
+    "source_url": "https://www.moef.go.kr"
+  },
+  {
+    "region": "서울특별시 강남구",
+    "area_type": "토지거래허가구역",
+    "designated_at": "2020-06-17",
+    "released_at": null,
+    "announcement_no": "서울특별시고시 제2020-272호",
+    "source_url": "https://www.seoul.go.kr"
+  },
+  {
+    "region": "서울특별시 서초구",
+    "area_type": "토지거래허가구역",
+    "designated_at": "2020-06-17",
+    "released_at": null,
+    "announcement_no": "서울특별시고시 제2020-272호",
+    "source_url": "https://www.seoul.go.kr"
+  },
+  {
+    "region": "서울특별시 송파구",
+    "area_type": "토지거래허가구역",
+    "designated_at": "2020-06-17",
+    "released_at": null,
+    "announcement_no": "서울특별시고시 제2020-272호",
+    "source_url": "https://www.seoul.go.kr"
+  },
+  {
+    "region": "경기도 성남시 분당구",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "경기도 성남시 분당구",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "경기도 과천시",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "경기도 과천시",
+    "area_type": "투기과열지구",
+    "designated_at": "2018-08-28",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2018-599호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "경기도 하남시",
+    "area_type": "조정대상지역",
+    "designated_at": "2018-12-31",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2018-916호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "인천광역시 연수구",
+    "area_type": "조정대상지역",
+    "designated_at": "2020-06-19",
+    "released_at": "2022-11-14",
+    "announcement_no": "국토교통부고시 제2020-489호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "세종특별자치시",
+    "area_type": "조정대상지역",
+    "designated_at": "2016-11-03",
+    "released_at": "2023-01-05",
+    "announcement_no": "국토교통부고시 제2016-786호",
+    "source_url": "https://www.molit.go.kr"
+  },
+  {
+    "region": "세종특별자치시",
+    "area_type": "투기과열지구",
+    "designated_at": "2020-12-18",
+    "released_at": "2023-01-05",
+    "announcement_no": "국토교통부고시 제2020-1062호",
+    "source_url": "https://www.molit.go.kr"
+  }
+]

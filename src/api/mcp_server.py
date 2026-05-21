@@ -144,6 +144,233 @@ def verify_citations(question: str, chunk_ids: list[str]) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+# ── Tool 5: 양도소득세 결정론 계산 ────────────────────────────────────────────
+
+@mcp.tool()
+async def calculate_tax(
+    transfer_price: int,
+    acquisition_price: int,
+    transfer_date: str,
+    acquisition_date: str,
+    household_house_count: int = 1,
+    residence_years: float = 0.0,
+    is_adjustment_area_at_transfer: bool = False,
+) -> dict:
+    """
+    양도소득세 결정론 계산.
+    입력 사실관계에서 세액을 직접 계산합니다 (LLM 없음).
+
+    Args:
+        transfer_price: 양도가액 (원)
+        acquisition_price: 취득가액 (원)
+        transfer_date: 양도일 YYYYMMDD (예: "20240601")
+        acquisition_date: 취득일 YYYYMMDD (예: "20190101")
+        household_house_count: 세대 보유 주택 수 (기본 1)
+        residence_years: 거주기간 연수 (기본 0.0)
+        is_adjustment_area_at_transfer: 양도 시점 조정대상지역 여부 (기본 False)
+    """
+    from datetime import date as _date
+    from src.calculator.tax_calculator import (
+        TaxCalculationInput, calculate_transfer_tax, compute_ltshd_rate,
+    )
+
+    t_date = _date(int(transfer_date[:4]), int(transfer_date[4:6]), int(transfer_date[6:8]))
+    a_date = _date(int(acquisition_date[:4]), int(acquisition_date[4:6]), int(acquisition_date[6:8]))
+    holding_years = (t_date - a_date).days / 365.25
+
+    is_high_value = transfer_price > 1_200_000_000
+    is_one_house = household_house_count == 1
+    ltshd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house)
+    is_short_term = holding_years < 2.0
+    is_heavy = household_house_count >= 2 and is_adjustment_area_at_transfer
+
+    inp = TaxCalculationInput(
+        transfer_price=transfer_price,
+        acquisition_price=acquisition_price,
+        transfer_date=t_date,
+        acquisition_date=a_date,
+        holding_years=holding_years,
+        residence_years=residence_years,
+        household_house_count=household_house_count,
+        is_one_house_exemption=is_one_house and not is_high_value,
+        is_high_value_house=is_high_value,
+        is_heavy_tax=is_heavy,
+        is_short_term=is_short_term,
+        long_term_deduction_rate=ltshd_rate,
+    )
+    result = calculate_transfer_tax(inp)
+    return {
+        "gross_gain": result.gross_gain,
+        "long_term_deduction": result.long_term_deduction,
+        "taxable_income": result.taxable_income,
+        "applied_rate": f"{result.applied_rate:.1%}",
+        "rate_type": result.rate_type,
+        "calculated_tax": result.calculated_tax,
+        "local_income_tax": result.local_income_tax,
+        "total_tax": result.total_tax,
+        "deduction_summary": result.deduction_summary,
+        "warnings": result.warnings,
+    }
+
+
+# ── Tool 6: 지역 지정 여부 조회 ───────────────────────────────────────────────
+
+@mcp.tool()
+async def check_area_designation(
+    region: str,
+    target_date: str,
+    area_type: str = "조정대상지역",
+) -> dict:
+    """
+    특정 날짜에 해당 지역이 area_type으로 지정되어 있었는지 조회.
+    수동 기준표 + API 결합 조회.
+
+    Args:
+        region: 지역명 (예: "서울특별시 강남구", "용인시 수지구")
+        target_date: 기준일 YYYYMMDD (예: "20220801")
+        area_type: 지정 유형 — "조정대상지역" | "투기과열지구" | "토지거래허가구역" (기본 "조정대상지역")
+    """
+    from datetime import date as _date
+    from src.ingestion.admin_notices import load_manual_table, resolve_area_status
+
+    t_date = _date(int(target_date[:4]), int(target_date[4:6]), int(target_date[6:8]))
+    records = load_manual_table()
+    is_designated = resolve_area_status(region, t_date, area_type, records)
+
+    return {
+        "region": region,
+        "target_date": target_date,
+        "area_type": area_type,
+        "is_designated": is_designated,
+        "source": "manual_table",
+        "note": "수동 기준표 기반 조회 (API 연동 전)",
+    }
+
+
+# ── Tool 7: 유권해석 DB 검색 ──────────────────────────────────────────────────
+
+@mcp.tool()
+async def lookup_ruling(
+    query: str,
+    ruling_type: str = "all",
+    top_k: int = 5,
+) -> str:
+    """
+    유권해석 DB에서 관련 해석례를 검색합니다.
+
+    Args:
+        query: 검색 키워드 또는 질문
+               (예: "배우자 증여 이월과세 적용 요건", "일시적 2주택 3년 이내 양도")
+        ruling_type: 검색 대상 DB — "ntis" | "tt" | "court" | "all" (기본 "all")
+                     ntis: 국세청 예규·질의회신 (ntis.go.kr)
+                     tt: 조세심판원 결정례 (tt.go.kr)
+                     court: 대법원 판결
+        top_k: 반환할 최대 결과 수 (기본 5)
+
+    Returns:
+        검색된 해석례 목록 (JSON 문자열).
+        데이터가 없으면 "유권해석 DB 미수집" 메시지를 반환합니다 (에러 아님).
+    """
+    # Pinecone 네임스페이스 매핑
+    RULING_NAMESPACES: dict = {
+        "ntis": ["tax-ruling-ntis"],
+        "tt": ["tax-ruling-tt"],
+        "court": ["tax-ruling-court"],
+        "all": ["tax-ruling-ntis", "tax-ruling-tt", "tax-ruling-court"],
+    }
+
+    if ruling_type not in RULING_NAMESPACES:
+        return json.dumps(
+            {
+                "error": f"ruling_type 오류: '{ruling_type}'. "
+                         "허용 값: ntis | tt | court | all",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    target_namespaces = RULING_NAMESPACES[ruling_type]
+
+    # Pinecone 클라이언트 초기화 및 네임스페이스별 검색
+    try:
+        from src.infra.pinecone_client import get_pinecone_index
+        from src.infra.embedder import embed_query
+
+        index = get_pinecone_index()
+        query_vector = embed_query(query)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "status": "유권해석 DB 미수집",
+                "message": (
+                    "유권해석 DB가 아직 수집되지 않았습니다. "
+                    "Phase 5 — 유권해석 DB 1단계 완료 후 검색 가능합니다."
+                ),
+                "detail": str(exc),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    results = []
+    for ns in target_namespaces:
+        try:
+            response = index.query(
+                vector=query_vector,
+                top_k=top_k,
+                namespace=ns,
+                include_metadata=True,
+            )
+            for match in response.get("matches", []):
+                meta = match.get("metadata", {})
+                results.append(
+                    {
+                        "ruling_id": meta.get("ruling_id", match["id"]),
+                        "ruling_type": meta.get("ruling_type", ns.replace("tax-ruling-", "")),
+                        "title": meta.get("title", ""),
+                        "issue_date": meta.get("issue_date", ""),
+                        "summary": meta.get("summary", "")[:500],   # 500자 이하 요약
+                        "related_articles": meta.get("related_articles", []),
+                        "score": round(match.get("score", 0.0), 4),
+                        "namespace": ns,
+                    }
+                )
+        except Exception:
+            # 네임스페이스 미존재 등 → 해당 DB 건너뜀
+            continue
+
+    if not results:
+        return json.dumps(
+            {
+                "status": "유권해석 DB 미수집",
+                "message": (
+                    "유권해석 DB가 아직 수집되지 않았습니다. "
+                    "Phase 5 — 유권해석 DB 1단계 완료 후 검색 가능합니다."
+                ),
+                "query": query,
+                "ruling_type": ruling_type,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    # 점수 내림차순 정렬 후 top_k 제한
+    results.sort(key=lambda r: r["score"], reverse=True)
+    results = results[:top_k]
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "query": query,
+            "ruling_type": ruling_type,
+            "total": len(results),
+            "results": results,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
 # ── 실행 ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

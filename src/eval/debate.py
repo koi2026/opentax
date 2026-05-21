@@ -11,6 +11,10 @@ Red Team / Blue Team 논쟁 엔진.
   - danger_flags >= 2개
   - verdict == "사실관계부족"
   또는 batch 모드 (모든 케이스 재검토)
+
+멀티라운드 루프 (최대 max_rounds):
+  draw 결과 시 Red가 Blue의 revised_verdict를 기준으로 재반박.
+  max_rounds 초과 시 draw로 종료 → expert_escalation_needed=True.
 """
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ DEBATE_DIR = Path("data/debates")
 RED_WINS_DIR = Path("data/red_wins")
 BLUE_WINS_DIR = Path("data/blue_wins")
 GOLDEN_FILE = Path("data/golden/qa_pairs.json")
+EXPERT_ESCALATIONS_DIR = Path("data/expert_escalations")
 
 
 # ── 데이터 구조 ───────────────────────────────────────────────────────────────
@@ -68,17 +73,30 @@ class BlueDefense:
 
 
 @dataclass
+class RoundRecord:
+    """단일 라운드(Red 반박 + Blue 방어) 기록."""
+    round_number: int
+    red_challenge: dict
+    blue_defense: dict
+    outcome: str                 # "blue_won" | "red_won" | "no_contest" | "draw"
+    new_chunks_found: List[str] = field(default_factory=list)
+
+
+@dataclass
 class DebateRecord:
     debate_id: str
     trace_id: str
     timestamp: str
     fact_json: dict
     blue_answer: dict            # 원본 Blue 판단
-    red_challenge: dict          # Red 반박
-    blue_defense: dict           # Blue 방어
+    red_challenge: dict          # 최종 라운드 Red 반박
+    blue_defense: dict           # 최종 라운드 Blue 방어
     outcome: str                 # "blue_won" | "red_won" | "no_contest" | "draw"
+    rounds: List[dict] = field(default_factory=list)        # 라운드별 기록
+    total_rounds: int = 1
     new_chunks_found: List[str] = field(default_factory=list)
     promoted_to_golden: bool = False
+    expert_escalation_needed: bool = False
 
 
 # ── LLM 호출 헬퍼 ─────────────────────────────────────────────────────────────
@@ -105,23 +123,50 @@ def _call_claude_sync(system: str, user: str, max_tokens: int = 1024) -> dict:
 
 # ── Red Team: 반박 ────────────────────────────────────────────────────────────
 
+async def _search_articles_for_red(missing_articles: List[str]) -> str:
+    """
+    Red가 주장하는 누락 조문을 실제 법령 DB에서 검색한다.
+    검색 결과가 없으면 빈 문자열 반환 → Red 주장은 '근거없음'으로 처리됨.
+    """
+    context_parts: List[str] = []
+    try:
+        from src.rag import retrieve_tax_law
+        for article_hint in missing_articles[:5]:
+            chunks = retrieve_tax_law(article_hint, top_k=10, rerank_top_n=3)
+            for c in chunks:
+                context_parts.append(
+                    f"[조문] {c.law_name} 제{c.article_number}조 {c.article_title}\n"
+                    f"{c.full_text[:400]}"
+                )
+    except Exception:
+        pass
+    return "\n\n".join(context_parts)
+
+
 async def _red_challenge(
     fact_json: dict,
     blue_answer: TaxAnswer,
     retrieved_chunk_ids: List[str],
+    prev_blue_verdict: Optional[str] = None,
 ) -> RedChallenge:
-    """Red Team이 Blue 판단을 검토하고 오류를 반박한다."""
+    """
+    Red Team이 Blue 판단을 검토하고 오류를 반박한다.
 
+    - 반박 전에 missing_articles를 실제 법령 DB에서 검색하여 컨텍스트로 제공.
+    - 검색된 조문 없이 주장하면 challenge_type = '근거없음' 으로 자동 기각.
+    - prev_blue_verdict: 재반박 라운드에서 Blue가 수정한 verdict를 기준으로 삼음.
+    """
     citations_str = "\n".join(
         f"- {c.article}" if hasattr(c, "article") else f"- {c}"
         for c in blue_answer.citations
     ) or "(없음)"
 
     fact_summary = json.dumps(fact_json, ensure_ascii=False, indent=2)
+    current_verdict = prev_blue_verdict or blue_answer.verdict
 
     prompt = RED_TEAM_CHALLENGE_TEMPLATE.format(
         fact_summary=fact_summary,
-        verdict=blue_answer.verdict,
+        verdict=current_verdict,
         answer=blue_answer.answer[:800],
         citations=citations_str,
         confidence=blue_answer.confidence,
@@ -140,12 +185,26 @@ async def _red_challenge(
             challenge_text=data["_parse_error"],
         )
 
+    missing_articles = data.get("missing_articles", [])
+
+    # 할루시네이션 방지: missing_articles가 있으면 실제 법령 DB 검색
+    red_law_context = ""
+    if missing_articles:
+        red_law_context = await _search_articles_for_red(missing_articles)
+
+    # 검색 결과 없이 반박하는 경우 자동 기각
+    has_challenge = data.get("has_challenge", False)
+    challenge_type = data.get("challenge_type", "이의없음")
+    if has_challenge and missing_articles and not red_law_context:
+        challenge_type = "근거없음"
+        has_challenge = False
+
     return RedChallenge(
-        has_challenge=data.get("has_challenge", False),
-        challenge_type=data.get("challenge_type", "이의없음"),
+        has_challenge=has_challenge,
+        challenge_type=challenge_type,
         challenge_text=data.get("challenge_text", ""),
         challenged_citations=data.get("challenged_citations", []),
-        missing_articles=data.get("missing_articles", []),
+        missing_articles=missing_articles,
         red_confidence=float(data.get("red_confidence", 0.0)),
     )
 
@@ -229,7 +288,7 @@ def _judge_outcome(red: RedChallenge, blue: BlueDefense) -> str:
 # ── 저장 ──────────────────────────────────────────────────────────────────────
 
 def _ensure_dirs():
-    for d in (DEBATE_DIR, RED_WINS_DIR, BLUE_WINS_DIR, GOLDEN_FILE.parent):
+    for d in (DEBATE_DIR, RED_WINS_DIR, BLUE_WINS_DIR, GOLDEN_FILE.parent, EXPERT_ESCALATIONS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -242,12 +301,31 @@ def _save_debate(record: DebateRecord) -> None:
             "trace_id": record.trace_id,
             "timestamp": record.timestamp,
             "outcome": record.outcome,
+            "total_rounds": record.total_rounds,
             "fact_json": record.fact_json,
             "blue_answer": record.blue_answer,
             "red_challenge": record.red_challenge,
             "blue_defense": record.blue_defense,
+            "rounds": record.rounds,
             "new_chunks_found": record.new_chunks_found,
             "promoted_to_golden": record.promoted_to_golden,
+            "expert_escalation_needed": record.expert_escalation_needed,
+        }, f, ensure_ascii=False, indent=2)
+
+
+def _save_expert_escalation(record: DebateRecord) -> None:
+    """max_rounds 모두 draw → 세무사 에스컬레이션 파일 저장."""
+    _ensure_dirs()
+    path = EXPERT_ESCALATIONS_DIR / f"{record.debate_id}.json"
+    with path.open("w", encoding="utf-8") as f:
+        json.dump({
+            "debate_id": record.debate_id,
+            "timestamp": record.timestamp,
+            "fact_json": record.fact_json,
+            "final_verdict": record.blue_defense.get("revised_verdict", ""),
+            "total_rounds": record.total_rounds,
+            "rounds": record.rounds,
+            "reason": "멀티라운드 논쟁 합의 불가 — 세무사 검토 필요",
         }, f, ensure_ascii=False, indent=2)
 
 
@@ -270,6 +348,8 @@ def _save_to_outcome_dir(record: DebateRecord) -> None:
             "final_verdict": record.blue_defense.get("revised_verdict", ""),
             "defense_text": record.blue_defense.get("defense_text", ""),
             "challenge_type": record.red_challenge.get("challenge_type", ""),
+            "new_citations": record.blue_defense.get("new_citations", []),
+            "challenged_citations": record.red_challenge.get("challenged_citations", []),
         }, f, ensure_ascii=False, indent=2)
 
 
@@ -310,12 +390,14 @@ async def run_red_blue_debate(
     pipeline_result: PipelineResult,
     trace_id: str = "",
     auto_promote: bool = True,
+    max_rounds: int = 3,
 ) -> DebateRecord:
     """
-    Red-Blue 논쟁 1회 실행.
+    Red-Blue 멀티라운드 논쟁 실행.
 
-    auto_promote=True 이면 blue_won/no_contest 케이스를 골든셋에 자동 추가.
-    세무사 검토 없이 자동화하려면 True, 검토 후 수동 승격은 False.
+    - draw 결과 시 Blue의 revised_verdict를 기준으로 재반박 (최대 max_rounds).
+    - max_rounds 초과 draw → expert_escalation_needed=True, data/expert_escalations/ 저장.
+    - auto_promote=True 이면 blue_won/no_contest 케이스를 골든셋에 자동 추가.
     """
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY 미설정 — 논쟁 실행 불가")
@@ -327,14 +409,64 @@ async def run_red_blue_debate(
     blue_answer = pipeline_result.answer
     retrieved_ids = [c.metadata.chunk_id for c in pipeline_result.retrieved_chunks]
 
-    # ── Round 1: Red 반박 ─────────────────────────────────────────────────
-    red = await _red_challenge(fact_json, blue_answer, retrieved_ids)
+    all_new_chunks: List[str] = []
+    rounds_log: List[dict] = []
+    current_verdict: Optional[str] = None  # draw 시 갱신되는 Blue revised_verdict
+    final_red: Optional[RedChallenge] = None
+    final_blue: Optional[BlueDefense] = None
+    outcome = "draw"
 
-    # ── Round 2: Blue 방어 ────────────────────────────────────────────────
-    blue_defense, new_chunks = await _blue_defend(blue_answer, red, fact_json)
+    for round_num in range(1, max_rounds + 1):
+        # ── Red 반박 (첫 라운드: 원본 판단, 재반박: revised_verdict 기준) ──
+        red = await _red_challenge(
+            fact_json, blue_answer, retrieved_ids, prev_blue_verdict=current_verdict
+        )
 
-    # ── 판정 ──────────────────────────────────────────────────────────────
-    outcome = _judge_outcome(red, blue_defense)
+        # ── Blue 방어 (추가 검색 포함) ────────────────────────────────────
+        blue_defense, new_chunks = await _blue_defend(blue_answer, red, fact_json)
+        all_new_chunks.extend(new_chunks)
+
+        # ── 라운드 판정 ──────────────────────────────────────────────────
+        round_outcome = _judge_outcome(red, blue_defense)
+
+        rounds_log.append({
+            "round": round_num,
+            "red_challenge": {
+                "has_challenge": red.has_challenge,
+                "challenge_type": red.challenge_type,
+                "challenge_text": red.challenge_text,
+                "challenged_citations": red.challenged_citations,
+                "missing_articles": red.missing_articles,
+                "red_confidence": red.red_confidence,
+            },
+            "blue_defense": {
+                "defense_result": blue_defense.defense_result,
+                "revised_verdict": blue_defense.revised_verdict,
+                "defense_text": blue_defense.defense_text,
+                "new_citations": blue_defense.new_citations,
+                "blue_confidence": blue_defense.blue_confidence,
+            },
+            "outcome": round_outcome,
+        })
+
+        final_red = red
+        final_blue = blue_defense
+        outcome = round_outcome
+
+        # draw가 아니면 루프 종료
+        if round_outcome != "draw":
+            break
+
+        # draw인 경우 다음 라운드를 위해 revised_verdict 업데이트
+        current_verdict = blue_defense.revised_verdict
+
+    # max_rounds 모두 draw → 세무사 에스컬레이션
+    expert_escalation_needed = (outcome == "draw" and len(rounds_log) >= max_rounds)
+
+    # 루프가 정상 실행되면 final_red/final_blue는 반드시 할당됨
+    # (max_rounds >= 1 보장 — 방어적 처리)
+    assert final_red is not None, "논쟁 루프가 실행되지 않음"
+    assert final_blue is not None, "논쟁 루프가 실행되지 않음"
 
     record = DebateRecord(
         debate_id=debate_id,
@@ -354,27 +486,33 @@ async def run_red_blue_debate(
             "warnings": blue_answer.warnings,
         },
         red_challenge={
-            "has_challenge": red.has_challenge,
-            "challenge_type": red.challenge_type,
-            "challenge_text": red.challenge_text,
-            "challenged_citations": red.challenged_citations,
-            "missing_articles": red.missing_articles,
-            "red_confidence": red.red_confidence,
+            "has_challenge": final_red.has_challenge,
+            "challenge_type": final_red.challenge_type,
+            "challenge_text": final_red.challenge_text,
+            "challenged_citations": final_red.challenged_citations,
+            "missing_articles": final_red.missing_articles,
+            "red_confidence": final_red.red_confidence,
         },
         blue_defense={
-            "defense_result": blue_defense.defense_result,
-            "revised_verdict": blue_defense.revised_verdict,
-            "defense_text": blue_defense.defense_text,
-            "new_citations": blue_defense.new_citations,
-            "blue_confidence": blue_defense.blue_confidence,
+            "defense_result": final_blue.defense_result,
+            "revised_verdict": final_blue.revised_verdict,
+            "defense_text": final_blue.defense_text,
+            "new_citations": final_blue.new_citations,
+            "blue_confidence": final_blue.blue_confidence,
         },
         outcome=outcome,
-        new_chunks_found=new_chunks,
+        rounds=rounds_log,
+        total_rounds=len(rounds_log),
+        new_chunks_found=all_new_chunks,
+        expert_escalation_needed=expert_escalation_needed,
     )
 
     # ── 저장 ──────────────────────────────────────────────────────────────
     _save_debate(record)
     _save_to_outcome_dir(record)
+
+    if expert_escalation_needed:
+        _save_expert_escalation(record)
 
     if auto_promote and outcome in ("blue_won", "no_contest"):
         _promote_to_golden(record)

@@ -9,72 +9,65 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 세션 시작 시 이 목록을 확인한다.
 사용자가 다른 작업을 요청하시면 그것을 우선하고, 완료한 항목은 즉시 삭제한다.
 
-### 진행 중 / 단기
+> 상세 로드맵은 `AGENTS.md > 개발 로드맵` 참조. 아래는 Claude Code 실행 큐 전용.
 
-- [ ] E2E 테스트 러너 작성 — 5개 케이스 실행, verdict/confidence 검증, chunk_ids 수집 → golden qa_pairs.json 기록
-- [ ] 세액 산출 모듈 개발 (src/calculator/) — TaxCalculator, 장기보유특별공제 표1/표2, 세율표, TaxCalculation 모델
-- [ ] 부칙(buchik) 별도 수집 구현 — collect.py에서 부칙을 본칙과 분리된 청크로 추출, linked_buchik_ids 연결
-- [ ] chunk_id 포맷 마이그레이션 — {법령명}_{조문}_{항}_{시행일} 형식으로 변경 후 Pinecone reindex (부칙 수집 완료 후)
+---
 
-### 법령 변경 취약점 보강 — 단기 (코드 변경만)
+### 완료된 항목 (Phase 1~6 코드 작업)
 
-- [ ] **TaxConstantsRegistry** — `src/domain/tax_constants.py` 신규 생성
-  - `HIGH_VALUE_THRESHOLD`, `SANGSAENG_WINDOW_END`, `SANGSAENG_MAX_INCREASE_RATE`, `iota_period_years`를 transfer_date 기준 버전 dict로 이전
-  - `query_input.py` 상수 참조 → `get_constants(transfer_date)` 조회로 교체
-  - `prompts.py`도 이 레지스트리 값을 동적 주입 (LLM 앵커링 문제 해결)
-- [ ] **Multi-anchor versioning** — `retriever_impl.py` Pinecone 필터 날짜 앵커 분기
-  - 이월과세 → `gift_date`, 상속주택 → `death_date`, 조합원입주권 → `management_disposal_date`, 일반 → `transfer_date`
-  - `PineconeTaxLawRetriever.retrieve_with_buchik()`에서 `special_cases` 기반 앵커 선택
-- [ ] **embed.py article_tag_map.json** — `_tag_chunk()` 조문→태그 매핑을 하드코딩에서 `src/infra/article_tag_map.json`으로 이전
-  - 신규 조문 추가 시 코드 수정 없이 JSON만 업데이트 가능
+- [x] S1-1: TaxConstantsRegistry (`src/domain/tax_constants.py`)
+- [x] S1-2: DateResolver + FactInput 날짜 필드 (`src/domain/date_resolver.py`, `src/api/fact_input.py`)
+- [x] S1-3: AcquisitionTimeline (`src/domain/acquisition_timeline.py`)
+- [x] S1-4: Confirmation Gate L1.5 (`src/domain/confirmation.py`, `src/domain/pipeline.py`)
+- [x] S1-5: article_tag_map.json 외부화 (`src/infra/article_tag_map.json`)
+- [x] S1-6: Multi-anchor Pinecone 필터 + Hybrid BM25 (`retriever_impl.py`, `embedder.py`)
+- [x] S2-1: AreaDesignation 3종 통합 (`admin_notices.py`, `data/area_designations/manual_table.json`)
+- [x] S2-2: Pinecone Hybrid Search BM25 (S1-6에 통합)
+- [x] S2-3: 법령 커버리지 14개 법령 + MST 검증 + 부칙/별표 분리 (`collect.py`)
+- [x] S2-4: chunk_id 포맷 마이그레이션 (`{version_mst}_{law_slug}_{article_slug}_{eff_slug}`)
+- [x] S3-1: SpecialCaseFinder 15종 (`src/domain/special_case_finder.py`)
+- [x] S3-2: 장기보유특별공제율 표1/표2 (`data/tax_tables/`)
+- [x] S4-1: TaxCalculator (`src/calculator/tax_calculator.py`)
+- [x] S4-2: query_mode report/consulting 분기 (`pipeline.py`)
+- [x] S4-3: E2E 골든 케이스 30개 + test_e2e_golden.py (`tests/`)
+- [x] RLVR 검색 품질 분석기 (`src/eval/retrieval_analyzer.py`)
+- [x] verdict_matcher.py (`src/eval/verdict_matcher.py`)
+- [x] Red-Blue 멀티라운드 강화 + 할루시네이션 방지 + expert escalation (`src/eval/debate.py`)
+- [x] BGE reranker 훈련데이터 추출 (`scripts/extract_reranker_pairs.py`)
+- [x] 합성 케이스 생성기 (`src/eval/case_generator.py`)
+- [x] 3-티어 상담 라우터 (`src/services/tier_router.py`)
+- [x] MCP 도구: calculate_tax, lookup_ruling, check_area_designation (`mcp_server.py`)
+- [x] 법령 개정 자동 감지 + Pinecone 자동 reindex (`scripts/detect_law_changes.py`, `setup_scheduler.ps1`)
+- [x] linked_buchik_ids 본칙↔부칙 연결 + retrieve_with_buchik 실동작
+- [x] 부칙 applicability_anchor 구조화 파싱 (`_extract_buchik_anchor()`, 8개 패턴)
+- [x] 주민등록 ≠ 실질 거주 특례 발굴 인터뷰 (`src/services/residence_interview.py`)
 
-### 루프 강화 — Verifiable Reward (RLVR)
+---
 
-- [x] **RLVR 검색 품질 분석기** — `src/eval/retrieval_analyzer.py` 구현 완료
-  - danger_flag별 recall@k / verdict_match / citation_precision 집계
-  - 누락 청크 텍스트에서 키워드 후보 자동 추출 → `DANGER_KEYWORD_MAP` 업데이트 제안
-  - `auto_apply_map_updates()`: recall 미달 flag 키워드 자동 적용 + `keyword_map_patch.json` 저장
-  - `query_enrichment._load_keyword_patch()`: 모듈 임포트 시 패치 자동 반영 (재시작 후에도 유지)
+### 남은 작업 — 사용자 실행 필요
 
-- [ ] **유권해석 DB 수집기 — 1단계: 구조화 JSON DB 구축**
-  - 수집 대상 (우선순위 순):
-    - 1순위: 국세법령정보시스템 (ntis.go.kr) — 국세청 예규·질의회신 + 기재부 세법해석 통합
-    - 2순위: 조세심판원 결정례 (tt.go.kr) — 납세자 불복 케이스, binary 정답 명확
-    - 3순위: 대법원 판결 (law.go.kr 판례) — 최종 권위, 건수 적음
-  - 출력 스키마: `data/rulings/{source}/{id}.json`
-    ```json
-    {
-      "ruling_id": "서면-2023-부동산-12345",
-      "answer_date": "20230520",
-      "transaction_date": "20230101",
-      "applicable_law_version": "20230101",
-      "verdict": "비과세",
-      "fact_json": { ... },
-      "summary": "...",
-      "source_url": "..."
-    }
-    ```
-  - 날짜 매칭 기준: `transaction_date`가 우리 케이스 `transfer_date`와 같은 법령 시행 구간 내, `answer_date` 5년 이내 우선
-  - 이 DB가 구축되어야 Red-Blue 논쟁이 proxy reward → true verifiable reward로 전환된다.
-- [ ] **유권해석 DB 수집기 — 2단계: 청킹·임베딩 → Pinecone 업로드** (1단계 500건+ 수집 후 진행)
-  - 유권해석 1건 → 2개 청크: 질의 요지(사실관계) + 회신 내용(판단+근거)
-  - Pinecone 별도 네임스페이스 `tax-ruling` 사용
-  - 날짜 메타: `answer_date`, `transaction_date`, `applicable_law_version`
-  - L4 검색 시 법령 조문(`tax-law`)과 함께 병렬 검색 후 통합 reranking
-- [ ] **자동 판정 매칭기** (`src/eval/verdict_matcher.py`) — pipeline verdict와 유권해석 DB를 매칭해 binary reward(1/0) 자동 계산
-- [ ] **L4 ReAct 반복 검색 에이전트** (`src/agents/react_agent.py`) — thought→action→observation 루프, missing_facts 있으면 추가 쿼리 자동 생성 후 재검색 (최대 3 round)
-- [ ] **BGE reranker 파인튜닝 파이프라인** — debate `red_won` 케이스에서 positive/negative pair 추출 → `data/finetune/reranker_pairs.jsonl`
-- [ ] **합성 케이스 생성기** (`src/eval/case_generator.py`) — 실무 케이스에서 변수 1개씩 변형해 경계 케이스 자동 생성
+> 아래는 코드가 아닌 데이터·인프라·운영 작업이다. Claude Code가 대신할 수 없다.
 
-### 중기 아키텍처 (데이터 수집 필요)
+- [ ] **법령 재수집** — `python -m src.ingestion.collect`
+  - 새 MST 14개 법령 + chunk_id 신포맷 + applicability_anchor 포함
+- [ ] **Pinecone reindex** — `python -m src.ingestion.embed`
+  - linked_buchik_ids, applicability_anchor, article_type 신규 필드 반영
+- [ ] **스케줄러 등록** — 관리자 PowerShell에서 `.\scripts\setup_scheduler.ps1`
+  - 매일 23:00 자동 감지 + Pinecone 업로드
+- [ ] **유권해석 DB 수집** (500건+) — ntis.go.kr / tt.go.kr / 대법원 판례
+  - `data/rulings/{ntis,tt,court}/{id}.json`
+  - 수집 후 embed → Pinecone `tax-ruling-*` 네임스페이스
 
-- [ ] **법령 버전 이력 수집** — law.go.kr 연혁조회(`LRR`)로 개정 전 조문 수집 → expiration_date 포함 Pinecone 재업로드
-  - 해결 문제: Namespace ghosting (구버전·신버전 경쟁), transfer_date 필터 누락 시 stale 법령 반환
-- [ ] **유권해석 DB** → true verifiable reward 전환 (RLVR 1·2단계 완료 후)
-  - 해결 문제: Correlated failure — 테스트와 golden labels가 동일한 stale 법령 가정을 공유하는 문제
-- [ ] **멀티턴 사실관계 수집** — blocked_at_l2 발생 시 missing_facts를 후속 질문으로 자동 변환
-- [ ] **세액 계산 연동** — verdict 이후 calculator 모듈 호출, 예상 세액·공제액 포함 답변
-- [ ] **MCP 도구 확장** — calculate_tax, lookup_ruling 추가
+---
+
+### 장기 로드맵 (코드 작업, 우선순위 낮음)
+
+- [x] 부칙 applicability_anchor 하드필터 — retriever_impl.py `_is_buchik_applicable()` + `retrieve_with_buchik()` 오버라이드
+- [x] 유형2 시뮬레이션 엔진 — `src/services/simulation_engine.py` (양도/증여/부담부증여 비교, TaxCalculator·증여세 연동)
+- [x] 행정 레이어 지도 시각화 — `src/pages/area_map.py` (pydeck 지도 + 기준일 필터 + 구역별 현황)
+- [x] 유권해석 DB 2단계 파이프라인 — `src/ingestion/embed_rulings.py` (ntis/tt/court 청킹·임베딩)
+- [x] 컨설팅 모드 UI — `src/ui.py` 사이드바 모드 토글, 시뮬레이션 파라미터, 시나리오 비교표 렌더링
+- [ ] BGE reranker 파인튜닝 — red_won 케이스 50건+ 축적 후 (`scripts/extract_reranker_pairs.py` 활용)
 
 ---
 

@@ -1,5 +1,5 @@
 """
-어드민 페이지 — 케이스 전체 목록 + 골든셋 관리 + 통계 + RAG 디버그.
+어드민 페이지 — 케이스 전체 목록 + 골든셋 관리 + 통계 + 검색 디버그.
 판단 로직 없음. 표시·실행·통계 전용.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import streamlit as st
 
 from src.api.sample_cases import CATEGORY_LABELS, SAMPLE_CASES
 
-st.set_page_config(page_title="어드민 — 양도소득세 RAG", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="어드민 — 양도소득세 판단", page_icon="🛠️", layout="wide")
 
 # ── 세션 상태 ──────────────────────────────────────────────────────────────────
 
@@ -138,12 +138,9 @@ def _render_result(result: dict, expected_verdict: str | None = None) -> None:
 
 with st.sidebar:
     st.title("🛠️ 어드민")
-    st.caption("케이스 관리 · 골든셋 · 통계 · RAG 디버그")
+    st.caption("케이스 관리 · 골든셋 · 통계 · 검색 디버그")
     st.divider()
     enable_debate = st.toggle("🔴 Red Team 검증", value=True)
-    with st.expander("RAG 파라미터"):
-        top_k = st.slider("top_k", 5, 50, 20)
-        rerank_top_n = st.slider("rerank_top_n", 1, 10, 5)
 
     st.divider()
     import os
@@ -153,13 +150,13 @@ with st.sidebar:
 
 # ── 탭 레이아웃 ───────────────────────────────────────────────────────────────
 
-st.markdown("## 🛠️ 어드민 — 양도소득세 RAG")
+st.markdown("## 🛠️ 어드민 — 양도소득세 판단")
 
 tab_cases, tab_golden, tab_stats, tab_debug = st.tabs([
     "📋 케이스 목록",
     "🏅 골든셋",
     "📊 통계",
-    "🔍 RAG 디버그",
+    "🔍 검색 디버그",
 ])
 
 
@@ -329,16 +326,20 @@ with tab_stats:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 탭 4: RAG 디버그
+# 탭 4: 검색 디버그
 # ──────────────────────────────────────────────────────────────────────────────
 
 with tab_debug:
-    st.subheader("RAG 검색 디버그")
+    st.subheader("법령 검색 디버그")
 
     debug_query = st.text_input("검색 쿼리 (한국어 자유 입력)")
     col_btn, col_k, col_rn = st.columns([1, 1, 1])
     with col_btn:
         run_debug = st.button("🔍 검색", type="primary")
+    with col_k:
+        top_k = st.slider("top_k (후보 수)", 5, 50, 20)
+    with col_rn:
+        rerank_top_n = st.slider("rerank_top_n (LLM 전달 수)", 1, 10, 5)
 
     if run_debug and debug_query:
         try:

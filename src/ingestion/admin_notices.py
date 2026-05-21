@@ -28,7 +28,7 @@ import os
 from dataclasses import dataclass, field, asdict
 from datetime import date
 from pathlib import Path
-from typing import Optional
+from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -43,20 +43,22 @@ NOTICES_DIR = Path(os.getenv("ADMIN_NOTICES_DIR", "data/admin_notices"))
 
 
 @dataclass
-class AdjustmentAreaRecord:
+class AreaDesignationRecord:
     """
-    조정대상지역 / 투기과열지구 단건 레코드.
+    지역 지정 단건 레코드 (3종 통합).
 
     세법 적용 기준:
-      - 취득일 기준 조정대상지역 여부 → 2년 거주요건 발생 (소령 §154①)
-      - 양도일 기준 조정대상지역 여부 → 다주택 중과세율 적용 (소법 §104①)
-      두 날짜를 별도로 조회해야 함.
+      - 조정대상지역 취득일 → 2년 거주요건 (소령 §154①)
+      - 조정대상지역 양도일 → 다주택 중과 (소법 §104①)
+      - 투기과열지구 취득일 → 주택담보대출 LTV 제한
+      - 토지거래허가구역 → 실거주 의무
     """
     region: str                         # 지역명 ("서울특별시 강남구" 등)
-    area_type: str                      # "조정대상지역" | "투기과열지구" | "투기지역"
+    area_type: Literal["조정대상지역", "투기과열지구", "토지거래허가구역", "투기지역"]
     designated_at: date                 # 지정일
     released_at: Optional[date]         # 해제일 (None = 현재 유효)
     announcement_no: str                # 고시 번호 ("국토교통부고시 제2021-1588호" 등)
+    source: str = "manual"              # "manual" | "api"
     source_url: Optional[str] = None    # 원문 URL
 
     @property
@@ -69,6 +71,10 @@ class AdjustmentAreaRecord:
             self.designated_at <= target_date
             and (self.released_at is None or self.released_at > target_date)
         )
+
+
+# backward compat
+AdjustmentAreaRecord = AreaDesignationRecord
 
 
 @dataclass
@@ -97,28 +103,75 @@ class AdminNoticesDB:
     수집된 행정 고시 전체 보관소.
     JSON 파일로 직렬화해 Pinecone과 별도로 관리.
     """
-    adjustment_areas: list[AdjustmentAreaRecord] = field(default_factory=list)
-    financial_regulations: list[FinancialRegulationRecord] = field(default_factory=list)
+    area_designations: List[AreaDesignationRecord] = field(default_factory=list)
+    financial_regulations: List[FinancialRegulationRecord] = field(default_factory=list)
     last_updated: Optional[str] = None
 
+    @property
+    def adjustment_areas(self) -> List[AreaDesignationRecord]:
+        """backward compat — area_designations의 별칭."""
+        return self.area_designations
 
-# ── 조정대상지역 조회 헬퍼 ─────────────────────────────────────────────────────
+    @adjustment_areas.setter
+    def adjustment_areas(self, value: List[AreaDesignationRecord]) -> None:
+        self.area_designations = value
 
 
-def resolve_adjustment_area(region: str, target_date: date, db: AdminNoticesDB) -> bool:
+# ── 지역 지정 조회 헬퍼 ────────────────────────────────────────────────────────
+
+MANUAL_TABLE_PATH = Path("data/area_designations/manual_table.json")
+
+
+def load_manual_table() -> List[AreaDesignationRecord]:
     """
-    region이 target_date 시점에 조정대상지역이었는지 조회.
-    DB가 비어있으면 False 반환 (수집 미완료 상태).
+    수동 기준표 로드.
+    법적 분쟁 데이터 — 수동 기준표가 API보다 우선.
+    """
+    if not MANUAL_TABLE_PATH.exists():
+        return []
+    raw = json.loads(MANUAL_TABLE_PATH.read_text(encoding="utf-8"))
+    result: List[AreaDesignationRecord] = []
+    for r in raw:
+        result.append(AreaDesignationRecord(
+            region=r["region"],
+            area_type=r["area_type"],
+            designated_at=date.fromisoformat(r["designated_at"]),
+            released_at=date.fromisoformat(r["released_at"]) if r.get("released_at") else None,
+            announcement_no=r.get("announcement_no", ""),
+            source="manual",
+            source_url=r.get("source_url"),
+        ))
+    return result
+
+
+def resolve_area_status(
+    region: str,
+    target_date: date,
+    area_type: str,
+    records: List[AreaDesignationRecord],
+) -> bool:
+    """
+    region이 target_date 시점에 area_type으로 지정되어 있었는지 조회.
+    수동 기준표 우선 (legal disputes — API보다 신뢰도 높음).
 
     사용처:
       - L1 RAGQueryInput 생성 시 adjustment_area_at_acquisition / _at_transfer 계산
       - fact_input.py FlatFactInput → RAGQueryInput 변환 시
     """
-    for rec in db.adjustment_areas:
-        if rec.area_type == "조정대상지역" and rec.region in region:
+    for rec in records:
+        if rec.area_type == area_type and rec.region in region:
             if rec.is_designated_as_of(target_date):
                 return True
     return False
+
+
+def resolve_adjustment_area(region: str, target_date: date, db: "AdminNoticesDB") -> bool:
+    """
+    backward compat — resolve_area_status(area_type="조정대상지역") 호출.
+
+    DB가 비어있으면 False 반환 (수집 미완료 상태).
+    """
+    return resolve_area_status(region, target_date, "조정대상지역", db.area_designations)
 
 
 def load_db() -> AdminNoticesDB:
@@ -128,16 +181,19 @@ def load_db() -> AdminNoticesDB:
         return AdminNoticesDB()
     raw = json.loads(path.read_text(encoding="utf-8"))
 
+    # support both old key ("adjustment_areas") and new key ("area_designations")
+    area_raw = raw.get("area_designations", raw.get("adjustment_areas", []))
     areas = [
-        AdjustmentAreaRecord(
+        AreaDesignationRecord(
             region=r["region"],
             area_type=r["area_type"],
             designated_at=date.fromisoformat(r["designated_at"]),
             released_at=date.fromisoformat(r["released_at"]) if r.get("released_at") else None,
-            announcement_no=r["announcement_no"],
+            announcement_no=r.get("announcement_no", ""),
+            source=r.get("source", "manual"),
             source_url=r.get("source_url"),
         )
-        for r in raw.get("adjustment_areas", [])
+        for r in area_raw
     ]
     fins = [
         FinancialRegulationRecord(
@@ -152,7 +208,7 @@ def load_db() -> AdminNoticesDB:
         for r in raw.get("financial_regulations", [])
     ]
     return AdminNoticesDB(
-        adjustment_areas=areas,
+        area_designations=areas,
         financial_regulations=fins,
         last_updated=raw.get("last_updated"),
     )
@@ -168,9 +224,9 @@ def save_db(db: AdminNoticesDB) -> None:
         return obj
 
     raw = {
-        "adjustment_areas": [
+        "area_designations": [
             {k: _serial(v) for k, v in asdict(r).items()}
-            for r in db.adjustment_areas
+            for r in db.area_designations
         ],
         "financial_regulations": [
             {k: _serial(v) for k, v in asdict(r).items()}
@@ -184,7 +240,7 @@ def save_db(db: AdminNoticesDB) -> None:
 # ── 수집 스텁 ──────────────────────────────────────────────────────────────────
 
 
-async def collect_adjustment_areas() -> list[AdjustmentAreaRecord]:
+async def collect_adjustment_areas() -> List[AreaDesignationRecord]:
     """
     국토교통부 공공데이터포털 API에서 조정대상지역 현황 수집.
 
@@ -209,7 +265,7 @@ async def collect_adjustment_areas() -> list[AdjustmentAreaRecord]:
     raise NotImplementedError("국토교통부 API 구현 예정")
 
 
-async def collect_financial_regulations() -> list[FinancialRegulationRecord]:
+async def collect_financial_regulations() -> List[FinancialRegulationRecord]:
     """
     금융위원회 DSR/LTV 규제 현황 수집.
 
@@ -242,8 +298,8 @@ async def run_collect_all() -> AdminNoticesDB:
 
     try:
         areas = await collect_adjustment_areas()
-        db.adjustment_areas = areas
-        print(f"조정대상지역 {len(areas)}건 수집 완료")
+        db.area_designations = areas
+        print(f"지역지정 {len(areas)}건 수집 완료")
     except NotImplementedError as e:
         print(f"[SKIP] 조정대상지역: {e}")
 

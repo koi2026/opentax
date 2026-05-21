@@ -5,7 +5,7 @@ www.law.go.kr DRF API → data/raw/ (XML) + data/processed/ (JSON chunks)
 버전 관리 전략:
 - 각 법령의 개정 이력을 모두 수집 (최근 YEARS_BACK년)
 - 각 버전(MST)에 effective_date + expiration_date 부여
-- chunk ID = {version_mst}_{조문키} → 버전별 고유성 보장
+- chunk ID = {version_mst}_{law_slug}_{article_slug}_{eff_slug} → 버전별 고유성 + 가독성 보장
 """
 import json
 import ssl
@@ -24,7 +24,7 @@ OC = "jctax"
 BASE_URL = "https://www.law.go.kr/DRF"
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
-YEARS_BACK = 10  # 최근 N년치 개정 버전 수집
+YEARS_BACK = 30  # 최근 N년치 개정 버전 수집 (취득일 소급 대응)
 
 
 def _make_session() -> requests.Session:
@@ -41,12 +41,25 @@ def _make_session() -> requests.Session:
 _SESSION = _make_session()
 
 TARGET_LAWS = [
+    # 소득세법 계열 — §89 비과세, §104 중과, §154 거주요건
     {"name": "소득세법",                    "mst": "285523", "category": "법률"},
     {"name": "소득세법 시행령",              "mst": "285631", "category": "대통령령"},
     {"name": "소득세법 시행규칙",            "mst": "284987", "category": "부령"},
-    {"name": "조세특례제한법",              "mst": "285525", "category": "법률"},
-    {"name": "조세특례제한법 시행령",        "mst": "283625", "category": "대통령령"},
+    # 조세특례제한법 계열 — 일시적2주택, 상생임대, 농어촌주택, 공익수용 등
+    {"name": "조세특례제한법",              "mst": "285907", "category": "법률"},
+    {"name": "조세특례제한법 시행령",        "mst": "286053", "category": "대통령령"},
     {"name": "조세특례제한법 시행규칙",      "mst": "284611", "category": "부령"},
+    # 지방세법 계열 — 양도소득세 지방소득세 10% 연동
+    {"name": "지방세법",                    "mst": "282559", "category": "법률"},
+    {"name": "지방세법 시행령",             "mst": "285497", "category": "대통령령"},
+    {"name": "지방세법 시행규칙",           "mst": "282705", "category": "부령"},
+    # 국세기본법 계열 — 가산세, 경정청구, 부당행위계산부인 §39
+    {"name": "국세기본법",                  "mst": "280373", "category": "법률"},
+    {"name": "국세기본법 시행령",           "mst": "283623", "category": "대통령령"},
+    {"name": "국세기본법 시행규칙",         "mst": "284607", "category": "부령"},
+    # 상속세 및 증여세법 계열 — 이월과세(§97의2) 증여 기준 조회용
+    {"name": "상속세 및 증여세법",          "mst": "276123", "category": "법률"},
+    {"name": "상속세 및 증여세법 시행령",   "mst": "283637", "category": "대통령령"},
 ]
 
 
@@ -134,10 +147,87 @@ def fetch_law_xml(mst: str) -> str:
 
 # ── XML 파싱 → 청크 ───────────────────────────────────────────────────────────
 
+import re
+
+# 부칙 적용례 앵커 키워드 → applicability_anchor 값
+_BUCHIK_ANCHOR_PATTERNS: list[tuple[str, str]] = [
+    (r"양도하는\s*분부터", "transfer_date"),
+    (r"양도분부터",         "transfer_date"),
+    (r"취득하는\s*분부터", "acquisition_date"),
+    (r"취득분부터",         "acquisition_date"),
+    (r"계약을?\s*체결하는?\s*분부터", "contract_date"),
+    (r"계약분부터",         "contract_date"),
+    (r"증여받는?\s*분부터", "gift_date"),
+    (r"증여분부터",         "gift_date"),
+    (r"상속이\s*개시되는?\s*분부터", "death_date"),
+    (r"상속분부터",         "death_date"),
+]
+
+
+def _extract_buchik_anchor(text: str) -> str:
+    """
+    부칙 텍스트에서 적용 기준(앵커)을 추출한다.
+    "이 법 시행 이후 양도하는 분부터 적용" → "transfer_date"
+    "취득분부터" → "acquisition_date"
+    매칭 없으면 "effective_date" (시행일 기준 기본값).
+    """
+    for pattern, anchor in _BUCHIK_ANCHOR_PATTERNS:
+        if re.search(pattern, text):
+            return anchor
+    return "effective_date"
+
+
+# Pinecone vector ID ASCII 전용 — 법령명 → 짧은 코드 매핑
+_LAW_ASCII_CODES: dict[str, str] = {
+    "소득세법":              "ita",
+    "소득세법시행령":         "itd",
+    "소득세법시행규칙":       "itr",
+    "조세특례제한법":         "sta",
+    "조세특례제한법시행령":   "std",
+    "조세특례제한법시행규칙": "stx",
+    "지방세법":              "lta",
+    "지방세법시행령":         "ltd",
+    "지방세법시행규칙":       "ltr",
+    "국세기본법":             "fta",
+    "국세기본법시행령":       "ftd",
+    "국세기본법시행규칙":     "ftr",
+    "상속세및증여세법":       "iha",
+    "상속세및증여세법시행령": "ihd",
+}
+
+
+def _build_chunk_id(version_mst: str, law_name: str, 조문번호: str, 시행일자: str) -> str:
+    """
+    Pinecone ASCII 전용 chunk ID: {mst}_{law_code}_{art_code}_{eff}
+    예) 285523_ita_a89_20240101  (소득세법 제89조)
+        285523_ita_bch1_20240101 (소득세법 부칙 제1조)
+        285523_sta_a97_3_20240101 (조세특례제한법 제97조의3 → a97_3)
+    """
+    law_key = law_name.replace(" ", "")
+    law_code = _LAW_ASCII_CODES.get(law_key, "unk")
+
+    if not 조문번호:
+        art_code = "unk"
+    elif "부칙" in 조문번호:
+        digits = re.sub(r"[^0-9]", "", 조문번호)
+        art_code = f"bch{digits}" if digits else "bch"
+    elif "별표" in 조문번호:
+        digits = re.sub(r"[^0-9]", "", 조문번호)
+        art_code = f"tbl{digits}" if digits else "tbl"
+    else:
+        # 제89조 → a89, 제97조의3 → a97_3
+        norm = re.sub(r"[^0-9의]", "", 조문번호).replace("의", "_")
+        art_code = f"a{norm}" if norm else "unk"
+
+    eff_slug = 시행일자[:8] if 시행일자 else "00000000"
+    return f"{version_mst}_{law_code}_{art_code}_{eff_slug}"
+
+
 def parse_xml_to_chunks(xml_text: str, law_info: dict, version: dict) -> list[dict]:
     """
     version: {"mst", "effective_date", "promulgation_date", "expiration_date"}
-    chunk ID = {version_mst}_{조문키}
+    chunk ID = {version_mst}_{law_slug}_{article_slug}_{eff_slug}
+    예) 285523_소득세법_제89조_20240101
     """
     root = ET.fromstring(xml_text.encode("utf-8"))
     chunks = []
@@ -146,7 +236,6 @@ def parse_xml_to_chunks(xml_text: str, law_info: dict, version: dict) -> list[di
     law_name = law_name_elem.text.strip() if law_name_elem is not None else law_info["name"]
 
     for 조문단위 in root.findall(".//조문단위"):
-        조문키 = 조문단위.get("조문키", "")
         조문번호_elem = 조문단위.find("조문번호")
         조문여부_elem = 조문단위.find("조문여부")
         조문제목_elem = 조문단위.find("조문제목")
@@ -190,21 +279,38 @@ def parse_xml_to_chunks(xml_text: str, law_info: dict, version: dict) -> list[di
                 if 호["호내용"]:
                     full_text_parts.append(f"    {호['호내용']}")
 
+        # 별표 이미지 태그 감지 (manual_review_required 플래그)
+        is_table_article = "별표" in 조문제목 or "별표" in 조문번호
+        has_image_placeholder = "<그림>" in 내용 or "[그림]" in 내용
+        manual_review_required = is_table_article or has_image_placeholder
+
+        full_text = "\n".join(full_text_parts)
+
+        # 부칙 적용례 앵커 추출: "양도분/취득분/계약분/증여분" → applicability_anchor
+        # 구조적 필터링 기반 — LLM 판단에만 의존하는 것보다 훨씬 안정적
+        applicability_anchor = "effective_date"  # 기본값 (시행일 기준)
+        if 조문여부 == "부칙":
+            applicability_anchor = _extract_buchik_anchor(full_text)
+            if applicability_anchor != "effective_date":
+                print(f"  → 부칙 적용례 감지: {law_name} {조문번호} — anchor={applicability_anchor}")
+
         chunk = {
-            "id": f"{version['mst']}_{조문키}",
+            "id": _build_chunk_id(version["mst"], law_name, 조문번호, 시행일자),
             "law_name": law_name,
             "law_mst": law_info["mst"],          # 법령 고유 ID (버전 무관)
             "version_mst": version["mst"],        # 이 버전의 MST
             "law_category": law_info["category"],
             "article_number": 조문번호,
-            "article_type": 조문여부,
+            "article_type": 조문여부,  # "본문" | "부칙" — 부칙은 경과조치, 별도 청크로 분리됨
             "article_title": 조문제목,
             "effective_date": 시행일자,
             "expiration_date": version["expiration_date"],  # 빈 문자열 = 현행
             "promulgation_date": version["promulgation_date"],
             "content": 내용,
             "clauses": 항_list,
-            "full_text": "\n".join(full_text_parts),
+            "full_text": full_text,
+            "applicability_anchor": applicability_anchor,  # "transfer_date"|"acquisition_date"|"contract_date"|"gift_date"|"death_date"|"effective_date"
+            "manual_review_required": manual_review_required,
             "metadata": {
                 "law_name": law_name,
                 "article": 조문번호,
@@ -214,10 +320,35 @@ def parse_xml_to_chunks(xml_text: str, law_info: dict, version: dict) -> list[di
                 "expiration_date": version["expiration_date"],
                 "category": law_info["category"],
                 "version_mst": version["mst"],
+                "applicability_anchor": applicability_anchor,
                 "source": "law.go.kr",
             },
         }
+        if manual_review_required:
+            print(f"  ⚠ [manual_review_required] {law_name} {조문번호} — 별표/이미지 수동 검토 필요")
         chunks.append(chunk)
+
+    # 부칙 ID 목록 수집 후 본칙 청크에 linked_buchik_ids 주입
+    # 같은 버전(MST) 의 부칙은 본칙 전체에 적용될 수 있으므로 전부 연결
+    buchik_ids = [c["id"] for c in chunks if c.get("article_type") == "부칙"]
+    if buchik_ids:
+        for c in chunks:
+            if c.get("article_type") != "부칙":
+                c["linked_buchik_ids"] = buchik_ids
+    # 부칙 청크에는 빈 리스트 (부칙끼리 순환참조 방지)
+    for c in chunks:
+        if "linked_buchik_ids" not in c:
+            c["linked_buchik_ids"] = []
+
+    # 중복 chunk_id 처리 — 같은 조문의 항/호별 청크가 동일 ID를 갖는 경우 카운터로 구별
+    from collections import defaultdict
+    id_counter: dict = defaultdict(int)
+    for c in chunks:
+        base_id = c["id"]
+        count = id_counter[base_id]
+        if count > 0:
+            c["id"] = f"{base_id}_c{count}"
+        id_counter[base_id] += 1
 
     return chunks
 

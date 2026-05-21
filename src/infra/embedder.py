@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import os
+import re
+from collections import Counter
 from typing import Optional, Tuple
 
 from dotenv import load_dotenv
@@ -42,3 +44,36 @@ def embed_query(query: str) -> list[float]:
     client, model = _get_embed_client()
     resp = client.embeddings.create(model=model, input=[query[:2000]])
     return resp.data[0].embedding
+
+
+def bm25_sparse_vector(
+    text: str,
+    vocab: Optional[dict[str, int]] = None,
+    k1: float = 1.5,
+    b: float = 0.75,
+    avg_doc_len: float = 200.0,
+) -> dict:
+    """BM25 sparse vector for Pinecone hybrid search.
+
+    Tokenizes Korean text plus article-number patterns (e.g. 제89조, §97)
+    and returns Pinecone-compatible sparse_values.
+
+    vocab: {token: index} mapping. If None, uses abs(hash(token)) % 65536.
+    Returns {"indices": [...], "values": [...]}.
+    """
+    tokens = re.findall(r"제\d+조의?\d*|§\d+|[가-힣]+|[a-zA-Z0-9]+", text)
+    if not tokens:
+        return {"indices": [], "values": []}
+
+    tf = Counter(tokens)
+    doc_len = len(tokens)
+
+    indices: list[int] = []
+    values: list[float] = []
+    for token, freq in tf.items():
+        idx = vocab.get(token, abs(hash(token)) % 65536) if vocab else abs(hash(token)) % 65536
+        tf_score = (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_len / avg_doc_len))
+        indices.append(idx)
+        values.append(float(tf_score))
+
+    return {"indices": indices, "values": values}

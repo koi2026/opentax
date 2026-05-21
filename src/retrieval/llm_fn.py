@@ -9,9 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional, Union
 
 import anthropic
+from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 
 from src.agents.prompts import RAG_SYSTEM_PROMPT
@@ -22,6 +23,19 @@ load_dotenv()
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+
+# 프롬프트 캐싱 — system prompt를 ephemeral 캐시로 고정해 TTFT 단축
+# few_shot_block은 요청마다 달라지므로 캐시 블록에 포함하지 않음
+_SYSTEM_BLOCKS = [
+    {
+        "type": "text",
+        "text": RAG_SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
+
+_MAX_CHUNK_CHARS = 800  # 조문 원문 최대 전달 길이 (토큰 절약 — 핵심 내용은 앞부분에 집중)
 
 
 def _build_user_prompt(
@@ -38,7 +52,7 @@ def _build_user_prompt(
         context_parts.append(
             f"[{i}]{marker} {m.law_name} 제{m.article_number}조\n"
             f"(chunk_id: {m.chunk_id}, score: {chunk.score:.4f})\n"
-            f"{chunk.content}"
+            f"{chunk.content[:_MAX_CHUNK_CHARS]}"
         )
     context = "\n\n".join(context_parts)
 
@@ -57,7 +71,8 @@ def _build_user_prompt(
 [질문]
 {enriched_query}
 
-반드시 아래 JSON 형식으로 답변하십시오:
+먼저 <reasoning> 태그 내에 판단 과정을 단계별로 서술하십시오. 
+그 후, 반드시 아래 JSON 형식으로 답변하십시오:
 {{
   "answer": "상세 판단 (법령 근거 포함)",
   "verdict": "비과세" | "과세" | "조건부비과세" | "needs_verification",
@@ -98,31 +113,36 @@ async def llm_fn(
         except Exception:
             pass
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
 
-    loop = asyncio.get_event_loop()
-    message = await loop.run_in_executor(
-        None,
-        lambda: client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=2048,
-            system=RAG_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
-        ),
+    message = await client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=1200,
+        system=_SYSTEM_BLOCKS,
+        messages=[{"role": "user", "content": user_prompt}],
+        extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
     )
 
-    raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    raw_full = message.content[0].text.strip()
+    
+    # <reasoning> 제거 및 JSON 추출
+    raw_json = raw_full
+    if "<reasoning>" in raw_full:
+        parts = raw_full.split("</reasoning>")
+        if len(parts) > 1:
+            raw_json = parts[1].strip()
+
+    if raw_json.startswith("```"):
+        raw_json = raw_json.split("```")[1]
+        if raw_json.startswith("json"):
+            raw_json = raw_json[4:]
 
     try:
-        data = json.loads(raw)
+        data = json.loads(raw_json)
     except json.JSONDecodeError:
         return TaxAnswer(
-            answer=raw,
+            answer=raw_full,
             verdict="needs_verification",
             confidence=0.3,
             chunk_ids=[c.metadata.chunk_id for c in chunks],
@@ -148,3 +168,99 @@ async def llm_fn(
         missing_facts=data.get("missing_facts", []),
         warnings=data.get("warnings", []),
     )
+
+
+async def llm_fn_stream(
+    enriched_query: str,
+    chunks: List[RetrievedChunk],
+    missing_hints: List[str],
+    fact_json: Optional[dict] = None,
+) -> AsyncGenerator[Union[str, TaxAnswer], None]:
+    """
+    Claude 스트리밍 버전. 
+    1. <reasoning> 내용을 텍스트 조각으로 먼저 yield.
+    2. 최종 결과물로 TaxAnswer 객체를 yield.
+    """
+    if not ANTHROPIC_API_KEY:
+        yield TaxAnswer(answer="[API KEY MISSING]", verdict="needs_verification")
+        return
+
+    few_shot_block = ""
+    if fact_json:
+        try:
+            from src.eval.golden_injector import build_few_shot_block
+            few_shot_block = build_few_shot_block(fact_json)
+        except Exception:
+            pass
+
+    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
+
+    full_text = ""
+    in_reasoning = False
+    
+    async with client.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=1500,
+        system=_SYSTEM_BLOCKS,
+        messages=[{"role": "user", "content": user_prompt}],
+        extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+    ) as stream:
+        async for event in stream:
+            if event.type == "content_block_delta":
+                text = event.delta.text
+                full_text += text
+                
+                # <reasoning> 내부 텍스트만 실시간으로 yield (UI 표시용)
+                if "<reasoning>" in full_text and not in_reasoning:
+                    in_reasoning = True
+                    continue
+                
+                if in_reasoning:
+                    if "</reasoning>" in text:
+                        # 태그가 포함된 조각이면 이전 부분까지만 보냄
+                        reasoning_part = text.split("</reasoning>")[0]
+                        yield reasoning_part
+                        in_reasoning = False
+                    else:
+                        yield text
+
+    # 최종 파싱
+    raw_json = full_text
+    if "<reasoning>" in full_text:
+        raw_json = full_text.split("</reasoning>")[-1].strip()
+    
+    if "```json" in raw_json:
+        raw_json = raw_json.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw_json:
+        raw_json = raw_json.split("```")[1].strip()
+
+    try:
+        data = json.loads(raw_json)
+        citations = [
+            Citation(
+                chunk_id=c.get("chunk_id", ""),
+                article=c.get("article", ""),
+                excerpt=c.get("excerpt", ""),
+                law_version=c.get("law_version", ""),
+            )
+            for c in data.get("citations", [])
+        ]
+        yield TaxAnswer(
+            answer=data.get("answer", ""),
+            verdict=data.get("verdict", "needs_verification"),
+            confidence=float(data.get("confidence", 0.0)),
+            citations=citations,
+            chunk_ids=[c.metadata.chunk_id for c in chunks],
+            missing_facts=data.get("missing_facts", []),
+            warnings=data.get("warnings", []),
+        )
+    except json.JSONDecodeError:
+        yield TaxAnswer(
+            answer=full_text,
+            verdict="needs_verification",
+            confidence=0.3,
+            chunk_ids=[c.metadata.chunk_id for c in chunks],
+            warnings=["JSON 파싱 실패"],
+        )
+

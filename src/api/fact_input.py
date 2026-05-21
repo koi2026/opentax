@@ -60,6 +60,33 @@ class LongTermRentalInput(BaseModel):
     rent_increase_limit_complied: bool = False
 
 
+class CohabitationCareInput(BaseModel):
+    """동거봉양합가 상세 (소령 §155④)"""
+    cohabitation_date: str                      # 합가일 YYYYMMDD
+    parent_age_at_merge: int = 60               # 합가 당시 부모 연령
+    parent_has_severe_illness: bool = False     # 중증질환 여부 (연령 미달 대체 요건)
+
+
+class RuralHouseInput(BaseModel):
+    """농어촌주택 상세 (조특법 §99의4) — 양도 대상이 아닌 세대 내 보유 주택"""
+    is_eligible: bool = True
+    region: Optional[str] = None               # 소재 지역명 (선택)
+
+
+class ReconstructionInput(BaseModel):
+    """재건축·재개발·소규모재건축 상세"""
+    management_disposal_date: str              # 관리처분인가일 YYYYMMDD
+    is_original_member: bool = True            # 원조합원 여부
+    completion_date: Optional[str] = None      # 준공일 YYYYMMDD
+    has_other_house: bool = False              # 다른 주택 보유 여부
+
+
+class ExpropiationInput(BaseModel):
+    """공익사업 수용 상세 (조특§77)"""
+    compensation_type: str = "현금"            # "현금" | "채권" | "대토"
+    is_main_residence: bool = False            # 2년 이상 거주 주택 여부
+
+
 class SpecialCasesInput(BaseModel):
     """시나리오별 특례 상세 — 해당하는 항목만 채운다"""
     temp_two_house: Optional[TempTwoHouseInput] = None
@@ -68,7 +95,11 @@ class SpecialCasesInput(BaseModel):
     marriage_merge: Optional[MarriageMergeInput] = None
     sangsaeng_rental: Optional[SangsaengRentalInput] = None
     long_term_rental: Optional[LongTermRentalInput] = None
-    residence_exemption_reason: Optional[str] = None  # "해외이주" | "취학" | "수용" 등
+    cohabitation_care: Optional[CohabitationCareInput] = None   # 동거봉양합가 §155④
+    rural_house: Optional[RuralHouseInput] = None               # 농어촌주택 조특§99의4
+    reconstruction: Optional[ReconstructionInput] = None        # 재건축·재개발 상세
+    expropriation: Optional[ExpropiationInput] = None           # 공익수용 상세
+    residence_exemption_reason: Optional[str] = None  # "해외이주" | "취학" | "직장이전" | "요양" | "수용" 등
 
 
 # ── 메인 입력 스키마 ─────────────────────────────────────────────────────────
@@ -95,6 +126,12 @@ class FactInput(BaseModel):
     # ── 필수 ──────────────────────────────────────────────────────────────────
     transfer_date: str          # 양도일 YYYYMMDD
     acquisition_date: str       # 취득일 YYYYMMDD
+
+    # ── 취득일·양도일 결정 보조 날짜 (잔금/등기 선후 판단용) ──────────────
+    contract_date: Optional[str] = None           # 계약일 YYYYMMDD
+    balance_payment_date: Optional[str] = None   # 잔금일 YYYYMMDD
+    registration_date: Optional[str] = None      # 등기접수일 YYYYMMDD
+
     property_type: Literal[
         "아파트", "단독주택", "연립다세대", "다가구", "겸용주택",
         "분양권", "입주권", "주거용오피스텔", "업무용오피스텔",
@@ -102,7 +139,7 @@ class FactInput(BaseModel):
     ]
     acquisition_reason: Literal[
         "매매", "분양", "상속", "증여", "부담부증여", "이혼재산분할",
-        "경매", "재건축", "재개발", "수용", "혼인합가",
+        "경매", "재건축", "재개발", "소규모재건축", "수용", "혼인합가",
     ]
     household_house_count: int  # 양도 시점 세대 보유 주택 수
 
@@ -128,6 +165,10 @@ class FactInput(BaseModel):
                 raise ValueError(f"{field_name}은 YYYYMMDD 형식이어야 합니다: {val!r}")
         if self.transfer_date < self.acquisition_date:
             raise ValueError("양도일이 취득일보다 이전일 수 없습니다.")
+        for field_name in ("contract_date", "balance_payment_date", "registration_date"):
+            val = getattr(self, field_name)
+            if val is not None and (len(val) != 8 or not val.isdigit()):
+                raise ValueError(f"{field_name}은 YYYYMMDD 형식이어야 합니다: {val!r}")
         return self
 
 
@@ -142,6 +183,9 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
     user_property: dict = {
         "transfer_date": _yyyymmdd_to_iso(fact.transfer_date),
         "acquisition_date": _yyyymmdd_to_iso(fact.acquisition_date),
+        "contract_date": _yyyymmdd_to_iso(fact.contract_date) if fact.contract_date else None,
+        "balance_payment_date": _yyyymmdd_to_iso(fact.balance_payment_date) if fact.balance_payment_date else None,
+        "registration_date": _yyyymmdd_to_iso(fact.registration_date) if fact.registration_date else None,
         "asset_kind": fact.property_type,
         "acquisition_cause": fact.acquisition_reason,
         "sale_price_total": fact.transfer_price,
@@ -211,6 +255,29 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
             "sangsaeng_new_rent": sr.new_monthly_rent,
             "sangsaeng_has_prior_contract": sr.has_prior_contract,
         })
+    if sc.cohabitation_care:
+        cc = sc.cohabitation_care
+        fact_ledger.update({
+            "is_cohabitation_care": True,
+            "cohabitation_start_date": _yyyymmdd_to_iso(cc.cohabitation_date),
+            "parent_age_at_merge": cc.parent_age_at_merge,
+            "parent_has_severe_illness": cc.parent_has_severe_illness,
+        })
+    if sc.rural_house and sc.rural_house.is_eligible:
+        fact_ledger["is_rural_house"] = True
+    if sc.reconstruction:
+        rc = sc.reconstruction
+        user_property["original_house_acquisition_date"] = user_property["acquisition_date"]
+        user_property["management_disposal_date"] = _yyyymmdd_to_iso(rc.management_disposal_date)
+        fact_ledger.update({
+            "is_reconstruction": True,
+            "is_original_member": rc.is_original_member,
+        })
+        if rc.completion_date:
+            fact_ledger["completion_date"] = _yyyymmdd_to_iso(rc.completion_date)
+    if sc.expropriation:
+        fact_ledger["compensation_type"] = sc.expropriation.compensation_type
+        fact_ledger["is_main_residence_for_expropriation"] = sc.expropriation.is_main_residence
     if sc.residence_exemption_reason:
         fact_ledger["residence_exemption_reason"] = sc.residence_exemption_reason
     if fact.residential_area_ratio is not None:
