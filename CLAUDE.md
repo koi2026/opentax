@@ -54,9 +54,15 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
   - linked_buchik_ids, applicability_anchor, article_type 신규 필드 반영
 - [ ] **스케줄러 등록** — 관리자 PowerShell에서 `.\scripts\setup_scheduler.ps1`
   - 매일 23:00 자동 감지 + Pinecone 업로드
-- [ ] **유권해석 DB 수집** (500건+) — ntis.go.kr / tt.go.kr / 대법원 판례
-  - `data/rulings/{ntis,tt,court}/{id}.json`
-  - 수집 후 embed → Pinecone `tax-ruling-*` 네임스페이스
+- [ ] **유권해석 DB 수집** — taxlaw.nts.go.kr 통합 수집
+  - **순서**: ① 세법해석정비(deprecated 목록) → ② 예규/질의회신 → ③ 판례·결정례
+  - `python -m src.ingestion.collect_rulings_revision --tax transfer`
+  - `python -m src.ingestion.collect_rulings_nts --tax 양도소득세`
+  - `python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도`
+  - **판례·결정례 API**: `POST taxlaw.nts.go.kr/action.do` (JSON API, XHR 확인)
+    - `actionId=ASIPDI002PR01`, `dcmClCdCtl=["001_08"]`(심판청구), `icldVcbCtl=["양도"]`
+    - 심판청구 24,904건 중 양도 키워드 필터 → 수천 건 예상
+  - 수집 후 embed → `python -m src.ingestion.embed_rulings decisions`
 
 ---
 
