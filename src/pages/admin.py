@@ -152,9 +152,10 @@ with st.sidebar:
 
 st.markdown("## 🛠️ 어드민 — 양도소득세 판단")
 
-tab_cases, tab_golden, tab_stats, tab_debug = st.tabs([
+tab_cases, tab_golden, tab_regulations, tab_stats, tab_debug = st.tabs([
     "📋 케이스 목록",
     "🏅 골든셋",
+    "🗺️ 규제지역 관리",
     "📊 통계",
     "🔍 검색 디버그",
 ])
@@ -277,7 +278,133 @@ with tab_golden:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 탭 3: 통계
+# 탭 3: 규제지역 관리
+# ──────────────────────────────────────────────────────────────────────────────
+
+with tab_regulations:
+    st.subheader("🗺️ 부동산 규제지역 관리")
+
+    REG_FILE = Path("data/area_designations/manual_table.json")
+
+    try:
+        from src.ingestion.area_designation_pipeline import (
+            get_pending_proposals, apply_proposal, run_pipeline,
+        )
+        from src.ingestion.area_sources import PROPOSALS_DIR
+        _pipeline_ok = True
+    except Exception as _e:
+        _pipeline_ok = False
+        st.warning(f"파이프라인 모듈 로드 실패: {_e}")
+
+    # ── 상단 액션 바 ──────────────────────────────────────────────────────────
+    col_run, col_health, _ = st.columns([1, 1, 3])
+    if col_run.button("🔍 지금 감지 실행", type="primary", disabled=not _pipeline_ok):
+        with st.spinner("규제지역 소스 스캔 중..."):
+            summary = run_pipeline(dry_run=False)
+        alert = summary.get("alert_level")
+        if alert == "critical":
+            st.error(f"🚨 변경 감지됨! 제안서를 확인하세요.")
+        elif alert == "warning":
+            st.warning("⚠️ 경보 신호 감지 — 공식 공고를 확인하세요.")
+        elif summary.get("health_warning"):
+            st.error(f"❌ {summary['health_warning']}")
+        else:
+            st.success("변경 없음")
+        st.rerun()
+
+    col_health.metric("대기 중 제안서", len(get_pending_proposals()) if _pipeline_ok else "—")
+
+    st.divider()
+    col_proposals, col_current = st.columns([1, 1])
+
+    # ── 제안서 승인 패널 ──────────────────────────────────────────────────────
+    with col_proposals:
+        st.markdown("### 📥 승인 대기 제안서")
+        if not _pipeline_ok:
+            st.info("파이프라인 모듈을 불러올 수 없습니다.")
+        else:
+            pending = get_pending_proposals()
+            if not pending:
+                st.info("승인 대기 제안서가 없습니다.")
+            else:
+                for pidx, proposal_path in enumerate(pending):
+                    try:
+                        proposal = json.loads(proposal_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+
+                    detected_at = proposal.get("detected_at", "")[:19]
+                    candidates = proposal.get("candidates", [])
+                    conf_avg = sum(c.get("confidence", 0) for c in candidates) / max(len(candidates), 1)
+
+                    # alert badge
+                    sources = {c.get("source_name", "") for c in candidates}
+                    priority_label = "🔴 P0" if sources & {"gwanbo", "molit_board", "moef_board"} else "🟡 P1/P2"
+
+                    with st.expander(
+                        f"{priority_label} {detected_at} — {len(candidates)}건 후보 (신뢰도 {conf_avg:.0%})",
+                        expanded=pidx == 0,
+                    ):
+                        for cidx, c in enumerate(candidates):
+                            action = "🔓 해제" if c.get("released_at") else "🔒 신규 지정"
+                            region = c.get("region") or "(지역 미추출)"
+                            st.markdown(
+                                f"**{action}** `{c.get('area_type','')}` — {region}  \n"
+                                f"고시: {c.get('announcement_no','—')} | 소스: {c.get('source_name','')} | 신뢰도: {c.get('confidence',0):.0%}"
+                            )
+                            if c.get("source_url"):
+                                st.caption(c["source_url"])
+                            if c.get("parser_warnings"):
+                                for w in c["parser_warnings"]:
+                                    st.warning(w, icon="⚠️")
+                            st.divider()
+
+                        c1, c2 = st.columns(2)
+                        if c1.button("✅ 전체 승인", key=f"approve_{pidx}"):
+                            try:
+                                n = apply_proposal(proposal_path)
+                                st.success(f"{n}건 반영 완료")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"반영 실패: {e}")
+
+                        if c2.button("🗑️ 무시·거절", key=f"reject_{pidx}"):
+                            try:
+                                data = json.loads(proposal_path.read_text(encoding="utf-8"))
+                                data["status"] = "rejected"
+                                data["rejected_at"] = __import__("datetime").datetime.now().isoformat()
+                                proposal_path.write_text(
+                                    json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"거절 처리 실패: {e}")
+
+    # ── 현행 규제지역 목록 ──────────────────────────────────────────────────────
+    with col_current:
+        st.markdown("### 📋 현행 규제지역 목록")
+        if not REG_FILE.exists():
+            st.error("manual_table.json 파일이 없습니다.")
+        else:
+            current_reg = json.loads(REG_FILE.read_text(encoding="utf-8"))
+            active = [r for r in current_reg if not r.get("released_at")]
+            released = [r for r in current_reg if r.get("released_at")]
+
+            tab_active, tab_released = st.tabs([f"현행 지정 ({len(active)})", f"해제 이력 ({len(released)})"])
+            with tab_active:
+                if active:
+                    st.dataframe(active, use_container_width=True, hide_index=True)
+                else:
+                    st.info("현재 지정된 규제지역이 없습니다.")
+            with tab_released:
+                if released:
+                    st.dataframe(released, use_container_width=True, hide_index=True)
+                else:
+                    st.info("해제 이력이 없습니다.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 탭 4: 통계
 # ──────────────────────────────────────────────────────────────────────────────
 
 with tab_stats:

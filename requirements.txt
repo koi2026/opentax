@@ -29,3 +29,8 @@ pydeck>=0.9.0
 # Utilities
 tqdm>=4.67.0
 pandas>=2.2.0
+feedparser>=6.0.0
+
+# 규제지역 감지 파이프라인
+playwright>=1.44.0          # MOLIT/MoEF WAF 우회 headless browser
+pdfplumber>=0.11.0          # 고시 첨부 PDF 파싱

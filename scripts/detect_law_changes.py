@@ -241,6 +241,16 @@ def main() -> None:
     except Exception as e:
         print(f"\n⚠ 스냅샷 저장 실패: {e}")
 
+    # 6. 규제지역 변경 감지
+    print("\n--- 규제지역 변경 감지 ---")
+    try:
+        from src.ingestion.area_designation_pipeline import run_pipeline
+        area_summary = run_pipeline(dry_run=args.dry_run)
+        if area_summary.get("alert_level"):
+            print(f"  ⚠ 규제지역 알림: {area_summary['alert_level']}")
+    except Exception as e:
+        print(f"  ⚠ 규제지역 감지 오류: {e}")
+
     print("\n=== 완료 ===")
 
 
