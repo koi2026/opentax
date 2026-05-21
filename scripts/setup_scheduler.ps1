@@ -7,21 +7,42 @@
 
 $TaskName    = "TaxRAG-LawChangeDetect"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$PythonExe   = (Get-Command python).Source
 $LogDir      = Join-Path $ProjectRoot "data\logs"
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-# 법령 개정 감지 + 규제지역 감지 통합 실행
-# --embed: 신규 법령 버전 발견 시 Pinecone 자동 업로드
-$ArgString = "-m scripts.detect_law_changes --embed"
+# ── Python 경로 탐색 (conda는 Admin 세션에서 PATH에 없을 수 있음) ─────────────
+$PythonExe = (Get-Command python -ErrorAction SilentlyContinue)
+if ($PythonExe) {
+    $PythonExe = $PythonExe.Source
+} else {
+    $candidates = @(
+        "$env:USERPROFILE\anaconda3\python.exe",
+        "$env:USERPROFILE\miniconda3\python.exe",
+        "C:\ProgramData\anaconda3\python.exe",
+        "C:\ProgramData\miniconda3\python.exe",
+        "C:\anaconda3\python.exe",
+        "C:\miniconda3\python.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { $PythonExe = $c; break }
+    }
+}
 
+if (-not $PythonExe) {
+    Write-Error "Python을 찾을 수 없습니다. conda 경로를 확인하세요."
+    exit 1
+}
+
+Write-Host "Python: $PythonExe"
+
+# ── 태스크 액션 ───────────────────────────────────────────────────────────────
 $Action = New-ScheduledTaskAction `
     -Execute $PythonExe `
-    -Argument $ArgString `
+    -Argument "-m scripts.detect_law_changes --embed" `
     -WorkingDirectory $ProjectRoot
 
-# 하루 2회 트리거 (09:00 / 18:00)
+# ── 트리거 (09:00 / 18:00) ────────────────────────────────────────────────────
 $Trigger0900 = New-ScheduledTaskTrigger -Daily -At "09:00"
 $Trigger1800 = New-ScheduledTaskTrigger -Daily -At "18:00"
 
@@ -31,6 +52,7 @@ $Settings = New-ScheduledTaskSettingsSet `
     -RestartInterval (New-TimeSpan -Minutes 10) `
     -MultipleInstances IgnoreNew
 
+# ── 기존 태스크 제거 후 재등록 ────────────────────────────────────────────────
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existing) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
@@ -48,11 +70,8 @@ Register-ScheduledTask `
 Write-Host ""
 Write-Host "=== 등록 완료 ==="
 Write-Host "Task     : $TaskName"
+Write-Host "Python   : $PythonExe"
 Write-Host "Schedule : 09:00 / 18:00 (하루 2회)"
-Write-Host "Log      : $LogDir\law_change_detect.log"
 Write-Host ""
 Write-Host "수동 실행:"
 Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
-Write-Host ""
-Write-Host "주의: 기존 스케줄러가 등록된 경우 재등록 필요 (관리자 PowerShell):"
-Write-Host "  .\scripts\setup_scheduler.ps1"
