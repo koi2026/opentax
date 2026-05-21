@@ -25,7 +25,45 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 RULINGS_DIR = Path("data/rulings")
 BATCH_SIZE = 100
 
-SourceType = Literal["ntis", "tt", "court", "nts"]
+# ── 출처 한국어 라벨 ───────────────────────────────────────────────────────────
+# source_type + source_type 필드로 사용자에게 보여줄 출처 표시
+SOURCE_LABELS: dict[str, str | dict] = {
+    "ntis":      "국세청 예규",
+    "tt":        "조세심판원 결정례",
+    "court":     "대법원 판례",
+    "nts": {     # source_type 필드로 세분화
+        "qt":         "국세청 질의회신",
+        "ic":         "국세청 세법해석례",
+        "pd":         "국세청 판단사례",
+        "hotissue":   "국세청 자주찾는쟁점별사례",
+        "_default":   "국세청 예규",
+    },
+    "decisions": {   # dcm_type 필드로 세분화
+        "tax_tribunal": "조세심판원 심판청구",
+        "review":       "국세청 심사청구",
+        "objection":    "국세청 이의신청",
+        "assessment":   "과세적부심사",
+        "_default":     "판례·결정례",
+    },
+    "pdf":       "세법집행기준",
+}
+
+
+def get_source_label(source: str, record: dict) -> str:
+    """레코드의 source + 세부 타입 필드로 한국어 출처 라벨 반환."""
+    entry = SOURCE_LABELS.get(source, source)
+    if isinstance(entry, str):
+        return entry
+    # dict인 경우 세부 타입으로 분기
+    sub_type = (
+        record.get("source_type")     # nts 계열
+        or record.get("dcm_type")     # decisions 계열
+        or "_default"
+    )
+    return entry.get(sub_type, entry.get("_default", source))
+
+
+SourceType = Literal["ntis", "tt", "court", "nts", "decisions", "pdf"]
 
 _NAMESPACE_MAP: dict[str, str] = {
     "ntis": "tax-ruling-ntis",
@@ -76,16 +114,20 @@ def _build_chunk(record: dict, source: str) -> dict:
     related_articles: list[str] = record.get("related_articles", [])
     keywords: list[str] = record.get("keywords", [])
 
+    source_label = get_source_label(source, record)
+
     return {
         "chunk_id": chunk_id,
         "full_text": full_text,
         "metadata": {
             "id": ruling_id,
             "source": source,
+            "source_label": source_label,
             "title": record.get("title", ""),
             "issued_at": issued_at_int,
             "related_articles": related_articles,
             "keywords": keywords,
+            "doc_number": record.get("doc_number", ""),
             "full_text": full_text,
         },
     }

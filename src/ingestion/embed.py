@@ -178,6 +178,7 @@ def embed_and_upload(chunks_path: Optional[Path] = None) -> int:
                 "version_mst": chunk.get("version_mst", chunk.get("law_mst", "")),
                 "law_category": chunk.get("law_category", ""),
                 "source": "law.go.kr",
+                "source_label": f"법령 ({law_name})",
                 # 본칙↔부칙 연결 — retrieve_with_buchik()가 이 목록으로 부칙 청크를 자동 보강
                 "linked_buchik_ids": chunk.get("linked_buchik_ids", []),
                 # 부칙 적용례 앵커 — "transfer_date"|"acquisition_date"|"contract_date"|"gift_date"|"death_date"|"effective_date"
@@ -243,6 +244,7 @@ def embed_and_upload_chunks(chunks: list[dict]) -> int:
                 "version_mst": chunk.get("version_mst", chunk.get("law_mst", "")),
                 "law_category": chunk.get("law_category", ""),
                 "source": "law.go.kr",
+                "source_label": f"법령 ({law_name})",
                 "linked_buchik_ids": chunk.get("linked_buchik_ids", []),
                 "entity_scopes": tags["entity_scopes"],
                 "topic_tags": tags["topic_tags"],

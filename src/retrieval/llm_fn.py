@@ -60,8 +60,10 @@ def _build_user_prompt(
     for i, chunk in enumerate(chunks, 1):
         m = chunk.metadata
         marker = " [부칙]" if chunk.included_as_linked_buchik else ""
+        source_label = getattr(m, "source_label", "") or m.law_name
         context_parts.append(
-            f"[{i}]{marker} {m.law_name} 제{m.article_number}조\n"
+            f"[{i}]{marker} {m.law_name} 제{m.article_number}조"
+            f"  ▶ 출처: {source_label}\n"
             f"(chunk_id: {m.chunk_id}, score: {chunk.score:.4f})\n"
             f"{chunk.content[:_MAX_CHUNK_CHARS]}"
         )
@@ -162,12 +164,19 @@ async def llm_fn(
             warnings=["JSON 파싱 실패 — 원문 반환"],
         )
 
+    # chunk_id → source_label 역조회 테이블
+    _label_map = {
+        c.metadata.chunk_id: getattr(c.metadata, "source_label", "") or c.metadata.law_name
+        for c in chunks
+    }
+
     citations = [
         Citation(
             chunk_id=c.get("chunk_id", ""),
             article=c.get("article", ""),
             excerpt=c.get("excerpt", ""),
             law_version=c.get("law_version", ""),
+            source_label=_label_map.get(c.get("chunk_id", ""), ""),
         )
         for c in data.get("citations", [])
     ]
@@ -252,12 +261,17 @@ async def llm_fn_stream(
 
     try:
         data = json.loads(raw_json)
+        _label_map = {
+            c.metadata.chunk_id: getattr(c.metadata, "source_label", "") or c.metadata.law_name
+            for c in chunks
+        }
         citations = [
             Citation(
                 chunk_id=c.get("chunk_id", ""),
                 article=c.get("article", ""),
                 excerpt=c.get("excerpt", ""),
                 law_version=c.get("law_version", ""),
+                source_label=_label_map.get(c.get("chunk_id", ""), ""),
             )
             for c in data.get("citations", [])
         ]

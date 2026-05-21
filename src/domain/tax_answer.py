@@ -25,6 +25,7 @@ class Citation:
     article: str        # 예: "소득세법 시행령 제154조 제1항"
     excerpt: str        # 관련 조문 발췌
     law_version: str    # 적용 법령 버전 (시행일 기준)
+    source_label: str = ""   # 출처 한국어 표시. 예: "국세청 질의회신", "조세심판원 심판청구"
 
 
 @dataclass
