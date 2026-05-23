@@ -106,7 +106,7 @@ async def chat_turn_stream(
             elif isinstance(item, PipelineResult):
                 ans = item.answer
                 citations_str = [
-                    c.article if hasattr(c, "article") else str(c)
+                    f"[{c.source_label}] {c.article}" if getattr(c, "source_label", "") else c.article
                     for c in ans.citations
                 ]
                 yield {
