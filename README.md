@@ -55,25 +55,17 @@
 
 ### 사전 요건
 
-- Python 3.12+
+- Docker Desktop 또는 Docker Engine + Docker Compose
+- Python 3.12+ (Docker를 쓰지 않는 경우)
 - Pinecone 계정 (Serverless 인덱스)
 - Anthropic API 키
 - OpenAI 또는 Upstage API 키 (임베딩용)
 
-### 설치
+### 설치 및 환경변수
 
 ```bash
-git clone https://github.com/JC0623/tax-rag-01.git
-cd tax-rag-01
-pip install -r requirements.txt
-```
-
-> **Windows**: `python`이 PATH에 없으면 전체 경로 사용
-> `C:\Users\{사용자}\AppData\Local\Programs\Python\Python312\python.exe`
-
-### 환경변수 설정
-
-```bash
+git clone https://github.com/Raw-Agent/korean-tax-rag.git
+cd korean-tax-rag
 cp .env.example .env
 ```
 
@@ -88,22 +80,55 @@ cp .env.example .env
 | `UPSTAGE_API_KEY` | Upstage Solar 임베딩 키 (선택, 우선 적용) |
 | `LAW_API_OC` | law.go.kr DRF OC 파라미터 (`jctax`) |
 
-### 실행 순서
+### Docker 개발 환경 실행
 
 ```bash
-# 1. 법령 데이터 수집 (최초 1회, 이후 캐시 사용)
-python src/collect.py
+# UI + FastAPI chat API + MCP SSE 서버 실행
+docker compose up --build
+```
 
-# 2. 임베딩 생성 및 Pinecone 업로드
-python src/embed.py
+접속 URL:
 
-# 3. RAG 파이프라인 로컬 테스트
-python src/rag.py
+- Streamlit UI: `http://localhost:8501`
+- FastAPI docs: `http://localhost:8000/docs`
+- MCP SSE: `http://localhost:8001`
 
-# 4. MCP 서버 실행 (별도 터미널)
-uvicorn src.mcp_server:app --host 0.0.0.0 --port 8001 --reload
+개발 명령은 `api` 서비스를 일회성 컨테이너로 사용합니다:
 
-# 5. Streamlit UI 실행
+```bash
+# 테스트
+docker compose run --rm api python -m pytest -q
+
+# 법령 데이터 수집
+docker compose run --rm api python -m src.ingestion.collect
+
+# 법령 임베딩 생성 및 Pinecone 업로드
+docker compose run --rm api python -m src.ingestion.embed
+
+# 유권해석/PDF 등 추가 수집 예시
+docker compose run --rm api python -m src.ingestion.collect_rulings_pdf
+docker compose run --rm api python -m src.ingestion.embed_rulings nts
+```
+
+### 로컬 Python 실행
+
+```bash
+# 1. 의존성 설치
+pip install -r requirements.txt
+
+# 2. 법령 데이터 수집 (최초 1회, 이후 캐시 사용)
+python -m src.ingestion.collect
+
+# 3. 임베딩 생성 및 Pinecone 업로드
+python -m src.ingestion.embed
+
+# 4. FastAPI chat API 실행
+uvicorn src.api.chat_api:app --host 0.0.0.0 --port 8000 --reload
+
+# 5. MCP SSE 서버 실행 (별도 터미널)
+python -m src.api.mcp_server --sse
+
+# 6. Streamlit UI 실행
 streamlit run src/ui.py --server.port 8501
 ```
 
@@ -116,11 +141,14 @@ streamlit run src/ui.py --server.port 8501
 ```
 tax-rag/
 ├── src/
-│   ├── collect.py        # law.go.kr DRF API → XML → JSON 청크 (2,238개)
-│   ├── embed.py          # 임베딩 생성 → Pinecone 업로드
-│   ├── rag.py            # LlamaIndex 검색 + BGE Reranker
-│   ├── mcp_server.py     # FastAPI + MCP 도구 서버
-│   ├── ui.py             # Streamlit 디버그 UI
+│   ├── api/
+│   │   ├── chat_api.py   # FastAPI chat API + chat_turn()
+│   │   └── mcp_server.py # FastMCP 도구 서버
+│   ├── domain/           # L2~L5 도메인 로직, 타입, 검증
+│   ├── ingestion/        # law.go.kr/유권해석 수집 + Pinecone 업로드
+│   ├── retrieval/        # Pinecone 검색 + LLM 호출
+│   ├── rag.py            # 레거시 자연어 RAG shim
+│   ├── ui.py             # Streamlit UI
 │   └── agents/
 │       ├── crew.py       # CrewAI Crew 정의
 │       ├── tools.py      # RAG/MCP 도구 래퍼
@@ -131,6 +159,8 @@ tax-rag/
 │   └── processed/        # JSON 청크 (.gitignore)
 ├── tests/                # 단위 테스트
 ├── .env.example          # 환경변수 템플릿
+├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
 ├── CLAUDE.md             # AI 코딩 어시스턴트 가이드
 └── README.md

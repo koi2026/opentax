@@ -18,6 +18,8 @@ mcp = FastMCP(
         "한국 양도소득세 비과세·감면·중과 여부를 판단하는 법령 RAG 서버입니다. "
         "모든 답변은 law.go.kr 법령 조문 검색 결과에만 근거합니다."
     ),
+    host=os.getenv("MCP_HOST", "0.0.0.0"),
+    port=int(os.getenv("MCP_PORT", "8001")),
 )
 
 
@@ -377,7 +379,6 @@ if __name__ == "__main__":
     import sys
     # 인자 없으면 stdio (Claude Desktop), --sse 이면 HTTP SSE
     if "--sse" in sys.argv:
-        port = int(os.getenv("MCP_PORT", "8001"))
-        mcp.run(transport="sse", host="0.0.0.0", port=port)
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
