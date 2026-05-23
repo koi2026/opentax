@@ -5,6 +5,7 @@ data/rulings/{ntis,tt,court}/*.json → Pinecone tax-ruling-{ntis,tt,court} 네�
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -104,7 +105,9 @@ def _build_chunk(record: dict, source: str) -> dict:
     full_text = full_text_raw[:4000]
 
     ruling_id: str = record.get("id", "")
-    chunk_id = f"{source}_{ruling_id}" if ruling_id else f"{source}_{hash(full_text_raw) & 0xFFFFFF}"
+    raw_chunk_id = f"{source}_{ruling_id}" if ruling_id else f"{source}_{hash(full_text_raw) & 0xFFFFFF}"
+    # Pinecone 벡터 ID는 ASCII만 허용 — 비ASCII 제거, 공백→언더스코어
+    chunk_id = re.sub(r"[^\x20-\x7E]", "", raw_chunk_id).replace(" ", "_").strip("_")
 
     issued_raw: str = record.get("issued_at", "")
     try:
