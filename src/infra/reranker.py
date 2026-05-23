@@ -3,15 +3,11 @@ BGE Cross-Encoder Reranker — 최종 조문 선택 직전 호출.
 """
 from __future__ import annotations
 
-import os
 from typing import Optional
 
-from dotenv import load_dotenv
 from sentence_transformers import CrossEncoder
 
-load_dotenv()
-
-BGE_RERANKER_MODEL = os.getenv("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+from src.config import BGE_RERANKER_MODEL
 
 _reranker: Optional[CrossEncoder] = None
 

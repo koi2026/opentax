@@ -3,17 +3,11 @@ Pinecone Serverless 클라이언트 — 인덱스 싱글톤 + 검색 헬퍼.
 """
 from __future__ import annotations
 
-import os
 from typing import Optional
 
-from dotenv import load_dotenv
 from pinecone import Pinecone
 
-load_dotenv()
-
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "tax-rag")
-PINECONE_NAMESPACE = os.getenv("PINECONE_NAMESPACE", "tax-law")
+from src.config import PINECONE_API_KEY, PINECONE_INDEX_NAME, PINECONE_NAMESPACE
 
 _pinecone_index = None
 

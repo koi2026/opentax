@@ -4,18 +4,18 @@
 """
 from __future__ import annotations
 
-import os
 import re
 from collections import Counter
 from typing import Optional, Tuple
 
-from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv()
-
-UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from src.config import (
+    OPENAI_API_KEY,
+    OPENAI_EMBEDDING_MODEL,
+    UPSTAGE_API_KEY,
+    UPSTAGE_QUERY_EMBEDDING_MODEL,
+)
 
 _embed_client: Optional[OpenAI] = None
 _embed_model: Optional[str] = None
@@ -30,10 +30,10 @@ def _get_embed_client() -> Tuple[OpenAI, str]:
                 api_key=UPSTAGE_API_KEY,
                 base_url="https://api.upstage.ai/v1",
             )
-            _embed_model = "solar-embedding-1-large-query"
+            _embed_model = UPSTAGE_QUERY_EMBEDDING_MODEL
         elif OPENAI_API_KEY:
             _embed_client = OpenAI(api_key=OPENAI_API_KEY)
-            _embed_model = "text-embedding-3-large"
+            _embed_model = OPENAI_EMBEDDING_MODEL
         else:
             raise RuntimeError("UPSTAGE_API_KEY 또는 OPENAI_API_KEY가 필요합니다")
     return _embed_client, _embed_model
