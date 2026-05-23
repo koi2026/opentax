@@ -141,7 +141,7 @@ def _post_action(
         "sortField": "FRS_RGT_DTM/DESC",
         "startCount": start,
         "viewCount": PAGE_SIZE,
-        "nowCnt": max(0, start - 1),  # 누적 조회 건수 (페이지네이션 기준)
+        "nowCnt": 0,
         "wnSessionUuid": str(uuid.uuid4()),
     }
 

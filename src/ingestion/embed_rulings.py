@@ -71,6 +71,7 @@ _NAMESPACE_MAP: dict[str, str] = {
     "court": "tax-ruling-court",
     "nts": "tax-ruling-nts",        # 국세법령정보시스템 (질의회신·판단사례·세법해석례)
     "decisions": "tax-ruling-decisions",  # 판례·결정례 (심판청구·심사청구·이의신청·판례)
+    "pdf": "tax-ruling-pdf",        # 세법집행기준 PDF 파싱본
 }
 
 
@@ -186,7 +187,7 @@ def embed_and_upload_rulings(source: str = "all") -> int:
     sources: list[str] = list(_NAMESPACE_MAP.keys()) if source == "all" else [source]
     invalid = [s for s in sources if s not in _NAMESPACE_MAP]
     if invalid:
-        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, nts, decisions, all")
+        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, nts, decisions, pdf, all")
 
     embed_client, embed_model, dimension = _build_embed_client()
     print(f"임베딩 모델: {embed_model} (dim={dimension})")
