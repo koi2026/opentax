@@ -61,13 +61,12 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
   - linked_buchik_ids, applicability_anchor, article_type 신규 필드 반영
 - [ ] **스케줄러 등록** — 관리자 PowerShell에서 `.\scripts\setup_scheduler.ps1`
   - 매일 23:00 자동 감지 + Pinecone 업로드
-- [ ] **유권해석 DB 수집 실행** — 코드 완성, 데이터 수집만 남음
-  - **순서**: ① → ② → ③ → ④ 순으로 실행
-  - ① `python -m src.ingestion.collect_rulings_revision --tax transfer`  (deprecated ID 먼저)
-  - ② `python -m src.ingestion.collect_rulings_nts --tax 양도소득세`
-  - ③ `python -m src.ingestion.collect_rulings_decisions --type tax_tribunal --keyword 양도`
-  - ④ `python -m src.ingestion.collect_rulings_pdf`  (세법집행기준 PDF, `data/rulings/pdf_source/` 에 넣고 실행)
-  - ⑤ 수집 후 embed → `python -m src.ingestion.embed_rulings nts` / `decisions` / `pdf`
+- [x] **유권해석 DB 수집 완료** — 3,785건 수집 + Pinecone 업로드 완료
+  - `data/rulings/nts/` 342건 → `tax-ruling-nts`
+  - `data/rulings/decisions/` 3,007건 → `tax-ruling-decisions` (12개 키워드 × 800건 한도)
+  - `data/rulings/pdf/` 436건 → `tax-ruling-pdf` (세법집행기준-2024)
+  - `data/rulings/deprecated_ids.json` 969개 deprecated 예규 ID
+  - 추가 수집 필요 시: `python -m src.ingestion.collect_rulings_decisions --keyword <키워드> --resume`
 
 ---
 
