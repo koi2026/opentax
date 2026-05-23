@@ -29,12 +29,18 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import ssl
 import sys
 import time
 import uuid
 from pathlib import Path
 
 import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_URL = "https://taxlaw.nts.go.kr"
 ACTION_URL = f"{BASE_URL}/action.do"
@@ -80,7 +86,32 @@ _HEADERS = {
 PAGE_SIZE = 50
 
 
+# ── SSL 어댑터 ─────────────────────────────────────────────────────────────────
+
+class _LegacySSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = create_urllib3_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+        kwargs["ssl_context"] = ctx
+        super().init_poolmanager(*args, **kwargs)
+
+    def send(self, request, **kwargs):
+        kwargs["verify"] = False
+        return super().send(request, **kwargs)
+
+
+def _make_session() -> requests.Session:
+    s = requests.Session()
+    s.mount("https://", _LegacySSLAdapter())
+    return s
+
+
 # ── API 호출 ───────────────────────────────────────────────────────────────────
+
+_MAX_RETRIES = 3
+
 
 def _post_action(
     session: requests.Session,
@@ -89,7 +120,7 @@ def _post_action(
     keyword: str,
     start: int,
 ) -> dict:
-    """action.do POST 호출. 빈 dict 반환 시 오류."""
+    """action.do POST 호출. 실패 시 최대 3회 재시도."""
     param_data = {
         "prtsPrdcOrgnClCtl": [],
         "prtsDcsTypeClCtl": [],
@@ -110,7 +141,7 @@ def _post_action(
         "sortField": "FRS_RGT_DTM/DESC",
         "startCount": start,
         "viewCount": PAGE_SIZE,
-        "nowCnt": 0,
+        "nowCnt": max(0, start - 1),  # 누적 조회 건수 (페이지네이션 기준)
         "wnSessionUuid": str(uuid.uuid4()),
     }
 
@@ -119,16 +150,22 @@ def _post_action(
         "paramData": json.dumps(param_data, ensure_ascii=False),
     }
 
-    try:
-        resp = session.post(ACTION_URL, data=form_data, headers=_HEADERS, timeout=20)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        print(f"  API 요청 오류 (start={start}): {e}")
-        return {}
-    except json.JSONDecodeError as e:
-        print(f"  JSON 파싱 오류 (start={start}): {e}")
-        return {}
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = session.post(ACTION_URL, data=form_data, headers=_HEADERS, timeout=25)
+            resp.raise_for_status()
+            raw = resp.json()
+            # 내부 데이터 추출: {"status":..., "data": {"ASIPDI002PR01": {...}}}
+            inner = (raw.get("data") or {}).get("ASIPDI002PR01", raw)
+            return inner
+        except requests.RequestException as e:
+            print(f"  API 요청 오류 (start={start}, 시도 {attempt}/{_MAX_RETRIES}): {e}")
+        except json.JSONDecodeError as e:
+            print(f"  JSON 파싱 오류 (start={start}): {e}")
+            return {}
+        if attempt < _MAX_RETRIES:
+            time.sleep(2.0 * attempt)
+    return {}
 
 
 # ── 레코드 파싱 ────────────────────────────────────────────────────────────────
@@ -136,78 +173,84 @@ def _post_action(
 def _clean(text: str | None) -> str:
     if not text:
         return ""
-    return re.sub(r"\s+", " ", str(text)).strip()
+    t = re.sub(r"<!H[SE]>", "", str(text))  # API 하이라이트 태그 제거
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def _parse_record(item: dict, dcm_type: str) -> dict | None:
-    """API 응답 단건을 embed_rulings.py 호환 포맷으로 변환."""
-    # 공통 ID 필드 탐색
+    """API 응답 단건을 embed_rulings.py 호환 포맷으로 변환.
+
+    body[].dcm 필드는 모두 대문자: DOC_ID, GIST_CNTN, LBL1_TTL, ...
+    """
+    # ID: DOC_ID 우선 (실제 API 필드명)
     doc_id = (
-        item.get("ntstBscId")
+        item.get("DOC_ID")
+        or item.get("ntstBscId")
         or item.get("dcmId")
         or item.get("id")
-        or item.get("DCM_ID")
     )
     if not doc_id:
         return None
 
     doc_id = str(doc_id)
 
-    # 제목
-    title = _clean(
-        item.get("dcmTitl")
-        or item.get("DCM_TITL")
-        or item.get("title")
-        or item.get("TITL")
-    )
+    # 제목: LBL1_TTL이 단순 유형 레이블("심판청구")인 경우 사건번호+세목으로 보완
+    raw_title = _clean(item.get("LBL1_TTL") or item.get("dcmTitl") or "")
+    _type_labels = {"심판청구", "심사청구", "이의신청", "과세적부"}
+    if not raw_title or raw_title in _type_labels:
+        _case_no = _clean(item.get("NTST_FARE_INTC_GRP_SN") or "")
+        _tax_nm = _clean(item.get("NTST_TLAW_CL_NM") or "")
+        _type_nm = raw_title or DECISION_TYPES.get(dcm_type, {}).get("name", dcm_type)
+        title = f"[{_type_nm} {_case_no}] {_tax_nm}" if _case_no else f"[{_type_nm}] {_tax_nm}"
+    else:
+        title = raw_title
 
-    # 요지 / 내용 (answer 역할)
+    # 요지/결정 요약 (answer 역할): GIST_CNTN
     answer = _clean(
-        item.get("dcmRgznRsumDcrt")
-        or item.get("rsumDcrt")
-        or item.get("RSUM_DCRT")
+        item.get("GIST_CNTN")
+        or item.get("CNTN")
+        or item.get("dcmRgznRsumDcrt")
         or item.get("summary")
-        or item.get("content")
-    )
-
-    # 요약 (question 역할)
-    question = _clean(
-        item.get("prts")
-        or item.get("PRTS")
-        or item.get("point")
         or ""
     )
 
-    # 발행일
+    # 쟁점 요약 (question 역할): 제목에서 추출하거나 빈 문자열
+    question = _clean(
+        item.get("PRTS_BRKD_CNTN")
+        or item.get("prts")
+        or ""
+    )
+
+    # 발행일: DCM_RGT_DTM_S (YYYYMMDD 형식) 또는 NTST_DCM_RGT_DT
     issued_raw = _clean(
-        item.get("frsRgtDtm")
-        or item.get("FRS_RGT_DTM")
-        or item.get("dcmDt")
-        or item.get("date")
+        item.get("DCM_RGT_DTM_S")
+        or item.get("NTST_DCM_RGT_DT")
+        or item.get("frsRgtDtm")
         or ""
     )
     issued_at = re.sub(r"[^\d]", "", issued_raw)[:8]
 
-    # 문서번호
+    # 문서번호/사건번호: NTST_FARE_INTC_GRP_SN
     doc_number = _clean(
-        item.get("dcmNo")
-        or item.get("DCM_NO")
-        or item.get("docNo")
+        item.get("NTST_FARE_INTC_GRP_SN")
+        or item.get("dcmNo")
         or ""
     )
 
-    # 결정 유형명
+    # 결정 유형명: NTST_DCM_CL_NM ("심판") 또는 LBL1_MTCLS_TTL
     dcm_cl_nm = _clean(
-        item.get("dcmClNm")
-        or item.get("DCM_CL_NM")
+        item.get("NTST_DCM_CL_NM")
+        or item.get("LBL1_MTCLS_TTL")
         or DECISION_TYPES.get(dcm_type, {}).get("name", "")
     )
 
-    # 결과 (각하/기각/인용)
+    # 세목: NTST_TLAW_CL_NM ("양도소득세")
+    tax_class = _clean(item.get("NTST_TLAW_CL_NM") or "")
+
+    # 결과 (각하/기각/인용): NTST_DCM_RSLT_CL_NM
     result = _clean(
-        item.get("dcmRslt")
-        or item.get("DCM_RSLT")
-        or item.get("result")
+        item.get("NTST_DCM_RSLT_CL_NM")
+        or item.get("dcmRslt")
         or ""
     )
 
@@ -234,6 +277,7 @@ def _parse_record(item: dict, dcm_type: str) -> dict | None:
         "doc_number": doc_number,
         "dcm_type": dcm_type,
         "dcm_cl_nm": dcm_cl_nm,
+        "tax_class": tax_class,
         "result": result,
         "url": f"{BASE_URL}/pd/USEPDI002P.do?ntstBscId={doc_id}",
         "deprecated": False,
@@ -241,10 +285,44 @@ def _parse_record(item: dict, dcm_type: str) -> dict | None:
 
 
 def _extract_items(resp_data: dict) -> tuple[list[dict], int]:
-    """API 응답에서 item 리스트와 총 건수 추출. 키 이름을 탐색적으로 처리."""
+    """
+    action.do ASIPDI002PR01 응답에서 item 리스트와 총 건수 추출.
+
+    실제 구조:
+      {"top": [{"dcm":..., "categoryMap": {"SUB_ID_CATEGORY": [{"name":"001_08","count":"37709"}]}}],
+       "body": [{"dcm": {ALLCAPS fields}, ...}, ...]}
+    """
     total = 0
     items: list[dict] = []
 
+    if isinstance(resp_data, dict) and ("top" in resp_data or "body" in resp_data):
+        # ASIPDI002PR01 구조
+        top_list = resp_data.get("top", [])
+        body_list = resp_data.get("body", [])
+
+        # 총 건수: top[0].categoryMap.SUB_ID_CATEGORY[].count (합산)
+        if top_list and isinstance(top_list[0], dict):
+            cat_map = top_list[0].get("categoryMap") or {}
+            sub_cats = cat_map.get("SUB_ID_CATEGORY", [])
+            for cat in sub_cats:
+                try:
+                    total += int(cat.get("count", 0))
+                except (ValueError, TypeError):
+                    pass
+            if not total:
+                total = len(body_list)
+
+        # 아이템: body 각 항목의 dcm 필드를 평탄화
+        for b_item in body_list:
+            if isinstance(b_item, dict) and "dcm" in b_item:
+                dcm = b_item["dcm"]
+                # 유사문서 정보 합치기
+                flat = dict(dcm)
+                flat["_similar"] = b_item.get("smlrDcmClCtl", [])
+                items.append(flat)
+        return items, total
+
+    # 레거시 / 기타 구조 탐색
     for total_key in ["totalCount", "total_count", "TOTAL_COUNT", "totCnt", "cnt"]:
         if total_key in resp_data:
             try:
@@ -258,7 +336,6 @@ def _extract_items(resp_data: dict) -> tuple[list[dict], int]:
             items = resp_data[list_key]
             break
 
-    # 응답이 바로 리스트인 경우
     if not items and isinstance(resp_data, list):
         items = resp_data
 
@@ -292,7 +369,7 @@ def collect_decisions(
     types = decision_types or ["tax_tribunal"]
     DECISIONS_DIR.mkdir(parents=True, exist_ok=True)
 
-    session = requests.Session()
+    session = _make_session()
     stats = {"saved": 0, "skipped": 0, "failed": 0}
 
     for dtype in types:
@@ -320,40 +397,47 @@ def collect_decisions(
         if dry_run:
             continue
 
-        # 첫 페이지 처리
-        all_items = list(items)
+        def _save_batch(batch_items: list[dict]) -> None:
+            for item in batch_items:
+                record = _parse_record(item, dtype)
+                if not record:
+                    stats["failed"] += 1
+                    continue
+                file_id = record["id"]
+                if file_id in existing_ids:
+                    stats["skipped"] += 1
+                    continue
+                out_path = DECISIONS_DIR / f"{file_id}.json"
+                out_path.write_text(
+                    json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                existing_ids.add(file_id)
+                stats["saved"] += 1
 
-        # 나머지 페이지 수집
+        # 첫 페이지 저장
+        _save_batch(items)
+
+        # 나머지 페이지 수집 + 즉시 저장 (resume 지원)
         start = PAGE_SIZE + 1
+        consecutive_empty = 0
         while start <= limit:
             resp = _post_action(session, cfg["dcmClCdCtl"], cfg["collectionName"], keyword, start)
             batch, _ = _extract_items(resp)
             if not batch:
-                break
-            all_items.extend(batch)
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    print(f"  ⚠ 연속 3회 빈 응답 (start={start}) — 수집 중단")
+                    break
+                print(f"  재시도 대기 (start={start}, 시도 {consecutive_empty}/3)")
+                time.sleep(3.0 * consecutive_empty)
+                continue
+            consecutive_empty = 0
+            _save_batch(batch)
             start += PAGE_SIZE
             time.sleep(delay)
 
-            if start % 500 == 1:
-                print(f"  진행: {start}/{limit}")
-
-        # 저장
-        for item in all_items:
-            record = _parse_record(item, dtype)
-            if not record:
-                stats["failed"] += 1
-                continue
-
-            file_id = record["id"]
-            if file_id in existing_ids:
-                stats["skipped"] += 1
-                continue
-
-            out_path = DECISIONS_DIR / f"{file_id}.json"
-            out_path.write_text(
-                json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            stats["saved"] += 1
+            if (start - 1) % 500 < PAGE_SIZE:
+                print(f"  진행: {start - 1}/{limit} (저장={stats['saved']} 스킵={stats['skipped']})")
 
         print(f"  [{dtype}] 저장={stats['saved']} 스킵={stats['skipped']} 실패={stats['failed']}")
 
