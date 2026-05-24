@@ -1,6 +1,6 @@
 [
   {
-    "case_id": "5983ff20",
+    "case_id": "e414add7",
     "description": "보유기간 364일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -22,7 +22,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "fc5f534d",
+    "case_id": "a2769b14",
     "description": "보유기간 365일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -44,7 +44,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "437c4b36",
+    "case_id": "9590cfb9",
     "description": "보유기간 366일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -66,7 +66,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "1f2f2227",
+    "case_id": "b9c58f2c",
     "description": "보유기간 729일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -88,7 +88,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "30f20201",
+    "case_id": "fc2f2695",
     "description": "보유기간 730일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -110,7 +110,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "e9781baa",
+    "case_id": "a5fc0601",
     "description": "보유기간 1095일 경계 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -132,7 +132,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "415b2b9d",
+    "case_id": "41c4ecd2",
     "description": "12억 미달 비과세",
     "fact_json": {
       "transfer_date": "20260524",
@@ -156,7 +156,7 @@
     ]
   },
   {
-    "case_id": "13921451",
+    "case_id": "944bc53a",
     "description": "12억 정확히 비과세한도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -180,7 +180,7 @@
     ]
   },
   {
-    "case_id": "7943dc50",
+    "case_id": "a1a972ec",
     "description": "12억 초과 고가주택",
     "fact_json": {
       "transfer_date": "20260524",
@@ -204,7 +204,7 @@
     ]
   },
   {
-    "case_id": "31b9b1ab",
+    "case_id": "5a7e345f",
     "description": "12억 +3억 고가주택",
     "fact_json": {
       "transfer_date": "20260524",
@@ -228,7 +228,7 @@
     ]
   },
   {
-    "case_id": "e0f889b0",
+    "case_id": "5b6b14b9",
     "description": "세대 내 1주택 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -250,7 +250,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "4d57096c",
+    "case_id": "0e3e10af",
     "description": "세대 내 2주택 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -272,7 +272,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "a5487dca",
+    "case_id": "804f8c1f",
     "description": "세대 내 3주택 케이스",
     "fact_json": {
       "transfer_date": "20260524",
@@ -294,7 +294,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "eeacd6a9",
+    "case_id": "2514632c",
     "description": "고가주택 1세대1주택 — 12억 이상 (초과분만 과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -316,7 +316,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ad8cc35b",
+    "case_id": "58908efe",
     "description": "고가주택 — 12억 정확히 (비과세 한도)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -338,7 +338,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "a157df04",
+    "case_id": "6da4aba1",
     "description": "고가주택 — 다주택 중과 + 12억 초과",
     "fact_json": {
       "transfer_date": "20260524",
@@ -349,7 +349,7 @@
       "transfer_price": 1500000000,
       "acquisition_price": 600000000,
       "residence_years": 3.0,
-      "is_adjustment_area_at_transfer": false
+      "is_adjustment_area_at_transfer": true
     },
     "expected_verdict": "중과",
     "boundary_type": "price_boundary",
@@ -360,7 +360,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "64cd4425",
+    "case_id": "a996cb7c",
     "description": "일시적2주택 — 3년 내 종전주택 양도 (비과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -389,7 +389,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "24e339bc",
+    "case_id": "c01060d7",
     "description": "일시적2주택 — 3년 초과 후 양도 (일반과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -418,7 +418,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "207276fc",
+    "case_id": "ba212404",
     "description": "일시적2주택 — 신규주택 취득 후 1일 경과 (비과세 여부)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -447,7 +447,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0b9e25db",
+    "case_id": "9ec47998",
     "description": "일시적2주택 — 조정→조정 2년거주 충족",
     "fact_json": {
       "transfer_date": "20260524",
@@ -476,7 +476,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "9e5d50dd",
+    "case_id": "290c0917",
     "description": "상속주택 — 상속 후 5년 이내 양도 (1주택 간주)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -505,7 +505,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "688fef92",
+    "case_id": "42116f56",
     "description": "상속주택 — 상속 후 5년 초과 양도 (다주택 취급)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -534,7 +534,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "213b47d0",
+    "case_id": "2eb7f8a7",
     "description": "상속주택 — 협의분할 취득일 기산 (취득일 경계)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -563,7 +563,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "b97047d7",
+    "case_id": "b61da25c",
     "description": "이월과세 — 증여 후 10년 이내 양도 (원취득가액 적용)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -593,7 +593,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "bddd6e27",
+    "case_id": "e8ffc7d2",
     "description": "이월과세 — 증여 후 10년 초과 양도 (증여받은 가액 적용)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -623,7 +623,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "8c3a456c",
+    "case_id": "b6e85c72",
     "description": "이월과세 — 직계존속 증여, 시가보다 저가 취득",
     "fact_json": {
       "transfer_date": "20260524",
@@ -654,7 +654,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "7200bb58",
+    "case_id": "640fc840",
     "description": "상생임대 — 거주요건 2년 대신 1년6개월로 비과세",
     "fact_json": {
       "transfer_date": "20260524",
@@ -667,9 +667,15 @@
       "residence_years": 1.5,
       "is_adjustment_area_at_transfer": true,
       "is_adjustment_area_at_acquisition": true,
-      "sangsaeng_rental_contract_date": "20230101",
-      "sangsaeng_rental_period_months": 24,
-      "sangsaeng_rental_5pct_satisfied": true
+      "special_cases": {
+        "sangsaeng_rental": {
+          "contract_date": "20230101",
+          "contract_period_months": 24,
+          "previous_monthly_rent": 1000000,
+          "new_monthly_rent": 1040000,
+          "has_prior_contract": true
+        }
+      }
     },
     "expected_verdict": "비과세",
     "boundary_type": "special_case",
@@ -680,7 +686,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0910215c",
+    "case_id": "aa2f30ae",
     "description": "상생임대 — 2021-12-20 이전 계약 (특례 미적용)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -693,9 +699,15 @@
       "residence_years": 1.5,
       "is_adjustment_area_at_transfer": true,
       "is_adjustment_area_at_acquisition": true,
-      "sangsaeng_rental_contract_date": "20211201",
-      "sangsaeng_rental_period_months": 24,
-      "sangsaeng_rental_5pct_satisfied": true
+      "special_cases": {
+        "sangsaeng_rental": {
+          "contract_date": "20211201",
+          "contract_period_months": 24,
+          "previous_monthly_rent": 1000000,
+          "new_monthly_rent": 1040000,
+          "has_prior_contract": true
+        }
+      }
     },
     "expected_verdict": null,
     "boundary_type": "special_case",
@@ -706,7 +718,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "3f0331df",
+    "case_id": "04e2b6c8",
     "description": "상생임대 — 임대료 5% 초과 인상 (특례 박탈)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -719,9 +731,15 @@
       "residence_years": 1.5,
       "is_adjustment_area_at_transfer": true,
       "is_adjustment_area_at_acquisition": true,
-      "sangsaeng_rental_contract_date": "20220601",
-      "sangsaeng_rental_period_months": 24,
-      "sangsaeng_rental_5pct_satisfied": false
+      "special_cases": {
+        "sangsaeng_rental": {
+          "contract_date": "20220601",
+          "contract_period_months": 24,
+          "previous_monthly_rent": 1000000,
+          "new_monthly_rent": 1060000,
+          "has_prior_contract": true
+        }
+      }
     },
     "expected_verdict": null,
     "boundary_type": "special_case",
@@ -732,7 +750,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "4b73aabf",
+    "case_id": "60ef2746",
     "description": "원조합원 입주권 양도 — 비조정지역 + 10년 보유 (비과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -762,7 +780,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c7f7128a",
+    "case_id": "8a5d4421",
     "description": "승계조합원 입주권 양도 — 1년6개월 보유 (60% 단기세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -791,7 +809,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "65b12f52",
+    "case_id": "f49389a1",
     "description": "승계조합원 입주권 — 3년 보유 (일반과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -820,7 +838,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "19fa6b03",
+    "case_id": "82ce58e7",
     "description": "농어촌주택 보유 — 일반주택 1세대1주택 비과세 인정",
     "fact_json": {
       "transfer_date": "20260524",
@@ -847,7 +865,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "81834e7f",
+    "case_id": "f339f146",
     "description": "농어촌주택 본인 취득 후 3년 미경과 — 특례 미적용",
     "fact_json": {
       "transfer_date": "20260524",
@@ -874,7 +892,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "e7457781",
+    "case_id": "f10cda7b",
     "description": "동거봉양합가 — 합가 후 10년 이내 양도 (1주택 간주)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -902,7 +920,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ed1d4ce6",
+    "case_id": "bc563783",
     "description": "동거봉양합가 — 합가 후 10년 초과 양도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -930,7 +948,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "383f90f0",
+    "case_id": "6a048e62",
     "description": "비거주자 — 국내 1주택 양도 (비과세 불가)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -953,7 +971,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "feb229f8",
+    "case_id": "af657425",
     "description": "비거주자 — 단기보유 국내주택 (단기세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -976,7 +994,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "2ced1829",
+    "case_id": "ea897f2d",
     "description": "분양권 — 2021-01-01 이후 취득, 1년 미만 보유 (70% 세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -999,7 +1017,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "9cdd4d34",
+    "case_id": "6f03d508",
     "description": "분양권 — 2021-01-01 이후 취득, 1년 이상 보유 (60% 세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1022,7 +1040,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "3187a088",
+    "case_id": "3395987d",
     "description": "분양권 — 1세대 1분양권 비과세 요건 (완공 후 이전)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1044,7 +1062,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "5249e4e5",
+    "case_id": "7a68dce1",
     "description": "[중과부활] 조정지역 2주택 양도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1070,7 +1088,7 @@
     ]
   },
   {
-    "case_id": "69c8e994",
+    "case_id": "1a831666",
     "description": "[중과부활] 조정지역 3주택 양도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1096,7 +1114,7 @@
     ]
   },
   {
-    "case_id": "469f7265",
+    "case_id": "fe3c2835",
     "description": "비조정지역 2주택 — 기본세율 (중과 비해당)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1122,7 +1140,7 @@
     ]
   },
   {
-    "case_id": "cd55313c",
+    "case_id": "0d853f58",
     "description": "조정지역 2주택 — 장기보유특별공제 배제 여부",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1147,7 +1165,7 @@
     ]
   },
   {
-    "case_id": "90fece34",
+    "case_id": "ee0557d4",
     "description": "1년 미만 보유 아파트 양도 (70% 세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1170,7 +1188,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "42094ada",
+    "case_id": "7bd4586d",
     "description": "1년 ~ 2년 보유 아파트 양도 (60% 세율)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1193,7 +1211,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c6fb1f88",
+    "case_id": "620191dc",
     "description": "정확히 1년 보유 경계 (365일)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1215,7 +1233,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "a8f61734",
+    "case_id": "f8127a1b",
     "description": "정확히 2년 보유 경계 (730일) — 단기세율 탈출",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1237,7 +1255,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "6cea7713",
+    "case_id": "15025ac5",
     "description": "transfer_price 누락 → L2 차단",
     "fact_json": {
       "transfer_date": "20260401",
@@ -1258,7 +1276,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "e7ec64dc",
+    "case_id": "2957cbed",
     "description": "배우자증여 + original_acquisition_price 누락 → L2 차단",
     "fact_json": {
       "transfer_date": "20260401",
@@ -1285,7 +1303,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "1279fbab",
+    "case_id": "ab020a39",
     "description": "상속주택 death_date 누락 → L2 차단",
     "fact_json": {
       "transfer_date": "20260401",
@@ -1307,7 +1325,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "e2a797ad",
+    "case_id": "a76ce56b",
     "description": "증여 취득 + is_gift_from_spouse_or_lineal 미확인 → L2 차단",
     "fact_json": {
       "transfer_date": "20260401",
@@ -1329,7 +1347,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "329ad02f",
+    "case_id": "85c76854",
     "description": "장기보유특별공제 — 보유3년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1351,7 +1369,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "1576ab4e",
+    "case_id": "e0a76e5e",
     "description": "장기보유특별공제 — 보유4년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1373,7 +1391,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "2d97ae87",
+    "case_id": "14e74fce",
     "description": "장기보유특별공제 — 보유5년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1395,7 +1413,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "55116b92",
+    "case_id": "714b3bc5",
     "description": "장기보유특별공제 — 보유6년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1417,7 +1435,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ca10e576",
+    "case_id": "5c112789",
     "description": "장기보유특별공제 — 보유7년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1439,7 +1457,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ee37425d",
+    "case_id": "fa473d83",
     "description": "장기보유특별공제 — 보유8년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1461,7 +1479,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "df63f589",
+    "case_id": "ad4d1972",
     "description": "장기보유특별공제 — 보유9년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1483,7 +1501,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0f8458c5",
+    "case_id": "b5c59e1e",
     "description": "장기보유특별공제 — 보유10년 거주2년 (1세대1주택)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1505,7 +1523,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "d0642ce8",
+    "case_id": "4bd34e27",
     "description": "장기보유특별공제 — 보유10년 거주0년 (표2 아닌 표1 적용)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1528,7 +1546,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0d83d77d",
+    "case_id": "08e6c6f3",
     "description": "8년 자경농지 양도소득세 감면 (§69)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1551,7 +1569,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "1fad7c90",
+    "case_id": "fe649c44",
     "description": "장기임대주택 양도세 감면 — 10년 이상 임대 (§97의3)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1581,7 +1599,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "d46c12e1",
+    "case_id": "88f11c4e",
     "description": "미분양주택 취득 감면 (§98의2) — 5년 이내 양도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1604,7 +1622,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "905e4324",
+    "case_id": "4a3ffed9",
     "description": "신축주택 취득 감면 (§99의3) — 요건 충족",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1627,7 +1645,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "276428ba",
+    "case_id": "a2884761",
     "description": "공익사업 수용 감면 (§77) — 채권보상",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1656,7 +1674,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ab1da3e6",
+    "case_id": "f476d38c",
     "description": "일시적2주택 + 고가주택 — 12억 초과, 3년 이내 양도",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1685,7 +1703,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0c73ba02",
+    "case_id": "11962174",
     "description": "상속주택 보유 + 일반주택 배우자증여 후 이월과세 쟁점",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1720,7 +1738,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "71341b8c",
+    "case_id": "27a17824",
     "description": "동거봉양합가 + 신규주택 취득으로 3주택 → 1주택 간주 여부",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1754,7 +1772,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c5ff7e4b",
+    "case_id": "cf201339",
     "description": "비거주자 + 조정지역 2주택 — 중과 여부",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1778,7 +1796,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "80211d26",
+    "case_id": "c0f8aeac",
     "description": "분양권 보유 + 기존주택 양도 (일시적2주택 특례 적용 여부)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1807,7 +1825,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c757c2c1",
+    "case_id": "36f63207",
     "description": "특수관계자 저가양도 — 시가의 70% 이하 (부당행위 추정)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1832,7 +1850,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ff1e563d",
+    "case_id": "bcb7d411",
     "description": "특수관계자 고가양수 → 양도자 입장 (부당행위 비해당)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1856,7 +1874,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "41b93d61",
+    "case_id": "710417b5",
     "description": "특수관계자 거래 + 1세대1주택 — 비과세 배제 여부",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1881,7 +1899,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "ff4c4a23",
+    "case_id": "f12c89a8",
     "description": "조정지역 취득 + 조정지역 양도 — 거주요건 2년 필요",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1904,7 +1922,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "92a0cd45",
+    "case_id": "8528da2f",
     "description": "조정지역 취득 + 조정지역 양도 — 거주요건 1년 미달",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1927,7 +1945,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "08dc666f",
+    "case_id": "26bd2ff9",
     "description": "비조정지역 취득 + 이후 조정지역 편입 — 거주요건 불요",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1950,7 +1968,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "b8f12668",
+    "case_id": "796e0b7c",
     "description": "조정지역 취득 + 이후 해제 후 양도 — 거주요건",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1973,7 +1991,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0c9ebc25",
+    "case_id": "9b2fa1f3",
     "description": "1주택 — 보유2년+거주2년 충족, 비조정지역 (비과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -1997,7 +2015,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "0492bd8b",
+    "case_id": "e2e8c073",
     "description": "1주택 — 거주요건 충족 + 12억 이하 (비과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2020,7 +2038,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "6a759538",
+    "case_id": "dc741d94",
     "description": "1주택 — 보유2년 미달 (비과세 불가)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2043,7 +2061,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "017e62e2",
+    "case_id": "6a5bd5ab",
     "description": "1주택 — 직전 1년 거주 + 해외출국 (§154④ 특례)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2066,7 +2084,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "e9e43617",
+    "case_id": "f26517b6",
     "description": "1주택 — 미등기 전매 (70% 세율, 비과세 배제)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2088,7 +2106,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "5069c90d",
+    "case_id": "39e1c574",
     "description": "1주택 + 상가 동시 보유 — 주택 비과세 여부",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2111,7 +2129,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c9fd1927",
+    "case_id": "3a104718",
     "description": "2주택 비조정지역 — 일반세율 적용",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2135,7 +2153,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "31aabf7e",
+    "case_id": "26a6a0de",
     "description": "1주택 보유2년 미달 (730일 미만) + 비조정 — 단기세율",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2158,7 +2176,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "60caae3f",
+    "case_id": "37d4b112",
     "description": "1주택 — 조정지역 거주요건 미충족 (일반과세)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2182,7 +2200,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "22524eaf",
+    "case_id": "b97f0522",
     "description": "토지(나대지) 5년 이상 보유 — 일반과세",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2205,7 +2223,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "b7c7888c",
+    "case_id": "eeb528d0",
     "description": "상가 양도 — 일반과세 (비과세 불가)",
     "fact_json": {
       "transfer_date": "20260524",
@@ -2228,7 +2246,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "d032e90d",
+    "case_id": "42250737",
     "description": "전체 필드 누락 — fact_json 비어있음",
     "fact_json": {},
     "expected_verdict": "사실관계부족",
@@ -2240,7 +2258,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "726b76ae",
+    "case_id": "480165f1",
     "description": "transfer_date 없음 — 날짜 기준 판단 불가",
     "fact_json": {
       "property_type": "아파트",
@@ -2257,7 +2275,7 @@
     "registry_deps": []
   },
   {
-    "case_id": "c3a95eb8",
+    "case_id": "966d59fd",
     "description": "household_house_count 없음 — 다주택 여부 판단 불가",
     "fact_json": {
       "transfer_date": "20260401",

@@ -332,18 +332,24 @@ def generate_sangsaeng_rental_cases(
         {
             "desc": "상생임대 — 거주요건 2년 대신 1년6개월로 비과세",
             "contract_date": "20230101",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_040_000,   # 4% 인상 (5% 이내 충족)
             "expected": "비과세",
             "tags": ["상생임대", "거주요건완화"],
         },
         {
             "desc": "상생임대 — 2021-12-20 이전 계약 (특례 미적용)",
             "contract_date": "20211201",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_040_000,
             "expected": None,
             "tags": ["상생임대", "기간외계약"],
         },
         {
             "desc": "상생임대 — 임대료 5% 초과 인상 (특례 박탈)",
             "contract_date": "20220601",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_060_000,   # 6% 인상 → 특례 박탈
             "expected": None,
             "tags": ["상생임대", "임대료초과"],
         },
@@ -362,9 +368,15 @@ def generate_sangsaeng_rental_cases(
                 "residence_years": 1.5,
                 "is_adjustment_area_at_transfer": True,
                 "is_adjustment_area_at_acquisition": True,
-                "sangsaeng_rental_contract_date": s["contract_date"],
-                "sangsaeng_rental_period_months": 24,
-                "sangsaeng_rental_5pct_satisfied": s["contract_date"] != "20220601",
+                "special_cases": {
+                    "sangsaeng_rental": {
+                        "contract_date": s["contract_date"],
+                        "contract_period_months": 24,
+                        "previous_monthly_rent": s["prev_rent"],
+                        "new_monthly_rent": s["new_rent"],
+                        "has_prior_contract": True,
+                    }
+                },
             },
             expected_verdict=s["expected"],
             boundary_type="special_case",
@@ -858,6 +870,7 @@ def generate_high_value_exempt_cases(
         },
     ]
     for s in scenarios:
+        is_multi_house = "다주택" in s["desc"]
         yield SyntheticCase(
             description=s["desc"],
             fact_json={
@@ -865,11 +878,12 @@ def generate_high_value_exempt_cases(
                 "acquisition_date": "20150101",
                 "property_type": "아파트",
                 "acquisition_reason": "매매",
-                "household_house_count": 1 if "다주택" not in s["desc"] else 2,
+                "household_house_count": 2 if is_multi_house else 1,
                 "transfer_price": s["price"],
                 "acquisition_price": 600_000_000,
                 "residence_years": 3.0,
-                "is_adjustment_area_at_transfer": False,
+                # 다주택 중과는 조정대상지역이어야 +20% 적용
+                "is_adjustment_area_at_transfer": is_multi_house,
             },
             expected_verdict=s["expected"],
             boundary_type="price_boundary",

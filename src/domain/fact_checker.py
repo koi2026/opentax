@@ -181,12 +181,11 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
         else:
             danger.append("분양권_2021후_주택수산입")
 
-    # ── 7. 조정대상지역 시점 미분리 경고 ────────────────────────────────
-    # (이미 분리되어 있으면 pass — 기존 설계에서 처리됨)
-    # 둘 다 None인 경우만 경고
-    if not fv.adjustment_area_at_acquisition and not fv.adjustment_area_at_transfer:
-        # 둘 다 False일 수도 있으므로 None이 아닌 경우는 정상
-        pass  # 실제로는 DB에서 항상 계산되므로 추가 체크 불필요
+    # ── 7. 조정대상지역 취득 + 거주요건 미충족 경고 ──────────────────────
+    # 취득 당시 조정대상지역이었으면 거주기간 2년 이상 필요 (소령 §154①)
+    # 미충족 시 §89 비과세 불가 → L3 키워드 주입으로 §154 조문 검색 유도
+    if fv.adjustment_area_at_acquisition and (fv.residence_years or 0.0) < 2.0:
+        danger.append("조정지역_거주요건")
 
     # ── 8. 상생임대 — 조정대상지역 여부 미확인 ──────────────────────────
     if sc.sangsaeng_rental and sc.sangsaeng_rental.residence_requirement_waived:
@@ -220,6 +219,22 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
             article_hint="소득세법 §101",
             is_critical=False,
         ))
+
+    # ── 11. 비거주자 — §121 비과세 배제 ─────────────────────────────────
+    if sc.is_non_resident:
+        danger.append("비거주자")
+
+    # ── 12. 동거봉양합가 — §155④ 10년 이내 비과세 ──────────────────────
+    if sc.is_cohabitation_care:
+        danger.append("동거봉양합가")
+
+    # ── 13. 농어촌주택 보유 — 조특법 §99의4 주택 수 제외 ────────────────
+    if sc.is_rural_house:
+        danger.append("농어촌주택")
+
+    # ── 14. 공익사업 수용 — 조특법 §77 감면 ──────────────────────────────
+    if sc.expropriation:
+        danger.append("공익수용감면")
 
     # ── 결정 ─────────────────────────────────────────────────────────────
     critical_count = sum(1 for m in missing if m.is_critical)

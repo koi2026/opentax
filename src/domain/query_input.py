@@ -694,6 +694,15 @@ class FactVector:
                 f"소득세법시행령제156조의2"
             )
 
+        # 일시적2주택 — 종전주택 양도기한 명시 (LLM이 3년 충족 여부 판단에 필요)
+        td = self.special_cases.temp_two_house
+        if td:
+            lines.append(
+                f"일시적2주택: 신규취득일{td.new_acquisition_date} "
+                f"종전주택양도기한{td.old_house_must_sell_by} "
+                "소득세법시행령제155조제1항"
+            )
+
         # 동거봉양합가
         cc = self.special_cases.cohabitation_care
         if cc:
