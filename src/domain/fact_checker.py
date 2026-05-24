@@ -187,6 +187,13 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
     if fv.adjustment_area_at_acquisition and (fv.residence_period_years or 0.0) < 2.0:
         danger.append("조정지역_거주요건")
 
+    # ── 7-2. 다주택 중과 가능 여부 ───────────────────────────────────────
+    if fv.household_house_count >= 2:
+        if fv.adjustment_area_at_transfer:
+            danger.append("다주택중과")     # 조정지역 다주택 → §104 중과 검색 유도
+        else:
+            danger.append("다주택비조정")   # 비조정지역 → 중과 비해당 명시
+
     # ── 8. 상생임대 — 조정대상지역 여부 미확인 ──────────────────────────
     if sc.sangsaeng_rental and sc.sangsaeng_rental.residence_requirement_waived:
         danger.append("상생임대")
