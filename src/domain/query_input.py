@@ -613,6 +613,7 @@ class FactVector:
     joint_ownership_yn: bool = False
     overseas_residence_yn: bool = False
     rental_business_yn: bool = False
+    transfer_date_val: Optional[date] = None   # 경과 연수 계산용 (to_text 내부)
 
     # 특수관계자간 거래 (소득세법 §101 부당행위계산부인)
     # 배우자·직계존비속·지배법인 등에 저가 양도 시 시가로 재계산됨
@@ -703,12 +704,34 @@ class FactVector:
                 "소득세법시행령제155조제1항"
             )
 
-        # 동거봉양합가
+        # 상속주택 — 사망일 및 5년 경과 여부
+        inh = self.special_cases.inheritance
+        if inh:
+            path = "상속주택자체양도" if inh.selling_inherited_house else "일반주택양도"
+            if self.transfer_date_val:
+                yrs = (self.transfer_date_val - inh.death_date).days / 365.25
+                window = "5년이내_주택수제외" if yrs < 5 else "5년초과_주택수산입"
+                lines.append(
+                    f"상속주택: 사망일{inh.death_date} {path} 경과{yrs:.1f}년 {window} "
+                    "소득세법시행령제155조제2항"
+                )
+            else:
+                lines.append(f"상속주택: 사망일{inh.death_date} {path} 소득세법시행령제155조제2항")
+
+        # 동거봉양합가 — 10년 경과 여부
         cc = self.special_cases.cohabitation_care
         if cc:
-            lines.append(
-                f"동거봉양합가: 합가일{cc.cohabitation_start_date} 소득세법시행령제155조제4항"
-            )
+            if self.transfer_date_val:
+                yrs = (self.transfer_date_val - cc.cohabitation_start_date).days / 365.25
+                window = "10년이내_특례적용" if yrs < 10 else "10년초과_특례미적용"
+                lines.append(
+                    f"동거봉양합가: 합가일{cc.cohabitation_start_date} 경과{yrs:.1f}년 {window} "
+                    "소득세법시행령제155조제4항"
+                )
+            else:
+                lines.append(
+                    f"동거봉양합가: 합가일{cc.cohabitation_start_date} 소득세법시행령제155조제4항"
+                )
 
         # 수용/공익사업
         exp = self.special_cases.expropriation
@@ -1040,6 +1063,7 @@ def _build_fact_vector(op: dict, up: dict, sc: SpecialCaseFlags, fl: dict | None
         rental_business_yn=bool(up.get("rental_business_yn")),
         is_related_party_transaction=bool(_rpt_raw) if _rpt_raw is not None else None,
         related_party_type=up.get("related_party_type") or fl.get("related_party_type"),
+        transfer_date_val=_pd(up.get("transfer_date")),
     )
 
 

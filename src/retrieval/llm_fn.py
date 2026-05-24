@@ -132,15 +132,19 @@ _VERDICT_ALIAS = {
 def _normalize_verdict(verdict: str) -> str:
     """LLM 출력 verdict를 유효한 TaxVerdict 한글 값으로 정규화."""
     v = verdict.strip()
-    # 직접 매핑
     if v in _VALID_VERDICTS:
         return _VERDICT_ALIAS.get(v, v)
-    # 영문 alias
     if v in _VERDICT_ALIAS:
         return _VERDICT_ALIAS[v]
-    # 부분 문자열 매칭 (한글 typo 대응)
-    for canonical in ("비과세", "고가주택", "감면", "중과", "일반과세", "단기세율", "사실관계부족"):
+    # 부분 문자열 또는 앞글자 prefix 매칭 (한글 오타 대응)
+    canonicals = ("비과세", "고가주택", "감면", "중과", "일반과세", "단기세율", "사실관계부족")
+    for canonical in canonicals:
         if canonical in v or v in canonical:
+            return canonical
+    # prefix 2글자 이상 일치 (예: '고가주축' → '고가주택')
+    for canonical in canonicals:
+        prefix = min(len(v), len(canonical), 3)
+        if prefix >= 2 and v[:prefix] == canonical[:prefix]:
             return canonical
     return "사실관계부족"
 

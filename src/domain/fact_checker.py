@@ -184,7 +184,7 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
     # ── 7. 조정대상지역 취득 + 거주요건 미충족 경고 ──────────────────────
     # 취득 당시 조정대상지역이었으면 거주기간 2년 이상 필요 (소령 §154①)
     # 미충족 시 §89 비과세 불가 → L3 키워드 주입으로 §154 조문 검색 유도
-    if fv.adjustment_area_at_acquisition and (fv.residence_years or 0.0) < 2.0:
+    if fv.adjustment_area_at_acquisition and (fv.residence_period_years or 0.0) < 2.0:
         danger.append("조정지역_거주요건")
 
     # ── 8. 상생임대 — 조정대상지역 여부 미확인 ──────────────────────────
