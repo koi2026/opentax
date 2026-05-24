@@ -180,6 +180,185 @@ def append_change_log(new_versions: dict[str, list[str]]) -> None:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+# ── 골든케이스 stale 탐지 ─────────────────────────────────────────────────────
+
+def flag_stale_golden_cases(new_versions: dict[str, list[str]]) -> list[dict]:
+    """
+    개정된 법령에 의존하는 골든케이스를 추출해 stale 후보로 기록한다.
+
+    반환: stale 후보 케이스 목록 (law_change_log.jsonl에도 append)
+    sensitivity=high 케이스는 즉시 전문가 리뷰 필요.
+    """
+    try:
+        from tests.golden_case_legal_deps import get_deps_by_law
+    except ImportError:
+        print("  ⚠ golden_case_legal_deps 미발견 — stale 탐지 건너뜀")
+        return []
+
+    changed_law_names = list(new_versions.keys())
+    stale_candidates: list[dict] = []
+    seen: set[str] = set()
+
+    for law_name in changed_law_names:
+        for dep in get_deps_by_law(law_name):
+            case_id = dep["case_id"]
+            if case_id in seen:
+                continue
+            seen.add(case_id)
+            stale_candidates.append({
+                "case_id": case_id,
+                "sensitivity": dep["sensitivity"],
+                "triggered_by": law_name,
+                "notes": dep["notes"],
+            })
+
+    if not stale_candidates:
+        return []
+
+    # 심각도 순 정렬 후 출력
+    order = {"high": 0, "medium": 1, "low": 2}
+    stale_candidates.sort(key=lambda x: order.get(x["sensitivity"], 9))
+
+    print(f"\n⚠ 골든케이스 Stale 후보: {len(stale_candidates)}건")
+    for c in stale_candidates:
+        mark = "🔴" if c["sensitivity"] == "high" else "🟡"
+        print(f"  {mark} [{c['case_id']}] ({c['sensitivity']}) ← {c['triggered_by']}")
+        print(f"       {c['notes']}")
+
+    # law_change_log에 stale 기록 추가
+    CHANGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CHANGE_LOG_PATH.open("a", encoding="utf-8") as f:
+        record = {
+            "detected_at": datetime.now().isoformat(),
+            "event": "golden_stale_candidates",
+            "stale_cases": stale_candidates,
+            "triggered_by_laws": changed_law_names,
+        }
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    high_count = sum(1 for c in stale_candidates if c["sensitivity"] == "high")
+    if high_count:
+        print(f"\n  🚨 HIGH sensitivity {high_count}건 — 전문가 즉시 검토 필요")
+        print(f"     tests/golden_case_legal_deps.py → expected_verdict 재확인 후 rag_golden_cases.py 수정")
+
+    return stale_candidates
+
+
+def _flag_stale_synthetic_cases(new_versions: dict[str, list[str]]) -> None:
+    """
+    TaxConstantsRegistry 연동 합성 케이스의 expected_verdict stale 탐지.
+
+    법령 개정 → TaxConstantsRegistry 업데이트 → 케이스를 재생성해 expected_verdict 비교.
+    verdict가 달라진 케이스를 law_change_log.jsonl에 기록하고 화면에 출력한다.
+    """
+    from src.eval.case_generator import generate_all_comprehensive_cases
+    from dataclasses import asdict
+    from datetime import date as _date
+
+    # 변경된 법령이 직접 연관된 registry_deps 추출
+    LAW_TO_REGISTRY_DEPS: dict[str, list[str]] = {
+        "소득세법": ["HIGH_VALUE_THRESHOLD", "HEAVY_TAX_SUSPENSION_END", "IOTA_PERIOD_YEARS"],
+        "소득세법 시행령": ["HIGH_VALUE_THRESHOLD", "IOTA_PERIOD_YEARS"],
+        "조세특례제한법": ["SANGSAENG_WINDOW_END"],
+        "지방세법": [],
+    }
+
+    affected_deps: set[str] = set()
+    for law_name in new_versions:
+        affected_deps.update(LAW_TO_REGISTRY_DEPS.get(law_name, []))
+
+    if not affected_deps:
+        print("  → 연관된 registry_deps 없음, stale 탐지 건너뜀")
+        return
+
+    print(f"  영향받는 레지스트리 키: {sorted(affected_deps)}")
+
+    # 현재 시점 기준으로 케이스 재생성
+    today = _date.today()
+    cases = generate_all_comprehensive_cases(as_of=today)
+
+    # registry_deps와 교집합이 있는 케이스만 필터
+    affected = [c for c in cases if set(c.registry_deps) & affected_deps]
+    if not affected:
+        print("  → stale 후보 합성 케이스 없음")
+        return
+
+    print(f"  stale 후보 합성 케이스: {len(affected)}건")
+
+    # 이전 베이스라인 체크포인트에서 verdict 비교
+    checkpoint_path = Path("data/eval_results/baseline_checkpoint.json")
+    prev_verdicts: dict[str, str] = {}
+    if checkpoint_path.exists():
+        try:
+            ck = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            prev_verdicts = {r["case_id"]: r.get("verdict", "") for r in ck.get("results", [])}
+        except Exception:
+            pass
+
+    stale_found: list[dict] = []
+    for case in affected:
+        if case.expected_verdict is None:
+            continue
+        prev_verdict = prev_verdicts.get(case.case_id)
+        if prev_verdict and prev_verdict != case.expected_verdict:
+            stale_found.append({
+                "case_id": case.case_id,
+                "description": case.description,
+                "registry_deps": case.registry_deps,
+                "prev_expected": prev_verdict,
+                "new_expected": case.expected_verdict,
+            })
+        elif case.expected_verdict:
+            # 체크포인트 없어도 현재 expected_verdict 출력
+            print(
+                f"  ↻ [{case.case_id}] {case.description[:50]}"
+                f" → expected={case.expected_verdict} ({', '.join(case.registry_deps)})"
+            )
+
+    if stale_found:
+        print(f"\n  ★ expected_verdict 변동 {len(stale_found)}건:")
+        for s in stale_found:
+            print(
+                f"    [{s['case_id']}] {s['prev_expected']} → {s['new_expected']}"
+                f" ({', '.join(s['registry_deps'])})"
+            )
+        CHANGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with CHANGE_LOG_PATH.open("a", encoding="utf-8") as f:
+            record = {
+                "detected_at": datetime.now().isoformat(),
+                "event": "synthetic_case_expected_verdict_changed",
+                "affected": stale_found,
+                "triggered_by_laws": list(new_versions.keys()),
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    else:
+        print("  → expected_verdict 변동 없음 (레지스트리 상수 그대로)")
+
+
+async def shadow_eval_case(case_id: str, fact_json: dict) -> dict:
+    """
+    Stale 후보 케이스를 현재 법령 기준으로 재실행해 verdict 변동 여부를 확인한다.
+
+    Hard Stale: verdict가 바뀜 → expected_verdict 수정 필요
+    Soft Stale: verdict 동일 → 법 개정이 이 케이스에 실질 영향 없음
+
+    사용법:
+        result = await shadow_eval_case("CASE-16", fact_json)
+    """
+    try:
+        from src.api.chat_api import chat_turn
+    except ImportError:
+        return {"case_id": case_id, "error": "chat_turn import 실패"}
+
+    result = await chat_turn(fact_json=fact_json, enable_debate=False)
+    return {
+        "case_id": case_id,
+        "shadow_verdict": result.get("verdict"),
+        "shadow_confidence": result.get("confidence"),
+        "blocked": result.get("blocked", False),
+    }
+
+
 # ── 메인 ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -225,7 +404,10 @@ def main() -> None:
         # 4. 변경 이력 기록
         append_change_log(new_versions)
 
-    # 5. 스냅샷 갱신 (신규 버전이 없어도 현행 목록으로 업데이트)
+        # 5. 골든케이스 stale 탐지
+        flag_stale_golden_cases(new_versions)
+
+    # 6. 스냅샷 갱신 (신규 버전이 없어도 현행 목록으로 업데이트)
     try:
         updated_snapshot = dict(snapshot)
         for law in TARGET_LAWS:
@@ -241,7 +423,7 @@ def main() -> None:
     except Exception as e:
         print(f"\n⚠ 스냅샷 저장 실패: {e}")
 
-    # 6. 규제지역 변경 감지
+    # 7. 규제지역 변경 감지
     print("\n--- 규제지역 변경 감지 ---")
     try:
         from src.ingestion.area_designation_pipeline import run_pipeline
@@ -250,6 +432,40 @@ def main() -> None:
             print(f"  ⚠ 규제지역 알림: {area_summary['alert_level']}")
     except Exception as e:
         print(f"  ⚠ 규제지역 감지 오류: {e}")
+
+    # 8. 개정 임계값 기반 자동 케이스 생성 + 파이프라인 검증
+    if new_versions and not args.dry_run:
+        print("\n--- 개정 임계값 경계 케이스 자동 검증 ---")
+        try:
+            from scripts.generate_amendment_cases import run_amendment_verification
+            amd = run_amendment_verification(new_versions, fetch_law_xml)
+            if amd.get("anomalies"):
+                print(f"\n  🚨 {len(amd['anomalies'])}건 verdict 불일치 — 즉시 확인 필요")
+                print(f"     data/amendment_test_results/ 에서 상세 내역 확인")
+        except Exception as e:
+            print(f"  ⚠ 자동 검증 오류: {e}")
+
+    # 9. 별표·이미지 테이블 LLM 교차 검증 (장기보유특별공제율 표1/표2 등)
+    if new_versions and not args.dry_run:
+        print("\n--- 별표 이미지 테이블 자동 검증 ---")
+        try:
+            from scripts.verify_image_tables import run_image_table_verification
+            img = run_image_table_verification(new_versions, fetch_law_xml)
+            if img.get("alerts"):
+                print(f"\n  🔴 별표 불일치 {len(img['alerts'])}건 — 수동 확인 필요")
+                print(f"     data/image_table_alerts/ 에서 상세 내역 확인")
+        except Exception as e:
+            print(f"  ⚠ 별표 검증 오류: {e}")
+
+    # 10. 합성 케이스 registry_deps 기반 stale 탐지
+    # TaxConstantsRegistry 상수가 바뀌면 expected_verdict가 자동으로 달라지므로
+    # 이전 체크포인트 결과와 비교해 verdict가 flip된 케이스를 표시한다.
+    if new_versions and not args.dry_run:
+        print("\n--- 합성 케이스 expected_verdict stale 탐지 ---")
+        try:
+            _flag_stale_synthetic_cases(new_versions)
+        except Exception as e:
+            print(f"  ⚠ 합성 케이스 stale 탐지 오류: {e}")
 
     print("\n=== 완료 ===")
 

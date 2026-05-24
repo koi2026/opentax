@@ -62,6 +62,29 @@ def _load_keyword_patch() -> None:
 _load_keyword_patch()
 
 
+def _build_dynamic_entries() -> None:
+    """TaxConstantsRegistry 연동 — 현재 유효한 이월과세 기간으로 키워드 동적 생성.
+
+    IOTA_PERIOD_YEARS가 개정되면 새 키(예: "이월과세_7년이내")가 자동으로 추가된다.
+    기존 키(5년/10년)는 유지되므로 하위 호환성 깨지지 않는다.
+    """
+    try:
+        from datetime import date as _date
+        from .tax_constants import TaxConstantsRegistry as _TCR
+        iota_years: int = _TCR.get("IOTA_PERIOD_YEARS", _date.today())
+        key = f"이월과세_{iota_years}년이내"
+        if key not in DANGER_KEYWORD_MAP:
+            DANGER_KEYWORD_MAP[key] = (
+                f"증여 후 {iota_years}년 이내 양도 이월과세 소득세법 제97조의2 "
+                f"배우자 직계존비속 원취득가액 원취득일"
+            )
+    except Exception:
+        pass  # 순환임포트 등 예외 시 기존 정적 맵으로 동작
+
+
+_build_dynamic_entries()
+
+
 # raw 텍스트에서 danger_flag를 자동 탐지하는 패턴 목록.
 # eval.py / mcp_server.py 등 L2 팩트체크 없이 텍스트만 있는 경우에 사용.
 RAW_TRIGGER_PATTERNS: List[tuple] = [

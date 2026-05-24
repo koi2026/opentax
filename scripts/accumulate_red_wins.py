@@ -33,7 +33,11 @@ def _to_date8(d: str) -> str:
 
 
 def golden_case_to_fact_json(case: dict) -> dict:
-    """RAG_GOLDEN_CASES 단건을 chat_turn() fact_json 포맷으로 변환."""
+    """RAG_GOLDEN_CASES 단건을 chat_turn() fact_json 포맷으로 변환.
+
+    FactInput 스키마에 맞게 special_cases 중첩 구조를 명시적으로 생성한다.
+    flat merge 방식은 Pydantic이 unknown fields를 무시하므로 사용 불가.
+    """
     up = case.get("user_property", {})
     op = case.get("owner_profile", {})
     fl = case.get("fact_ledger", {})
@@ -51,18 +55,79 @@ def golden_case_to_fact_json(case: dict) -> dict:
         "is_adjustment_area_at_transfer": up.get("adjustment_area_at_transfer", False),
         "is_adjustment_area_at_acquisition": up.get("adjustment_area_at_acquisition", False),
         "joint_ownership": up.get("joint_ownership_yn", False),
-        "overseas_resident": op.get("overseas_residence_yn", False),
+        "is_non_resident": op.get("overseas_residence_yn", False),  # FIX: overseas_resident → is_non_resident
     }
 
-    # fact_ledger 플래그 병합
-    for k, v in fl.items():
-        fact[k] = v
+    # ── special_cases 중첩 구조 명시적 생성 ────────────────────────────────────
+    special_cases: dict = {}
 
-    # gift_date 등 추가 필드
-    for extra in ["gift_date", "death_date", "management_disposal_date"]:
-        val = up.get(extra) or fl.get(extra)
+    # 일시적 2주택
+    if fl.get("is_temporary_two_house") and fl.get("temp_new_acquisition_date"):
+        special_cases["temp_two_house"] = {
+            "new_acquisition_date": _to_date8(fl.get("temp_new_acquisition_date", "")),
+            "old_house_must_sell_by": _to_date8(fl.get("temp_old_must_sell_by", "")),
+            "new_is_adjustment_area": fl.get("temp_new_is_adjustment_area", False),
+        }
+
+    # 상속주택
+    raw_death = up.get("death_date") or fl.get("death_date")
+    death_date8 = _to_date8(raw_death) if raw_death and "-" in str(raw_death) else (raw_death or "")
+    if death_date8 or fl.get("selling_inherited_house") or fl.get("inherited_as_only_house"):
+        inh: dict = {
+            "same_household_at_death": fl.get("deceased_same_household", False),
+            "inherited_as_only_house": fl.get("inherited_as_only_house", False),
+            "selling_inherited_house": fl.get("selling_inherited_house", True),
+        }
+        if death_date8:
+            inh["death_date"] = death_date8
+        raw_donor = fl.get("donor_acquisition_date")
+        if raw_donor:
+            inh["donor_acquisition_date"] = _to_date8(raw_donor) if "-" in str(raw_donor) else raw_donor
+        special_cases["inheritance"] = inh
+
+    # 증여 이월과세
+    if fl.get("is_gift_from_spouse_or_lineal"):
+        gift: dict = {"is_gift_from_spouse_or_lineal": True}
+        raw_orig = fl.get("original_donor_acquisition_date")
+        if raw_orig:
+            gift["donor_acquisition_date"] = _to_date8(raw_orig) if "-" in str(raw_orig) else raw_orig
+        if fl.get("original_donor_acquisition_price"):
+            gift["donor_acquisition_price"] = fl["original_donor_acquisition_price"]
+        special_cases["gift"] = gift
+
+    # 재건축·입주권
+    rc_data = fl.get("reconstruction")
+    if isinstance(rc_data, dict):
+        mgmt_raw = rc_data.get("management_disposal_date", "")
+        mgmt8 = _to_date8(mgmt_raw) if mgmt_raw and "-" in str(mgmt_raw) else mgmt_raw
+        if mgmt8:
+            special_cases["reconstruction"] = {
+                "management_disposal_date": mgmt8,
+                "is_original_member": rc_data.get("is_original_member", True),
+            }
+
+    # 농어촌주택
+    rh_data = fl.get("rural_house")
+    if isinstance(rh_data, dict):
+        special_cases["rural_house"] = {
+            "is_eligible": rh_data.get("is_rural_house", False),
+            "region": rh_data.get("region"),
+        }
+
+    if special_cases:
+        fact["special_cases"] = special_cases
+
+    # ── flat pass-through (FactInput 최상위 필드) ──────────────────────────────
+    for key in ("is_related_party_transaction", "related_party_relationship", "market_value",
+                "bunyang_acquired_before_2021", "sangsaeng_rental"):
+        if key in fl:
+            fact[key] = fl[key]
+
+    # 날짜 pass-through (YYYY-MM-DD → YYYYMMDD 변환)
+    for key in ("overseas_departure_date", "gift_date"):
+        val = fl.get(key) or up.get(key)
         if val:
-            fact[extra] = _to_date8(val) if "-" in str(val) else val
+            fact[key] = _to_date8(val) if "-" in str(val) else val
 
     return {k: v for k, v in fact.items() if v is not None and v != ""}
 

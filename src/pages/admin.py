@@ -250,6 +250,7 @@ st.markdown("## 🛠️ 어드민")
     tab_cases,
     tab_golden,
     tab_stats,
+    tab_monitor,
     tab_debug,
 ) = st.tabs([
     "📊 대시보드",
@@ -258,6 +259,7 @@ st.markdown("## 🛠️ 어드민")
     "📋 케이스 목록",
     "🏅 골든셋",
     "📈 통계",
+    "🔔 법령 모니터링",
     "🔍 디버그",
 ])
 
@@ -760,7 +762,265 @@ with tab_stats:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 7: 디버그
+# 탭 7: 법령 모니터링
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_monitor:
+    st.subheader("🔔 법령 개정 모니터링")
+    if st.button("🔄 새로고침", key="monitor_refresh"):
+        st.rerun()
+
+    # ── 헬퍼: 모니터링 데이터 로드 ────────────────────────────────────────────
+
+    def _load_change_log(limit: int = 30) -> list[dict]:
+        p = _ROOT / "data" / "law_change_log.jsonl"
+        if not p.exists():
+            return []
+        lines = p.read_text(encoding="utf-8").strip().splitlines()
+        records = []
+        for line in reversed(lines[-100:]):
+            try:
+                records.append(json.loads(line))
+            except Exception:
+                pass
+        return records[:limit]
+
+    def _load_image_alerts() -> list[dict]:
+        d = _ROOT / "data" / "image_table_alerts"
+        if not d.exists():
+            return []
+        alerts: list[dict] = []
+        for f in sorted(d.glob("table_alerts_*.json"), reverse=True)[:5]:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                for a in data.get("alerts", []):
+                    a["_file"] = f.name
+                    alerts.append(a)
+            except Exception:
+                pass
+        return alerts
+
+    def _load_amendment_test_results() -> list[dict]:
+        d = _ROOT / "data" / "amendment_test_results"
+        if not d.exists():
+            return []
+        anomalies: list[dict] = []
+        for f in sorted(d.glob("amendment_test_*.json"), reverse=True)[:5]:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                for a in data.get("anomalies", []):
+                    a["_file"] = f.name
+                    a["_changed_laws"] = data.get("changed_laws", [])
+                    anomalies.append(a)
+            except Exception:
+                pass
+        return anomalies
+
+    def _load_stale_golden() -> list[dict]:
+        p = _ROOT / "data" / "law_change_log.jsonl"
+        if not p.exists():
+            return []
+        stale: list[dict] = []
+        for line in p.read_text(encoding="utf-8").strip().splitlines():
+            try:
+                rec = json.loads(line)
+                if rec.get("event") == "golden_stale_candidates":
+                    stale.extend(rec.get("stale_cases", []))
+            except Exception:
+                pass
+        seen = set()
+        unique = []
+        for s in reversed(stale):
+            cid = s.get("case_id", "")
+            if cid not in seen:
+                seen.add(cid)
+                unique.append(s)
+        return unique
+
+    def _load_red_win_progress() -> tuple[int, int]:
+        d = _ROOT / "data" / "red_wins"
+        if not d.exists():
+            return 0, 50
+        return len(list(d.glob("*.json"))), 50
+
+    # ── 요약 메트릭 ──────────────────────────────────────────────────────────
+
+    img_alerts = _load_image_alerts()
+    amd_anomalies = _load_amendment_test_results()
+    stale_cases = _load_stale_golden()
+    red_wins, red_target = _load_red_win_progress()
+
+    high_stale = [s for s in stale_cases if s.get("sensitivity") == "high"]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(
+        "별표 불일치",
+        f"{len(img_alerts)}건",
+        delta="수동 확인 필요" if img_alerts else None,
+        delta_color="inverse",
+    )
+    c2.metric(
+        "개정 케이스 이상",
+        f"{len(amd_anomalies)}건",
+        delta="즉시 확인" if amd_anomalies else None,
+        delta_color="inverse",
+    )
+    c3.metric(
+        "골든케이스 Stale",
+        f"{len(stale_cases)}건",
+        delta=f"🔴 HIGH {len(high_stale)}건" if high_stale else None,
+        delta_color="inverse",
+    )
+    c4.metric(
+        "Red Win 누적",
+        f"{red_wins}/{red_target}건",
+        delta=f"목표 {red_target - red_wins}건 남음" if red_wins < red_target else "✅ 목표 달성",
+        delta_color="normal" if red_wins >= red_target else "inverse",
+    )
+
+    st.divider()
+
+    # ── 1. 별표 이미지 테이블 검증 현황 ────────────────────────────────────
+
+    st.markdown("#### 📋 별표·이미지 테이블 반영 현황")
+    st.caption("법령 API에서 이미지로 제공되는 별표(장기보유특별공제율 표1/표2 등)의 레지스트리 반영 상태")
+
+    try:
+        from src.domain.tax_constants import TaxConstantsRegistry, _REGISTRY
+        table_rows = []
+        today_d = datetime.now().date()
+
+        for key in ["LONG_TERM_DEDUCTION_RATE_TABLE1", "LONG_TERM_DEDUCTION_RATE_TABLE2"]:
+            versions = _REGISTRY.get(key, [])
+            if versions:
+                v = max(versions, key=lambda x: x.effective_from)
+                val = v.value
+                row_count = len(val) if isinstance(val, dict) else "—"
+                table_rows.append({
+                    "상수 키": key,
+                    "설명": "장기보유특별공제율 표1 (일반)" if "TABLE1" in key else "장기보유특별공제율 표2 (1세대1주택)",
+                    "시행일": v.effective_from.strftime("%Y-%m-%d"),
+                    "행 수": row_count,
+                    "수동검토필요": "⚠️ 예" if v.manual_review_required else "✅ 정상",
+                    "법령조문": v.source_law,
+                })
+
+        # 별표 알림 통합 표시
+        if img_alerts:
+            st.error(f"🔴 별표 불일치 {len(img_alerts)}건 — tax_constants.py 수동 확인 후 ConstantVersion 추가 필요")
+            for alert in img_alerts[:5]:
+                with st.expander(f"⚠️ {alert.get('law_name')} {alert.get('table_id')} 불일치"):
+                    diff = alert.get("diff", {})
+                    if diff:
+                        import pandas as pd
+                        diff_rows = [
+                            {"년수": k, "상태": v.get("status"), "레지스트리": v.get("current"), "추출값": v.get("extracted")}
+                            for k, v in sorted(diff.items(), key=lambda x: int(x[0]))
+                        ]
+                        st.dataframe(pd.DataFrame(diff_rows), use_container_width=True, hide_index=True)
+                    st.caption(f"파일: {alert.get('_file', '—')}")
+        elif table_rows:
+            st.success("✅ 별표 검증 이상 없음 — 레지스트리 반영 확인됨")
+
+        if table_rows:
+            import pandas as pd
+            st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.warning(f"레지스트리 로드 실패: {e}")
+
+    st.divider()
+
+    # ── 2. 개정 임계값 경계 케이스 검증 결과 ────────────────────────────────
+
+    st.markdown("#### 🧪 개정 임계값 경계 케이스 검증")
+    st.caption("법령 개정 감지 시 자동 생성한 경계 케이스 verdict 불일치 내역")
+
+    if amd_anomalies:
+        st.error(f"🚨 verdict 불일치 {len(amd_anomalies)}건 — 파이프라인 또는 골든케이스 수정 필요")
+        import pandas as pd
+        df_amd = pd.DataFrame([
+            {
+                "케이스 ID": a.get("case_id"),
+                "설명": a.get("description", "")[:40],
+                "법령": ", ".join(a.get("_changed_laws", [])),
+                "판단 결과": a.get("verdict"),
+                "예상 결과": a.get("expected_verdict"),
+                "파일": a.get("_file", "—"),
+            }
+            for a in amd_anomalies[:20]
+        ])
+        st.dataframe(df_amd, use_container_width=True, hide_index=True)
+    else:
+        latest_amd = sorted(
+            (_ROOT / "data" / "amendment_test_results").glob("*.json"),
+            reverse=True,
+        )[:1] if (_ROOT / "data" / "amendment_test_results").exists() else []
+        if latest_amd:
+            mtime = _fmt_mtime(latest_amd[0])
+            st.success(f"✅ 경계 케이스 verdict 모두 정상 (마지막 검증: {mtime})")
+        else:
+            st.info("검증 이력 없음 — 법령 개정 감지 시 자동 실행됩니다.")
+
+    st.divider()
+
+    # ── 3. 골든케이스 Stale 현황 ─────────────────────────────────────────────
+
+    st.markdown("#### 🏅 골든케이스 Stale 현황")
+    st.caption("법령 개정에 의해 expected_verdict가 바뀔 수 있는 케이스 목록")
+
+    if stale_cases:
+        import pandas as pd
+        df_stale = pd.DataFrame([
+            {
+                "케이스 ID": s.get("case_id"),
+                "민감도": {"high": "🔴 HIGH", "medium": "🟡 MEDIUM", "low": "🟢 LOW"}.get(s.get("sensitivity", ""), s.get("sensitivity", "")),
+                "촉발 법령": s.get("triggered_by", "—"),
+                "영향": s.get("notes", "")[:50],
+            }
+            for s in sorted(stale_cases, key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x.get("sensitivity", ""), 9))
+        ])
+        st.dataframe(df_stale, use_container_width=True, hide_index=True)
+        if high_stale:
+            st.error(f"🚨 HIGH sensitivity {len(high_stale)}건 — 즉시 expected_verdict 재검토 필요")
+    else:
+        st.success("✅ 개정으로 인한 stale 케이스 없음")
+
+    st.divider()
+
+    # ── 4. 최근 법령 개정 감지 이력 ─────────────────────────────────────────
+
+    st.markdown("#### 📜 최근 법령 개정 감지 이력")
+    change_log = _load_change_log(20)
+
+    if change_log:
+        import pandas as pd
+        log_rows = []
+        for rec in change_log:
+            event = rec.get("event", "law_change")
+            detected = rec.get("detected_at", "")[:16]
+            if event == "golden_stale_candidates":
+                laws = ", ".join(rec.get("triggered_by_laws", []))
+                desc = f"Stale 후보 {len(rec.get('stale_cases', []))}건"
+            elif event == "amendment_test_results":
+                desc = f"경계 케이스 {rec.get('total_cases', 0)}건, 이상 {rec.get('anomaly_count', 0)}건"
+                laws = ""
+            elif event == "image_table_verification":
+                desc = f"별표 검증: ✅{rec.get('verified_count', 0)} / 🔴{rec.get('alert_count', 0)}"
+                laws = ""
+            else:
+                laws = rec.get("law_name", "")
+                msts = rec.get("new_msts", [])
+                desc = f"신규 MST {len(msts)}건: {', '.join(msts[:3])}"
+            log_rows.append({"감지 시각": detected, "이벤트": event, "법령": laws, "내용": desc})
+
+        st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("법령 개정 감지 이력 없음\n`python -m scripts.detect_law_changes` 실행 후 결과가 표시됩니다.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 탭 8: 디버그
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_debug:
