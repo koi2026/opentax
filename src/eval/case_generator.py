@@ -376,50 +376,81 @@ def generate_reconstruction_cases(
     transfer_date: date = date(2026, 4, 1),
 ) -> Iterator[SyntheticCase]:
     """재건축/입주권 — 소득세법 §156의2."""
-    scenarios = [
-        {
-            "desc": "조합원입주권 양도 — 관리처분인가 이후 (60% 세율)",
-            "management_date": "20220301",
-            "expected": "단기세율",
-            "tags": ["입주권", "관리처분후"],
-        },
-        {
-            "desc": "재건축 — 조합원으로서 완공 후 신규주택 취득",
-            "management_date": "20200601",
-            "expected": None,
-            "tags": ["재건축", "신축"],
-        },
-        {
-            "desc": "입주권 2년 이상 보유 후 양도",
-            "management_date": "20230101",
-            "expected": "일반과세",
-            "tags": ["입주권", "2년이상"],
-        },
-    ]
-    for s in scenarios:
-        yield SyntheticCase(
-            description=s["desc"],
-            fact_json={
-                "transfer_date": transfer_date.strftime("%Y%m%d"),
-                "acquisition_date": "20150101",
-                "property_type": "입주권",
-                "acquisition_reason": "매매",
-                "household_house_count": 1,
-                "transfer_price": 700_000_000,
-                "acquisition_price": 300_000_000,
-                "residence_years": 0.0,
-                "is_adjustment_area_at_transfer": False,
-                "special_cases": {
-                    "reconstruction": {
-                        "management_disposal_date": s["management_date"],
-                        "is_union_member": True,
-                    }
-                },
+    # 원조합원: 비조정 + 2년 이상 보유 → §156의2 비과세
+    yield SyntheticCase(
+        description="원조합원 입주권 양도 — 비조정지역 + 10년 보유 (비과세)",
+        fact_json={
+            "transfer_date": transfer_date.strftime("%Y%m%d"),
+            "acquisition_date": "20150101",
+            "property_type": "입주권",
+            "acquisition_reason": "재건축",
+            "household_house_count": 1,
+            "transfer_price": 700_000_000,
+            "acquisition_price": 300_000_000,
+            "residence_years": 3.0,
+            "is_adjustment_area_at_acquisition": False,
+            "is_adjustment_area_at_transfer": False,
+            "special_cases": {
+                "reconstruction": {
+                    "management_disposal_date": "20220301",
+                    "is_original_member": True,
+                }
             },
-            expected_verdict=s["expected"],
-            boundary_type="special_case",
-            tags=s["tags"],
-        )
+        },
+        expected_verdict="비과세",
+        boundary_type="special_case",
+        tags=["입주권", "원조합원", "비과세"],
+    )
+
+    # 승계조합원: 관리처분 후 입주권 매수, 1년 6개월 보유 → 단기세율 60%
+    yield SyntheticCase(
+        description="승계조합원 입주권 양도 — 1년6개월 보유 (60% 단기세율)",
+        fact_json={
+            "transfer_date": transfer_date.strftime("%Y%m%d"),
+            "acquisition_date": (transfer_date - timedelta(days=548)).strftime("%Y%m%d"),  # ~1.5년
+            "property_type": "입주권",
+            "acquisition_reason": "매매",
+            "household_house_count": 1,
+            "transfer_price": 700_000_000,
+            "acquisition_price": 500_000_000,
+            "residence_years": 0.0,
+            "is_adjustment_area_at_transfer": False,
+            "special_cases": {
+                "reconstruction": {
+                    "management_disposal_date": "20230101",
+                    "is_original_member": False,
+                }
+            },
+        },
+        expected_verdict="단기세율",
+        boundary_type="special_case",
+        tags=["입주권", "승계조합원", "단기세율"],
+    )
+
+    # 승계조합원: 2년 이상 보유 → 일반과세
+    yield SyntheticCase(
+        description="승계조합원 입주권 — 3년 보유 (일반과세)",
+        fact_json={
+            "transfer_date": transfer_date.strftime("%Y%m%d"),
+            "acquisition_date": "20230101",
+            "property_type": "입주권",
+            "acquisition_reason": "매매",
+            "household_house_count": 1,
+            "transfer_price": 700_000_000,
+            "acquisition_price": 400_000_000,
+            "residence_years": 0.0,
+            "is_adjustment_area_at_transfer": False,
+            "special_cases": {
+                "reconstruction": {
+                    "management_disposal_date": "20220601",
+                    "is_original_member": False,
+                }
+            },
+        },
+        expected_verdict="일반과세",
+        boundary_type="special_case",
+        tags=["입주권", "승계조합원", "일반과세"],
+    )
 
 
 def generate_rural_house_cases(
@@ -438,8 +469,8 @@ def generate_rural_house_cases(
             "tags": ["농어촌주택", "3년미경과"],
         },
     ]
-    acq_dates = ["20200101", "20230601"]
-    for s, acq in zip(scenarios, acq_dates):
+    expected_verdicts = ["비과세", None]  # 3년 미경과 case: RuralHouseInput이 취득일 미전달 → LLM 판단불가
+    for s, ev in zip(scenarios, expected_verdicts):
         yield SyntheticCase(
             description=s["desc"],
             fact_json={
@@ -453,14 +484,11 @@ def generate_rural_house_cases(
                 "residence_years": 3.0,
                 "is_adjustment_area_at_transfer": False,
                 "special_cases": {
-                    "rural_house": {
-                        "rural_acquisition_date": acq,
-                        "rural_property_type": "단독주택",
-                        "is_eligible_rural_area": True,
-                    }
+                    # RuralHouseInput은 is_eligible + region만 지원 — 농어촌주택 취득일 전달 불가
+                    "rural_house": {"is_eligible": True}
                 },
             },
-            expected_verdict=s["expected"],
+            expected_verdict=ev,
             boundary_type="special_case",
             tags=s["tags"],
         )
@@ -497,8 +525,12 @@ def generate_donggo_cases(
                 "acquisition_price": 450_000_000,
                 "residence_years": 2.0,
                 "is_adjustment_area_at_transfer": False,
-                "donggo_bonyang_merge_date": s["merge_date"],
-                "donggo_bonyang_parent_age": 65,
+                "special_cases": {
+                    "cohabitation_care": {
+                        "cohabitation_date": s["merge_date"],
+                        "parent_age_at_merge": 65,
+                    }
+                },
             },
             expected_verdict=s["expected"],
             boundary_type="special_case",
@@ -549,10 +581,13 @@ def generate_bunyang_right_cases(
     transfer_date: date = date(2026, 4, 1),
 ) -> Iterator[SyntheticCase]:
     """분양권 양도 — 소득세법 §88, §104."""
+    # 분양권 취득일은 transfer_date 기준 상대적으로 계산해야 정확한 보유기간 테스트가 가능
+    _acq_lt1y = (transfer_date - timedelta(days=300)).strftime("%Y%m%d")   # 10개월 전 → 1년 미만
+    _acq_gt1y = (transfer_date - timedelta(days=500)).strftime("%Y%m%d")   # 16개월 전 → 1년 이상
     scenarios = [
         {
             "desc": "분양권 — 2021-01-01 이후 취득, 1년 미만 보유 (70% 세율)",
-            "acq": "20230101",
+            "acq": _acq_lt1y,
             "acq_price": 400_000_000,
             "transfer": 600_000_000,
             "expected": "단기세율",
@@ -560,7 +595,7 @@ def generate_bunyang_right_cases(
         },
         {
             "desc": "분양권 — 2021-01-01 이후 취득, 1년 이상 보유 (60% 세율)",
-            "acq": "20240101",
+            "acq": _acq_gt1y,
             "acq_price": 400_000_000,
             "transfer": 550_000_000,
             "expected": "단기세율",
@@ -725,10 +760,12 @@ def generate_l2_block_cases() -> Iterator[SyntheticCase]:
             "tags": ["L2차단", "transfer_price누락"],
         },
         {
+            # acquisition_date는 transfer_date 기준 5년 이내여야 이월과세 iota 체크가 발동함
+            # 5년 초과 시 L2가 "years_elapsed < iota_period_years" 조건 불충족으로 차단 안 함
             "desc": "배우자증여 + original_acquisition_price 누락 → L2 차단",
             "fact": {
                 "transfer_date": "20260401",
-                "acquisition_date": "20200101",
+                "acquisition_date": "20230101",   # 증여일 = 취득일 = 3.25년 전 (5년 이내)
                 "property_type": "아파트",
                 "acquisition_reason": "증여",
                 "household_house_count": 1,
@@ -737,6 +774,7 @@ def generate_l2_block_cases() -> Iterator[SyntheticCase]:
                 "residence_years": 2.0,
                 "is_adjustment_area_at_transfer": False,
                 "special_cases": {
+                    # donor_acquisition_price 미제공 → original_donor_acquisition_price=0 → L2 차단
                     "gift": {"is_gift_from_spouse_or_lineal": True}
                 },
             },
@@ -758,20 +796,23 @@ def generate_l2_block_cases() -> Iterator[SyntheticCase]:
             "tags": ["L2차단", "death_date누락"],
         },
         {
-            "desc": "일시적2주택 신규취득일 누락 → L2 차단",
+            # TempTwoHouseInput은 new_acquisition_date를 필수로 요구하므로
+            # FactInput을 통해 "신규취득일 누락" L2 차단을 재현할 수 없음.
+            # 대신 is_gift_from_spouse_or_lineal=None인 증여 취득 → L2 차단 테스트로 대체
+            "desc": "증여 취득 + is_gift_from_spouse_or_lineal 미확인 → L2 차단",
             "fact": {
                 "transfer_date": "20260401",
-                "acquisition_date": "20180101",
+                "acquisition_date": "20230601",
                 "property_type": "아파트",
-                "acquisition_reason": "매매",
-                "household_house_count": 2,
-                "transfer_price": 900_000_000,
+                "acquisition_reason": "증여",
+                "household_house_count": 1,
+                "transfer_price": 700_000_000,
                 "acquisition_price": 500_000_000,
-                "residence_years": 2.0,
+                "residence_years": 1.5,
                 "is_adjustment_area_at_transfer": False,
-                # temp_two_house 없이 2주택 상태 → L2가 신규주택 정보 요청
+                # special_cases.gift 미제공 → rollover_taxation.is_gift_from_spouse_or_lineal=None → L2 차단
             },
-            "tags": ["L2차단", "temp_two_house누락"],
+            "tags": ["L2차단", "이월과세_배우자여부미확인"],
         },
     ]
     for s in scenarios:
@@ -886,7 +927,7 @@ def generate_special_tax_reduction_cases(
     transfer_date: date = date(2026, 4, 1),
 ) -> Iterator[SyntheticCase]:
     """조특법 감면 케이스 — 조세특례제한법."""
-    # 자경농지 감면 §69 — property_type은 "토지"
+    # 자경농지 감면 §69 — FactInput에 자경 기간 필드 없음 → expected_verdict=None (판단 불가)
     yield SyntheticCase(
         description="8년 자경농지 양도소득세 감면 (§69)",
         fact_json={
@@ -900,7 +941,7 @@ def generate_special_tax_reduction_cases(
             "residence_years": 0.0,
             "is_adjustment_area_at_transfer": False,
         },
-        expected_verdict="감면",
+        expected_verdict=None,   # FactInput에 자경 여부·기간 필드 없어 감면 판단 불가
         boundary_type="special_tax_reduction",
         tags=["조특법", "자경농지", "8년감면"],
     )
@@ -933,8 +974,7 @@ def generate_special_tax_reduction_cases(
         tags=["조특법", "장기임대주택"],
     )
 
-    # 미분양주택 감면 §98의2
-    # 조정지역 취득 + 거주 0년 → §89 비과세 거주요건 미충족, §98의2 감면 적용
+    # 미분양주택 감면 §98의2 — FactInput에 미분양 지위 필드 없음 → expected_verdict=None
     yield SyntheticCase(
         description="미분양주택 취득 감면 (§98의2) — 5년 이내 양도",
         fact_json={
@@ -946,16 +986,15 @@ def generate_special_tax_reduction_cases(
             "transfer_price": 800_000_000,
             "acquisition_price": 400_000_000,
             "residence_years": 0.0,
-            "is_adjustment_area_at_acquisition": True,  # 조정지역 취득 → 거주요건 필요
+            "is_adjustment_area_at_acquisition": True,
             "is_adjustment_area_at_transfer": False,
         },
-        expected_verdict="감면",
+        expected_verdict=None,   # 미분양 지위를 FactInput으로 전달할 방법 없음
         boundary_type="special_tax_reduction",
         tags=["조특법", "미분양주택"],
     )
 
-    # 신축주택 감면 §99의3
-    # 조정지역 취득 + 거주 0년 → §89 비과세 거주요건 미충족, §99의3 감면 적용
+    # 신축주택 감면 §99의3 — FactInput에 신축주택 여부 필드 없음 → expected_verdict=None
     yield SyntheticCase(
         description="신축주택 취득 감면 (§99의3) — 요건 충족",
         fact_json={
@@ -967,10 +1006,10 @@ def generate_special_tax_reduction_cases(
             "transfer_price": 800_000_000,
             "acquisition_price": 400_000_000,
             "residence_years": 0.0,
-            "is_adjustment_area_at_acquisition": True,  # 조정지역 취득 → 거주 2년 필요
+            "is_adjustment_area_at_acquisition": True,
             "is_adjustment_area_at_transfer": False,
         },
-        expected_verdict="감면",
+        expected_verdict=None,   # 신축주택 여부를 FactInput으로 전달할 방법 없음
         boundary_type="special_tax_reduction",
         tags=["조특법", "신축주택"],
     )
