@@ -1,29 +1,19 @@
 """
 업스트림 llm_fn 계약 구현 — RetrievedChunk + missing_hints → TaxAnswer.
 
-anthropic SDK 는 sync 이므로 asyncio executor 로 래핑한다.
 프롬프트는 src/agents/prompts.py 에 버전 관리 (RAG_SYSTEM_PROMPT 재사용).
 """
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 from typing import AsyncGenerator, List, Optional, Union
 
-import anthropic
 from anthropic import AsyncAnthropic
-from dotenv import load_dotenv
 
 from src.agents.prompts import RAG_SYSTEM_PROMPT
+from src.config import ANTHROPIC_API_KEY, CLAUDE_FAST_MODEL, CLAUDE_MODEL
 from src.domain.retriever import RetrievedChunk
 from src.domain.tax_answer import Citation, TaxAnswer
-
-load_dotenv()
-
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-CLAUDE_FAST_MODEL = os.getenv("CLAUDE_FAST_MODEL", "claude-haiku-4-5-20251001")
 
 # 프롬프트 캐싱 — system prompt를 ephemeral 캐시로 고정해 TTFT 단축
 # few_shot_block은 요청마다 달라지므로 캐시 블록에 포함하지 않음
@@ -44,6 +34,17 @@ def choose_model(danger_flag_count: int, missing_count: int) -> str:
     if danger_flag_count >= 2 or missing_count > 0:
         return CLAUDE_MODEL
     return CLAUDE_FAST_MODEL
+
+
+def _choose_default_model(enriched_query: str, missing_hints: List[str]) -> str:
+    """Infer routing inputs from the enriched query without leaking retrieval into domain."""
+    try:
+        from src.domain.query_enrichment import detect_flags_from_text
+
+        danger_flag_count = len(detect_flags_from_text(enriched_query))
+    except Exception:
+        danger_flag_count = 0
+    return choose_model(danger_flag_count, len(missing_hints))
 
 
 _MAX_CHUNK_CHARS = 800  # 조문 원문 최대 전달 길이 (토큰 절약 — 핵심 내용은 앞부분에 집중)
@@ -129,7 +130,7 @@ async def llm_fn(
 
     client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
-    model = model_override or CLAUDE_MODEL
+    model = model_override or _choose_default_model(enriched_query, missing_hints)
 
     message = await client.messages.create(
         model=model,
@@ -218,7 +219,7 @@ async def llm_fn_stream(
 
     client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     user_prompt = _build_user_prompt(enriched_query, chunks, missing_hints, few_shot_block)
-    model = model_override or CLAUDE_MODEL
+    model = model_override or _choose_default_model(enriched_query, missing_hints)
 
     full_text = ""
     in_reasoning = False
@@ -292,4 +293,3 @@ async def llm_fn_stream(
             chunk_ids=[c.metadata.chunk_id for c in chunks],
             warnings=["JSON 파싱 실패"],
         )
-

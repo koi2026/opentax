@@ -6,12 +6,16 @@ Pinecone 메타데이터 ↔ LawChunkMetadata 매핑을 담당한다.
 """
 from __future__ import annotations
 
-import os
 from datetime import date
 from typing import List, Optional
 
-from dotenv import load_dotenv
-
+from src.config import (
+    PINECONE_HYBRID_ALPHA,
+    PINECONE_NAMESPACE,
+    RETRIEVER_PREFILTER_K,
+    RETRIEVER_RERANK_TOP_N,
+    RETRIEVER_TOP_K,
+)
 from src.domain.chunk_metadata import (
     AmendmentType,
     AppendixType,
@@ -27,9 +31,7 @@ from src.infra.embedder import bm25_sparse_vector, embed_query
 from src.infra.pinecone_client import get_pinecone_index, query_pinecone
 from src.infra.reranker import rerank
 
-load_dotenv()
-
-_PREFILTER_LIMIT = int(os.getenv("RETRIEVER_PREFILTER_K", "8"))
+_PREFILTER_LIMIT = RETRIEVER_PREFILTER_K
 
 
 def _cheap_prefilter(matches: list[dict], query_text: str, limit: int = _PREFILTER_LIMIT) -> list[dict]:
@@ -54,12 +56,11 @@ def _cheap_prefilter(matches: list[dict], query_text: str, limit: int = _PREFILT
 
     return sorted(matches, key=_score, reverse=True)[:limit]
 
-PINECONE_NAMESPACE = os.getenv("PINECONE_NAMESPACE", "tax-law")
-TOP_K = int(os.getenv("RETRIEVER_TOP_K", "20"))
-RERANK_TOP_N = int(os.getenv("RETRIEVER_RERANK_TOP_N", "5"))
+TOP_K = RETRIEVER_TOP_K
+RERANK_TOP_N = RETRIEVER_RERANK_TOP_N
 
 # None = dense-only; float string = hybrid (0.0 pure sparse, 1.0 pure dense, 0.75 typical)
-_HYBRID_ALPHA_RAW = os.getenv("PINECONE_HYBRID_ALPHA")
+_HYBRID_ALPHA = PINECONE_HYBRID_ALPHA
 
 # 법령명 → LawId 매핑
 _LAW_NAME_TO_ID = {
@@ -192,12 +193,9 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         # Hybrid search: BM25 sparse vector for article-number exact-match precision
         sparse_vec: Optional[dict] = None
         hybrid_alpha: Optional[float] = None
-        if _HYBRID_ALPHA_RAW is not None:
-            try:
-                hybrid_alpha = float(_HYBRID_ALPHA_RAW)
-                sparse_vec = bm25_sparse_vector(query_text)
-            except ValueError:
-                pass  # Malformed env var — fall back to dense-only
+        if _HYBRID_ALPHA is not None:
+            hybrid_alpha = _HYBRID_ALPHA
+            sparse_vec = bm25_sparse_vector(query_text)
 
         # Stage 1 — Symbolic Filter: 앵커 날짜 기준 날짜 범위 (Pinecone 숫자 필터)
         # 이월과세→증여일, 상속→상속개시일, 입주권→관리처분인가일, 기본→양도일

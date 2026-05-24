@@ -1,0 +1,45 @@
+x-tax-rag-common: &tax-rag-common
+  build:
+    context: .
+  image: korean-tax-rag-dev
+  working_dir: /app
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    PYTHONPATH: /app
+    HF_HOME: /root/.cache/huggingface
+    SENTENCE_TRANSFORMERS_HOME: /root/.cache/huggingface/sentence-transformers
+    PIP_CACHE_DIR: /root/.cache/pip
+    FASTAPI_PORT: 8000
+    MCP_PORT: 8001
+    STREAMLIT_PORT: 8501
+  volumes:
+    - .:/app
+    - pip-cache:/root/.cache/pip
+    - hf-cache:/root/.cache/huggingface
+
+services:
+  api:
+    <<: *tax-rag-common
+    command: uvicorn src.api.chat_api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+
+  ui:
+    <<: *tax-rag-common
+    command: streamlit run src/ui.py --server.address 0.0.0.0 --server.port 8501
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    depends_on:
+      - api
+
+  mcp:
+    <<: *tax-rag-common
+    command: python -m src.api.mcp_server --sse
+    ports:
+      - "${MCP_PORT:-8001}:8001"
+
+volumes:
+  pip-cache:
+  hf-cache:

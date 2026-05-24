@@ -18,10 +18,12 @@ import requests
 import urllib3
 from requests.adapters import HTTPAdapter
 
+from src.config import LAW_API_BASE_URL, LAW_API_OC
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-OC = "jctax"
-BASE_URL = "https://www.law.go.kr/DRF"
+OC = LAW_API_OC
+BASE_URL = LAW_API_BASE_URL
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 YEARS_BACK = 30  # 최근 N년치 개정 버전 수집 (취득일 소급 대응)

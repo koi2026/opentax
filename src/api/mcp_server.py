@@ -2,15 +2,12 @@
 MCP 서버 — tax-rag
 FastMCP 기반: stdio(Claude Desktop) + SSE(HTTP 클라이언트) 양쪽 지원
 """
-import os
 import json
-from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+from src.config import MCP_HOST, MCP_PORT
 from src.rag import TaxAnswer, answer_with_citations, retrieve_tax_law
 from src.domain.query_enrichment import enrich_raw_query_text
-
-load_dotenv()
 
 mcp = FastMCP(
     name="tax-rag",
@@ -18,6 +15,8 @@ mcp = FastMCP(
         "한국 양도소득세 비과세·감면·중과 여부를 판단하는 법령 RAG 서버입니다. "
         "모든 답변은 law.go.kr 법령 조문 검색 결과에만 근거합니다."
     ),
+    host=MCP_HOST,
+    port=MCP_PORT,
 )
 
 
@@ -377,7 +376,6 @@ if __name__ == "__main__":
     import sys
     # 인자 없으면 stdio (Claude Desktop), --sse 이면 HTTP SSE
     if "--sse" in sys.argv:
-        port = int(os.getenv("MCP_PORT", "8001"))
-        mcp.run(transport="sse", host="0.0.0.0", port=port)
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
