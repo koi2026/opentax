@@ -1,0 +1,2162 @@
+[
+  {
+    "case_id": "d0e46883",
+    "description": "보유기간 364일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250525",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 0.9965776865160849
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "364일"
+    ]
+  },
+  {
+    "case_id": "02efe930",
+    "description": "보유기간 365일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 0.999315537303217
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "365일"
+    ]
+  },
+  {
+    "case_id": "f8f9104f",
+    "description": "보유기간 366일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250523",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 1.002053388090349
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "366일"
+    ]
+  },
+  {
+    "case_id": "60784a3b",
+    "description": "보유기간 729일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240525",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 1.995893223819302
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "729일"
+    ]
+  },
+  {
+    "case_id": "d106f8c1",
+    "description": "보유기간 730일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 1.998631074606434
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "730일"
+    ]
+  },
+  {
+    "case_id": "0c9b7ffa",
+    "description": "보유기간 1095일 경계 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20230525",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "is_adjustment_area_at_transfer": false,
+      "residence_years": 2.9979466119096507
+    },
+    "expected_verdict": null,
+    "boundary_type": "date_boundary",
+    "tags": [
+      "보유기간경계",
+      "1095일"
+    ]
+  },
+  {
+    "case_id": "d21a489d",
+    "description": "12억 미달 비과세",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1190000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "12억경계",
+      "고가주택"
+    ]
+  },
+  {
+    "case_id": "1ef3e4ea",
+    "description": "12억 정확히 비과세한도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1200000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "12억경계",
+      "고가주택"
+    ]
+  },
+  {
+    "case_id": "2543f2c2",
+    "description": "12억 초과 고가주택",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1210000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "12억경계",
+      "고가주택"
+    ]
+  },
+  {
+    "case_id": "2fd45de6",
+    "description": "12억 +3억 고가주택",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "12억경계",
+      "고가주택"
+    ]
+  },
+  {
+    "case_id": "92d63382",
+    "description": "세대 내 1주택 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1000000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "house_count",
+    "tags": [
+      "주택수경계",
+      "1주택"
+    ]
+  },
+  {
+    "case_id": "33f8368d",
+    "description": "세대 내 2주택 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1000000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "house_count",
+    "tags": [
+      "주택수경계",
+      "2주택"
+    ]
+  },
+  {
+    "case_id": "ee4d4f8c",
+    "description": "세대 내 3주택 케이스",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 3,
+      "transfer_price": 1000000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "house_count",
+    "tags": [
+      "주택수경계",
+      "3주택"
+    ]
+  },
+  {
+    "case_id": "ceba8ab4",
+    "description": "고가주택 1세대1주택 — 12억 이상 (초과분만 과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1700000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "고가주택",
+      "1세대1주택"
+    ]
+  },
+  {
+    "case_id": "727a8689",
+    "description": "고가주택 — 12억 정확히 (비과세 한도)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1200000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "고가주택",
+      "한도정확"
+    ]
+  },
+  {
+    "case_id": "28dbecee",
+    "description": "고가주택 — 다주택 중과 + 12억 초과",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "중과",
+    "boundary_type": "price_boundary",
+    "tags": [
+      "고가주택",
+      "다주택중과"
+    ]
+  },
+  {
+    "case_id": "df59835a",
+    "description": "일시적2주택 — 3년 내 종전주택 양도 (비과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180601",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20230901",
+          "old_house_must_sell_by": "20260901",
+          "new_is_adjustment_area": true
+        }
+      }
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "일시적2주택",
+      "3년이내"
+    ]
+  },
+  {
+    "case_id": "b4f2cc55",
+    "description": "일시적2주택 — 3년 초과 후 양도 (일반과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180601",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20221201",
+          "old_house_must_sell_by": "20251201",
+          "new_is_adjustment_area": true
+        }
+      }
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "일시적2주택",
+      "3년초과"
+    ]
+  },
+  {
+    "case_id": "f6bac6e1",
+    "description": "일시적2주택 — 신규주택 취득 후 1일 경과 (비과세 여부)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180601",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20260331",
+          "old_house_must_sell_by": "20290331",
+          "new_is_adjustment_area": true
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "일시적2주택",
+      "경계"
+    ]
+  },
+  {
+    "case_id": "a50e4988",
+    "description": "일시적2주택 — 조정→조정 2년거주 충족",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180601",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": true,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20231001",
+          "old_house_must_sell_by": "20261001",
+          "new_is_adjustment_area": true
+        }
+      }
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "일시적2주택",
+      "조정대상지역"
+    ]
+  },
+  {
+    "case_id": "30fe7f98",
+    "description": "상속주택 — 상속 후 5년 이내 양도 (1주택 간주)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "inheritance": {
+          "death_date": "20210601",
+          "selling_inherited_house": false,
+          "inherited_acquisition_date": "20210601"
+        }
+      }
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "상속주택",
+      "5년이내"
+    ]
+  },
+  {
+    "case_id": "ccd37508",
+    "description": "상속주택 — 상속 후 5년 초과 양도 (다주택 취급)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "inheritance": {
+          "death_date": "20190601",
+          "selling_inherited_house": false,
+          "inherited_acquisition_date": "20190601"
+        }
+      }
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "상속주택",
+      "5년초과"
+    ]
+  },
+  {
+    "case_id": "7ad21cb0",
+    "description": "상속주택 — 협의분할 취득일 기산 (취득일 경계)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "inheritance": {
+          "death_date": "20210101",
+          "selling_inherited_house": false,
+          "inherited_acquisition_date": "20210101"
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "상속주택",
+      "협의분할"
+    ]
+  },
+  {
+    "case_id": "d315e6b8",
+    "description": "이월과세 — 증여 후 10년 이내 양도 (원취득가액 적용)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160625",
+      "property_type": "아파트",
+      "acquisition_reason": "증여",
+      "household_house_count": 1,
+      "transfer_price": 1000000000,
+      "acquisition_price": 300000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "gift": {
+          "is_gift_from_spouse_or_lineal": true,
+          "gift_date": "20160625",
+          "donor_acquisition_price": 200000000,
+          "donor_acquisition_date": "20100101"
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "이월과세",
+      "10년이내"
+    ]
+  },
+  {
+    "case_id": "d3255892",
+    "description": "이월과세 — 증여 후 10년 초과 양도 (증여받은 가액 적용)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160426",
+      "property_type": "아파트",
+      "acquisition_reason": "증여",
+      "household_house_count": 1,
+      "transfer_price": 1000000000,
+      "acquisition_price": 300000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "gift": {
+          "is_gift_from_spouse_or_lineal": true,
+          "gift_date": "20160426",
+          "donor_acquisition_price": 200000000,
+          "donor_acquisition_date": "20100101"
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "이월과세",
+      "10년초과"
+    ]
+  },
+  {
+    "case_id": "fc9dc481",
+    "description": "이월과세 — 직계존속 증여, 시가보다 저가 취득",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "증여",
+      "household_house_count": 1,
+      "transfer_price": 1000000000,
+      "acquisition_price": 300000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "gift": {
+          "is_gift_from_spouse_or_lineal": true,
+          "gift_date": "20150101",
+          "donor_acquisition_price": 200000000,
+          "donor_acquisition_date": "20100101"
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "이월과세",
+      "직계존속",
+      "저가증여"
+    ]
+  },
+  {
+    "case_id": "8c527fbb",
+    "description": "상생임대 — 거주요건 2년 대신 1년6개월로 비과세",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 1.5,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true,
+      "sangsaeng_rental_contract_date": "20230101",
+      "sangsaeng_rental_period_months": 24,
+      "sangsaeng_rental_5pct_satisfied": true
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "상생임대",
+      "거주요건완화"
+    ]
+  },
+  {
+    "case_id": "c31a786c",
+    "description": "상생임대 — 2021-12-20 이전 계약 (특례 미적용)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 1.5,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true,
+      "sangsaeng_rental_contract_date": "20211201",
+      "sangsaeng_rental_period_months": 24,
+      "sangsaeng_rental_5pct_satisfied": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "상생임대",
+      "기간외계약"
+    ]
+  },
+  {
+    "case_id": "a92d4a03",
+    "description": "상생임대 — 임대료 5% 초과 인상 (특례 박탈)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 1.5,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true,
+      "sangsaeng_rental_contract_date": "20220601",
+      "sangsaeng_rental_period_months": 24,
+      "sangsaeng_rental_5pct_satisfied": false
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "상생임대",
+      "임대료초과"
+    ]
+  },
+  {
+    "case_id": "bae862b3",
+    "description": "조합원입주권 양도 — 관리처분인가 이후 (60% 세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "입주권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 300000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "reconstruction": {
+          "management_disposal_date": "20220301",
+          "is_union_member": true
+        }
+      }
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "special_case",
+    "tags": [
+      "입주권",
+      "관리처분후"
+    ]
+  },
+  {
+    "case_id": "c17c978a",
+    "description": "재건축 — 조합원으로서 완공 후 신규주택 취득",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "입주권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 300000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "reconstruction": {
+          "management_disposal_date": "20200601",
+          "is_union_member": true
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "재건축",
+      "신축"
+    ]
+  },
+  {
+    "case_id": "c33917c9",
+    "description": "입주권 2년 이상 보유 후 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "입주권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 300000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "reconstruction": {
+          "management_disposal_date": "20230101",
+          "is_union_member": true
+        }
+      }
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "입주권",
+      "2년이상"
+    ]
+  },
+  {
+    "case_id": "803d0d94",
+    "description": "농어촌주택 보유 — 일반주택 1세대1주택 비과세 인정",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "rural_house": {
+          "rural_acquisition_date": "20200101",
+          "rural_property_type": "단독주택",
+          "is_eligible_rural_area": true
+        }
+      }
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "농어촌주택",
+      "비과세유지"
+    ]
+  },
+  {
+    "case_id": "63d37b0a",
+    "description": "농어촌주택 본인 취득 후 3년 미경과 — 특례 미적용",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "rural_house": {
+          "rural_acquisition_date": "20230601",
+          "rural_property_type": "단독주택",
+          "is_eligible_rural_area": true
+        }
+      }
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "농어촌주택",
+      "3년미경과"
+    ]
+  },
+  {
+    "case_id": "2f06544b",
+    "description": "동거봉양합가 — 합가 후 10년 이내 양도 (1주택 간주)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 450000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "donggo_bonyang_merge_date": "20200101",
+      "donggo_bonyang_parent_age": 65
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "동거봉양",
+      "10년이내"
+    ]
+  },
+  {
+    "case_id": "74c993d1",
+    "description": "동거봉양합가 — 합가 후 10년 초과 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 450000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "donggo_bonyang_merge_date": "20130101",
+      "donggo_bonyang_parent_age": 65
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "동거봉양",
+      "10년초과"
+    ]
+  },
+  {
+    "case_id": "391ec9cb",
+    "description": "비거주자 — 국내 1주택 양도 (비과세 불가)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_non_resident": true
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "special_case",
+    "tags": [
+      "비거주자",
+      "비과세불가"
+    ]
+  },
+  {
+    "case_id": "929fd336",
+    "description": "비거주자 — 단기보유 국내주택 (단기세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_non_resident": true
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "special_case",
+    "tags": [
+      "비거주자",
+      "단기"
+    ]
+  },
+  {
+    "case_id": "4a3d1369",
+    "description": "분양권 — 2021-01-01 이후 취득, 1년 미만 보유 (70% 세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20230101",
+      "property_type": "분양권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 600000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "special_case",
+    "tags": [
+      "분양권",
+      "1년미만",
+      "70%"
+    ]
+  },
+  {
+    "case_id": "81a3a997",
+    "description": "분양권 — 2021-01-01 이후 취득, 1년 이상 보유 (60% 세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240101",
+      "property_type": "분양권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 550000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "special_case",
+    "tags": [
+      "분양권",
+      "1년이상",
+      "60%"
+    ]
+  },
+  {
+    "case_id": "42838285",
+    "description": "분양권 — 1세대 1분양권 비과세 요건 (완공 후 이전)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20210601",
+      "property_type": "분양권",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": null,
+    "boundary_type": "special_case",
+    "tags": [
+      "분양권",
+      "1세대1분양권"
+    ]
+  },
+  {
+    "case_id": "be1bb5c7",
+    "description": "[중과부활] 조정지역 2주택 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1200000000,
+      "acquisition_price": 700000000,
+      "residence_years": 1.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "중과",
+    "boundary_type": "heavy_tax",
+    "tags": [
+      "중과",
+      "2주택",
+      "조정대상지역"
+    ]
+  },
+  {
+    "case_id": "05f5488f",
+    "description": "[중과부활] 조정지역 3주택 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 3,
+      "transfer_price": 1200000000,
+      "acquisition_price": 700000000,
+      "residence_years": 1.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "중과",
+    "boundary_type": "heavy_tax",
+    "tags": [
+      "중과",
+      "3주택",
+      "조정대상지역"
+    ]
+  },
+  {
+    "case_id": "5ce32c1b",
+    "description": "비조정지역 2주택 — 기본세율 (중과 비해당)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1200000000,
+      "acquisition_price": 700000000,
+      "residence_years": 1.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "heavy_tax",
+    "tags": [
+      "중과",
+      "2주택",
+      "비조정지역"
+    ]
+  },
+  {
+    "case_id": "a6b9f319",
+    "description": "조정지역 2주택 — 장기보유특별공제 배제 여부",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1200000000,
+      "acquisition_price": 700000000,
+      "residence_years": 1.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "중과",
+    "boundary_type": "heavy_tax",
+    "tags": [
+      "중과",
+      "장기보유공제배제"
+    ]
+  },
+  {
+    "case_id": "a2174efe",
+    "description": "1년 미만 보유 아파트 양도 (70% 세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250728",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "short_term",
+    "tags": [
+      "단기세율",
+      "1년미만",
+      "70%"
+    ]
+  },
+  {
+    "case_id": "a4fc3190",
+    "description": "1년 ~ 2년 보유 아파트 양도 (60% 세율)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250109",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "short_term",
+    "tags": [
+      "단기세율",
+      "1~2년",
+      "60%"
+    ]
+  },
+  {
+    "case_id": "a2a03e5f",
+    "description": "정확히 1년 보유 경계 (365일)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20250524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "short_term",
+    "tags": [
+      "단기세율",
+      "365일경계"
+    ]
+  },
+  {
+    "case_id": "fafbcad8",
+    "description": "정확히 2년 보유 경계 (730일) — 단기세율 탈출",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "short_term",
+    "tags": [
+      "단기세율",
+      "730일경계"
+    ]
+  },
+  {
+    "case_id": "601a6374",
+    "description": "transfer_price 누락 → L2 차단",
+    "fact_json": {
+      "transfer_date": "20260401",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "transfer_price누락"
+    ]
+  },
+  {
+    "case_id": "ae896014",
+    "description": "배우자증여 + original_acquisition_price 누락 → L2 차단",
+    "fact_json": {
+      "transfer_date": "20260401",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "증여",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "gift": {
+          "is_gift_from_spouse_or_lineal": true
+        }
+      }
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "이월과세누락"
+    ]
+  },
+  {
+    "case_id": "85a0620d",
+    "description": "상속주택 death_date 누락 → L2 차단",
+    "fact_json": {
+      "transfer_date": "20260401",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "상속",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "death_date누락"
+    ]
+  },
+  {
+    "case_id": "9d08f078",
+    "description": "일시적2주택 신규취득일 누락 → L2 차단",
+    "fact_json": {
+      "transfer_date": "20260401",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "temp_two_house누락"
+    ]
+  },
+  {
+    "case_id": "8bb8fa2a",
+    "description": "장기보유특별공제 — 보유3년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20230524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유3년"
+    ]
+  },
+  {
+    "case_id": "ead358a1",
+    "description": "장기보유특별공제 — 보유4년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20220524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유4년"
+    ]
+  },
+  {
+    "case_id": "f39f8f3e",
+    "description": "장기보유특별공제 — 보유5년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20210524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유5년"
+    ]
+  },
+  {
+    "case_id": "3d9dd96e",
+    "description": "장기보유특별공제 — 보유6년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유6년"
+    ]
+  },
+  {
+    "case_id": "d7569659",
+    "description": "장기보유특별공제 — 보유7년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유7년"
+    ]
+  },
+  {
+    "case_id": "8e7f62c8",
+    "description": "장기보유특별공제 — 보유8년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유8년"
+    ]
+  },
+  {
+    "case_id": "6602936d",
+    "description": "장기보유특별공제 — 보유9년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유9년"
+    ]
+  },
+  {
+    "case_id": "1e377fa4",
+    "description": "장기보유특별공제 — 보유10년 거주2년 (1세대1주택)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "보유10년"
+    ]
+  },
+  {
+    "case_id": "73c45d15",
+    "description": "장기보유특별공제 — 보유10년 거주0년 (표2 아닌 표1 적용)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160524",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1500000000,
+      "acquisition_price": 600000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "long_term_deduction",
+    "tags": [
+      "장기보유특별공제",
+      "거주0년",
+      "표1"
+    ]
+  },
+  {
+    "case_id": "1d0c839d",
+    "description": "8년 자경농지 양도소득세 감면 (§69)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160101",
+      "property_type": "토지",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "감면",
+    "boundary_type": "special_tax_reduction",
+    "tags": [
+      "조특법",
+      "자경농지",
+      "8년감면"
+    ]
+  },
+  {
+    "case_id": "0dd78fc6",
+    "description": "장기임대주택 양도세 감면 — 10년 이상 임대 (§97의3)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20130101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "long_term_rental": {
+          "registration_date": "20130601",
+          "mandatory_period_years": 10,
+          "mandatory_period_fulfilled": true,
+          "rent_increase_limit_complied": true
+        }
+      }
+    },
+    "expected_verdict": "감면",
+    "boundary_type": "special_tax_reduction",
+    "tags": [
+      "조특법",
+      "장기임대주택"
+    ]
+  },
+  {
+    "case_id": "99d5009a",
+    "description": "미분양주택 취득 감면 (§98의2) — 5년 이내 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20210101",
+      "property_type": "아파트",
+      "acquisition_reason": "분양",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": true,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "감면",
+    "boundary_type": "special_tax_reduction",
+    "tags": [
+      "조특법",
+      "미분양주택"
+    ]
+  },
+  {
+    "case_id": "70f39c5e",
+    "description": "신축주택 취득 감면 (§99의3) — 요건 충족",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20220601",
+      "property_type": "아파트",
+      "acquisition_reason": "분양",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": true,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "감면",
+    "boundary_type": "special_tax_reduction",
+    "tags": [
+      "조특법",
+      "신축주택"
+    ]
+  },
+  {
+    "case_id": "32da0b55",
+    "description": "공익사업 수용 감면 (§77) — 채권보상",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": true,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "expropriation": {
+          "compensation_type": "채권",
+          "is_main_residence": false
+        }
+      }
+    },
+    "expected_verdict": "감면",
+    "boundary_type": "special_tax_reduction",
+    "tags": [
+      "조특법",
+      "공익수용"
+    ]
+  },
+  {
+    "case_id": "917a5f8c",
+    "description": "일시적2주택 + 고가주택 — 12억 초과, 3년 이내 양도",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1700000000,
+      "acquisition_price": 600000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20240101",
+          "old_house_must_sell_by": "20270101",
+          "new_is_adjustment_area": false
+        }
+      }
+    },
+    "expected_verdict": "고가주택",
+    "boundary_type": "combination",
+    "tags": [
+      "일시적2주택",
+      "고가주택"
+    ]
+  },
+  {
+    "case_id": "3f7214d8",
+    "description": "상속주택 보유 + 일반주택 배우자증여 후 이월과세 쟁점",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "증여",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "gift": {
+          "is_gift_from_spouse_or_lineal": true,
+          "gift_date": "20200101",
+          "donor_acquisition_price": 300000000,
+          "donor_acquisition_date": "20100101"
+        },
+        "inheritance": {
+          "death_date": "20220601",
+          "selling_inherited_house": false
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "combination",
+    "tags": [
+      "이월과세",
+      "상속주택",
+      "복합"
+    ]
+  },
+  {
+    "case_id": "b7120c60",
+    "description": "동거봉양합가 + 신규주택 취득으로 3주택 → 1주택 간주 여부",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20150101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 3,
+      "transfer_price": 900000000,
+      "acquisition_price": 450000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "cohabitation_care": {
+          "cohabitation_date": "20200101",
+          "parent_age_at_merge": 70
+        },
+        "temp_two_house": {
+          "new_acquisition_date": "20241001",
+          "old_house_must_sell_by": "20271001",
+          "new_is_adjustment_area": false
+        }
+      }
+    },
+    "expected_verdict": null,
+    "boundary_type": "combination",
+    "tags": [
+      "동거봉양",
+      "일시적2주택",
+      "3주택"
+    ]
+  },
+  {
+    "case_id": "b90051e5",
+    "description": "비거주자 + 조정지역 2주택 — 중과 여부",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1000000000,
+      "acquisition_price": 600000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_non_resident": true
+    },
+    "expected_verdict": "중과",
+    "boundary_type": "combination",
+    "tags": [
+      "비거주자",
+      "중과",
+      "조정대상지역"
+    ]
+  },
+  {
+    "case_id": "092a5214",
+    "description": "분양권 보유 + 기존주택 양도 (일시적2주택 특례 적용 여부)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "special_cases": {
+        "temp_two_house": {
+          "new_acquisition_date": "20230101",
+          "old_house_must_sell_by": "20260101",
+          "new_is_adjustment_area": false
+        }
+      }
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "combination",
+    "tags": [
+      "분양권",
+      "일시적2주택"
+    ]
+  },
+  {
+    "case_id": "7044c7e9",
+    "description": "특수관계자 저가양도 — 시가의 70% 이하 (부당행위 추정)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 500000000,
+      "acquisition_price": 400000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_related_party_transaction": true,
+      "market_price": 900000000
+    },
+    "expected_verdict": null,
+    "boundary_type": "related_party",
+    "tags": [
+      "특수관계자",
+      "저가양도",
+      "부당행위"
+    ]
+  },
+  {
+    "case_id": "3b7dd981",
+    "description": "특수관계자 고가양수 → 양도자 입장 (부당행위 비해당)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1000000000,
+      "acquisition_price": 400000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_related_party_transaction": true,
+      "market_price": 900000000
+    },
+    "expected_verdict": null,
+    "boundary_type": "related_party",
+    "tags": [
+      "특수관계자",
+      "고가양수"
+    ]
+  },
+  {
+    "case_id": "0d2296d4",
+    "description": "특수관계자 거래 + 1세대1주택 — 비과세 배제 여부",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 400000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_related_party_transaction": true,
+      "market_price": 1100000000
+    },
+    "expected_verdict": null,
+    "boundary_type": "related_party",
+    "tags": [
+      "특수관계자",
+      "비과세",
+      "§101"
+    ]
+  },
+  {
+    "case_id": "92a579d8",
+    "description": "조정지역 취득 + 조정지역 양도 — 거주요건 2년 필요",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "adjustment_area",
+    "tags": [
+      "조정대상지역",
+      "거주2년충족"
+    ]
+  },
+  {
+    "case_id": "8de072fa",
+    "description": "조정지역 취득 + 조정지역 양도 — 거주요건 1년 미달",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 1.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "adjustment_area",
+    "tags": [
+      "조정대상지역",
+      "거주요건미달"
+    ]
+  },
+  {
+    "case_id": "7649e2ee",
+    "description": "비조정지역 취득 + 이후 조정지역 편입 — 거주요건 불요",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "adjustment_area",
+    "tags": [
+      "조정대상지역",
+      "취득시비조정"
+    ]
+  },
+  {
+    "case_id": "683cab38",
+    "description": "조정지역 취득 + 이후 해제 후 양도 — 거주요건",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.5,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "adjustment_area",
+    "tags": [
+      "조정대상지역",
+      "해제후양도"
+    ]
+  },
+  {
+    "case_id": "41bfee7f",
+    "description": "1주택 — 보유2년+거주2년 충족, 비조정지역 (비과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20210101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.5,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "1세대1주택",
+      "비조정",
+      "비과세"
+    ]
+  },
+  {
+    "case_id": "26a21013",
+    "description": "1주택 — 거주요건 충족 + 12억 이하 (비과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 1100000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.1,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "1세대1주택",
+      "12억이하"
+    ]
+  },
+  {
+    "case_id": "f0757f68",
+    "description": "1주택 — 보유2년 미달 (비과세 불가)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240623",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 0.5,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "1세대1주택",
+      "보유2년미달"
+    ]
+  },
+  {
+    "case_id": "8715489d",
+    "description": "1주택 — 직전 1년 거주 + 해외출국 (§154④ 특례)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 1.2,
+      "is_adjustment_area_at_transfer": true,
+      "is_adjustment_area_at_acquisition": true
+    },
+    "expected_verdict": null,
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "1세대1주택",
+      "해외출국특례"
+    ]
+  },
+  {
+    "case_id": "3e5de28e",
+    "description": "1주택 — 미등기 전매 (70% 세율, 비과세 배제)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 500000000,
+      "residence_years": 3.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": null,
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "미등기전매"
+    ]
+  },
+  {
+    "case_id": "991df7f4",
+    "description": "1주택 + 상가 동시 보유 — 주택 비과세 여부",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20190101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false,
+      "is_adjustment_area_at_acquisition": false
+    },
+    "expected_verdict": "비과세",
+    "boundary_type": "one_house_exempt",
+    "tags": [
+      "1세대1주택",
+      "상가겸용"
+    ]
+  },
+  {
+    "case_id": "3418a966",
+    "description": "2주택 비조정지역 — 일반세율 적용",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 2,
+      "transfer_price": 1000000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": false,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "general_tax",
+    "tags": [
+      "일반과세",
+      "2주택",
+      "비조정"
+    ]
+  },
+  {
+    "case_id": "1aaedcc3",
+    "description": "1주택 보유2년 미달 (730일 미만) + 비조정 — 단기세율",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20240623",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 700000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": false,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "단기세율",
+    "boundary_type": "general_tax",
+    "tags": [
+      "단기세율",
+      "2년미달"
+    ]
+  },
+  {
+    "case_id": "5338f2c3",
+    "description": "1주택 — 조정지역 거주요건 미충족 (일반과세)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20200101",
+      "property_type": "아파트",
+      "acquisition_reason": "매매",
+      "household_house_count": 1,
+      "transfer_price": 800000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": true,
+      "is_adjustment_area_at_transfer": true
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "general_tax",
+    "tags": [
+      "일반과세",
+      "조정",
+      "거주미달"
+    ]
+  },
+  {
+    "case_id": "0a9a2d8b",
+    "description": "토지(나대지) 5년 이상 보유 — 일반과세",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20170101",
+      "property_type": "토지",
+      "acquisition_reason": "매매",
+      "household_house_count": 0,
+      "transfer_price": 600000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": false,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "general_tax",
+    "tags": [
+      "일반과세",
+      "토지"
+    ]
+  },
+  {
+    "case_id": "ba1f1673",
+    "description": "상가 양도 — 일반과세 (비과세 불가)",
+    "fact_json": {
+      "transfer_date": "20260524",
+      "acquisition_date": "20160101",
+      "property_type": "상가",
+      "acquisition_reason": "매매",
+      "household_house_count": 0,
+      "transfer_price": 900000000,
+      "acquisition_price": 400000000,
+      "residence_years": 0.0,
+      "is_adjustment_area_at_acquisition": false,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "일반과세",
+    "boundary_type": "general_tax",
+    "tags": [
+      "일반과세",
+      "상가"
+    ]
+  },
+  {
+    "case_id": "3351cce6",
+    "description": "전체 필드 누락 — fact_json 비어있음",
+    "fact_json": {},
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "전체누락"
+    ]
+  },
+  {
+    "case_id": "377e21f0",
+    "description": "transfer_date 없음 — 날짜 기준 판단 불가",
+    "fact_json": {
+      "property_type": "아파트",
+      "household_house_count": 1,
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "transfer_date누락"
+    ]
+  },
+  {
+    "case_id": "013eb4cb",
+    "description": "household_house_count 없음 — 다주택 여부 판단 불가",
+    "fact_json": {
+      "transfer_date": "20260401",
+      "acquisition_date": "20180101",
+      "property_type": "아파트",
+      "transfer_price": 900000000,
+      "acquisition_price": 500000000,
+      "residence_years": 2.0,
+      "is_adjustment_area_at_transfer": false
+    },
+    "expected_verdict": "사실관계부족",
+    "boundary_type": "l2_block",
+    "tags": [
+      "L2차단",
+      "household_house_count누락"
+    ]
+  }
+]

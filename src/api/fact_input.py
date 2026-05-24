@@ -32,6 +32,7 @@ class InheritanceInput(BaseModel):
 class GiftInput(BaseModel):
     """증여 상세 (이월과세 트리거 여부 포함)"""
     is_gift_from_spouse_or_lineal: bool     # 배우자·직계존비속 여부
+    gift_date: Optional[str] = None                 # 증여일 YYYYMMDD (미입력 시 acquisition_date 사용)
     donor_acquisition_date: Optional[str] = None
     donor_acquisition_price: Optional[int] = None
 
@@ -180,6 +181,11 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
     sc = fact.special_cases or SpecialCasesInput()
 
     # user_property dict — from_fact_ledger가 기대하는 컬럼명 사용
+    from datetime import date as _date
+    _td = _date(int(fact.transfer_date[:4]), int(fact.transfer_date[4:6]), int(fact.transfer_date[6:8]))
+    _ad = _date(int(fact.acquisition_date[:4]), int(fact.acquisition_date[4:6]), int(fact.acquisition_date[6:8]))
+    _holding_years = (_td - _ad).days / 365.25
+
     user_property: dict = {
         "transfer_date": _yyyymmdd_to_iso(fact.transfer_date),
         "acquisition_date": _yyyymmdd_to_iso(fact.acquisition_date),
@@ -194,6 +200,10 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
         "adjustment_area_at_transfer": fact.is_adjustment_area_at_transfer,
         "joint_ownership_yn": fact.joint_ownership,
         "overseas_residence_yn": fact.is_non_resident,
+        # holding_period_years: transfer_date - acquisition_date 자동 계산
+        "holding_period_years": _holding_years,
+        # residence_period_years: FactInput.residence_years → user_property 매핑
+        "residence_period_years": fact.residence_years or 0.0,
     }
     if sc.long_term_rental:
         lr = sc.long_term_rental
@@ -234,10 +244,14 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
     if sc.gift:
         g = sc.gift
         fact_ledger["is_gift_from_spouse_or_lineal"] = g.is_gift_from_spouse_or_lineal
+        # gift_date: 이월과세 RolloverTaxationDetail 생성에 필요 (from_fact_ledger 요구)
+        gift_date_iso = _yyyymmdd_to_iso(g.gift_date) if g.gift_date else user_property["acquisition_date"]
+        user_property["gift_date"] = gift_date_iso
         if g.donor_acquisition_date:
-            fact_ledger["donor_acquisition_date"] = _yyyymmdd_to_iso(g.donor_acquisition_date)
+            # from_fact_ledger가 "original_donor_acquisition_date" 키를 요구함
+            fact_ledger["original_donor_acquisition_date"] = _yyyymmdd_to_iso(g.donor_acquisition_date)
         if g.donor_acquisition_price is not None:
-            fact_ledger["donor_acquisition_price"] = g.donor_acquisition_price
+            fact_ledger["original_donor_acquisition_price"] = g.donor_acquisition_price
     if sc.marriage_merge:
         mm = sc.marriage_merge
         fact_ledger.update({

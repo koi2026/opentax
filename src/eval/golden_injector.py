@@ -54,11 +54,10 @@ def find_similar_cases(fact_json: dict, top_n: int = MAX_SHOTS) -> list[dict]:
     if len(golden) < MIN_GOLDEN:
         return []
 
-    scored = [
-        (g, _score_similarity(fact_json, g.get("fact_json", {})))
-        for g in golden
-        if g.get("source") == "debate" and g.get("verdict")
-    ]
+    usable = [g for g in golden if g.get("source") == "debate" and g.get("verdict")]
+    if len(usable) < MIN_GOLDEN:
+        return []
+    scored = [(g, _score_similarity(fact_json, g.get("fact_json", {}))) for g in usable]
     scored.sort(key=lambda x: -x[1])
     return [g for g, s in scored[:top_n] if s > 0]
 

@@ -6,7 +6,7 @@ import json
 from mcp.server.fastmcp import FastMCP
 
 from src.config import MCP_HOST, MCP_PORT
-from src.rag import TaxAnswer, answer_with_citations, retrieve_tax_law
+from src.rag import retrieve_tax_law
 from src.domain.query_enrichment import enrich_raw_query_text
 
 mcp = FastMCP(
@@ -91,7 +91,7 @@ def retrieve_article(law_name: str, article_number: str) -> str:
 # ── Tool 3: 비과세 요건 분석 (RAG + LLM) ─────────────────────────────────────
 
 @mcp.tool()
-def analyze_exemption(question: str, as_of_date: str = "") -> str:
+async def analyze_exemption(question: str, as_of_date: str = "") -> str:
     """
     양도소득세 비과세·감면·중과 여부를 RAG 검색 후 Claude로 분석합니다.
     검색된 법령 조문에만 근거하며, 불확실한 사실관계는 추가 확인 항목으로 표시합니다.
@@ -101,17 +101,26 @@ def analyze_exemption(question: str, as_of_date: str = "") -> str:
                   (예: "2019년 취득, 2024년 양도, 보유 5년, 거주 3년, 1세대 1주택")
         as_of_date: 기준일자 YYYYMMDD (예: "20220101"). 취득일 또는 양도일 기준.
     """
-    answer: TaxAnswer = answer_with_citations(question, as_of_date=as_of_date or None)
+    from src.api.chat_api import chat_turn
 
-    result = {
-        "answer": answer.answer,
-        "citations": answer.citations,
-        "chunk_ids": answer.chunk_ids,
-        "confidence": answer.confidence,
-        "missing_facts": answer.missing_facts,
-        "warnings": answer.warnings,
-    }
-    return json.dumps(result, ensure_ascii=False, indent=2)
+    result = await chat_turn(
+        question=question,
+        enable_debate=False,
+    )
+    return json.dumps(
+        {
+            "verdict": result.get("verdict"),
+            "answer": result.get("answer"),
+            "confidence": result.get("confidence"),
+            "citations": result.get("citations", []),
+            "chunk_ids": result.get("chunk_ids", []),
+            "missing_facts": result.get("missing_facts", []),
+            "warnings": result.get("warnings", []),
+            "blocked": result.get("blocked", False),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 # ── Tool 4: 인용 조문 검증 ────────────────────────────────────────────────────
@@ -177,7 +186,9 @@ async def calculate_tax(
     a_date = _date(int(acquisition_date[:4]), int(acquisition_date[4:6]), int(acquisition_date[6:8]))
     holding_years = (t_date - a_date).days / 365.25
 
-    is_high_value = transfer_price > 1_200_000_000
+    from src.domain.tax_constants import TaxConstantsRegistry
+    high_value_threshold = TaxConstantsRegistry.get("HIGH_VALUE_THRESHOLD", t_date)
+    is_high_value = transfer_price > high_value_threshold
     is_one_house = household_house_count == 1
     ltshd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house)
     is_short_term = holding_years < 2.0
@@ -272,10 +283,10 @@ async def lookup_ruling(
     """
     # Pinecone 네임스페이스 매핑
     RULING_NAMESPACES: dict = {
-        "ntis": ["tax-ruling-ntis"],
-        "tt": ["tax-ruling-tt"],
-        "court": ["tax-ruling-court"],
-        "all": ["tax-ruling-ntis", "tax-ruling-tt", "tax-ruling-court"],
+        "ntis": ["tax-ruling-nts"],
+        "tt": ["tax-ruling-decisions"],
+        "court": ["tax-ruling-pdf"],
+        "all": ["tax-ruling-nts", "tax-ruling-decisions", "tax-ruling-pdf"],
     }
 
     if ruling_type not in RULING_NAMESPACES:

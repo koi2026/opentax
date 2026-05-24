@@ -154,7 +154,22 @@ async def chat_turn(
 
         # simulation_* 키는 FactInput 스키마 외부 → 파싱 전 분리
         fact_for_schema = {k: v for k, v in fact_json.items() if not k.startswith("simulation_") and k != "necessary_expenses"}
-        query = fact_input_to_rag_query(FactInput(**fact_for_schema))
+        try:
+            query = fact_input_to_rag_query(FactInput(**fact_for_schema))
+        except Exception as e:
+            return {
+                "session_id": sid,
+                "verdict": "사실관계부족",
+                "answer": f"입력 형식 오류 — 필수 항목 누락: {e}",
+                "confidence": 0.0,
+                "citations": [],
+                "chunk_ids": [],
+                "missing_facts": [f"입력 형식 오류: {e}"],
+                "warnings": [],
+                "blocked": True,
+                "mode": "pipeline",
+                "consulting_scenarios": [],
+            }
         retriever = PineconeTaxLawRetriever()
         result = await run_rag_pipeline(
             query, retriever, llm_fn,

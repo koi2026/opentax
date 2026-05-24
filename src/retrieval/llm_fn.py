@@ -50,6 +50,69 @@ def _choose_default_model(enriched_query: str, missing_hints: List[str]) -> str:
 _MAX_CHUNK_CHARS = 800  # 조문 원문 최대 전달 길이 (토큰 절약 — 핵심 내용은 앞부분에 집중)
 
 
+def _extract_json(text: str) -> str:
+    """LLM 응답에서 JSON 블록 추출.
+
+    JSON-first 프롬프트 기준:
+    1. <reasoning> 이전 텍스트에서 첫 번째 { ... } 블록 추출
+    2. <reasoning> 없으면 전체 텍스트에서 첫 번째 완결 JSON 블록 추출
+    3. ```json 코드 펜스 제거
+    """
+    # JSON-first: <reasoning> 이전에 JSON이 있어야 함
+    if "<reasoning>" in text:
+        candidate = text.split("<reasoning>", 1)[0].strip()
+    elif "</reasoning>" in text:
+        # reasoning이 끝난 후 JSON이 있는 구 방식 대응
+        candidate = text.split("</reasoning>", 1)[1].strip()
+    else:
+        candidate = text
+
+    # ```json 또는 ``` 코드 펜스 제거
+    if "```json" in candidate:
+        candidate = candidate.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in candidate:
+        parts = candidate.split("```")
+        for part in parts:
+            stripped = part.strip()
+            if stripped.startswith("{"):
+                candidate = stripped
+                break
+
+    # 첫 { 이전 텍스트 제거
+    first_brace = candidate.find("{")
+    if first_brace > 0:
+        candidate = candidate[first_brace:]
+
+    # JSON이 } 이후에 reasoning 잔여가 붙어있으면 잘라냄
+    # 매칭되는 닫는 중괄호까지만 추출
+    if candidate.startswith("{"):
+        depth = 0
+        end_idx = -1
+        in_str = False
+        escape = False
+        for i, ch in enumerate(candidate):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_str:
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_str = not in_str
+            if not in_str:
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i
+                        break
+        if end_idx != -1:
+            candidate = candidate[:end_idx + 1]
+
+    return candidate.strip()
+
+
 def _build_user_prompt(
     enriched_query: str,
     chunks: List[RetrievedChunk],
@@ -85,18 +148,32 @@ def _build_user_prompt(
 [질문]
 {enriched_query}
 
-먼저 <reasoning> 태그 내에 판단 과정을 단계별로 서술하십시오. 
-그 후, 반드시 아래 JSON 형식으로 답변하십시오:
+반드시 아래 JSON 형식으로 먼저 답변하고, 그 다음에 <reasoning> 태그로 판단 과정을 서술하십시오.
+JSON을 가장 먼저 출력하는 것이 필수입니다.
+
 {{
   "answer": "상세 판단 (법령 근거 포함)",
-  "verdict": "비과세" | "과세" | "조건부비과세" | "needs_verification",
+  "verdict": "비과세" | "고가주택" | "감면" | "중과" | "일반과세" | "단기세율" | "사실관계부족",
   "confidence": 0.0 ~ 1.0,
   "citations": [
     {{"chunk_id": "...", "article": "소득세법 시행령 제154조 제1항", "excerpt": "관련 조문 발췌", "law_version": "시행일"}}
   ],
   "missing_facts": ["추가 확인 필요 항목"],
   "warnings": ["주의사항"]
-}}"""
+}}
+
+<reasoning>
+판단 과정을 단계별로 서술 (JSON 출력 후 여기에 작성)
+</reasoning>
+
+[verdict 선택 기준]
+- "비과세": 1세대1주택 완전 비과세 (소득세법 §89, 양도가액 12억 이하)
+- "고가주택": 1세대1주택이나 양도가액 12억 초과 (초과분만 과세)
+- "감면": 조세특례제한법상 감면 (장기임대§97의3, 신축주택§99의3, 공익사업§77, 자경농지§69 등)
+- "중과": 다주택자 조정대상지역 중과 (+20%/+30%, 소득세법 §104①7,8호)
+- "일반과세": 기본세율 6~45% (중과·단기·비과세 어디도 해당하지 않는 경우)
+- "단기세율": 보유기간 2년 미만 단기양도 (1년 미만 70%, 1~2년 60%), 미등기 전매
+- "사실관계부족": 판단에 필수적인 사실관계가 없어 결론을 낼 수 없는 경우"""
 
 
 async def llm_fn(
@@ -108,12 +185,12 @@ async def llm_fn(
 ) -> TaxAnswer:
     """
     업스트림 시그니처 — 검색된 청크와 누락 힌트로 TaxAnswer 생성.
-    ANTHROPIC_API_KEY 미설정 시 needs_verification 으로 안전 반환.
+    ANTHROPIC_API_KEY 미설정 시 사실관계부족 으로 안전 반환.
     """
     if not ANTHROPIC_API_KEY:
         return TaxAnswer(
             answer="[ANTHROPIC_API_KEY 미설정]",
-            verdict="needs_verification",
+            verdict="사실관계부족",
             confidence=0.0,
             chunk_ids=[c.metadata.chunk_id for c in chunks],
             warnings=["LLM 미설정"],
@@ -134,32 +211,22 @@ async def llm_fn(
 
     message = await client.messages.create(
         model=model,
-        max_tokens=1200,
+        max_tokens=4096,
         system=_SYSTEM_BLOCKS,
         messages=[{"role": "user", "content": user_prompt}],
         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
     )
 
     raw_full = message.content[0].text.strip()
-    
-    # <reasoning> 제거 및 JSON 추출
-    raw_json = raw_full
-    if "<reasoning>" in raw_full:
-        parts = raw_full.split("</reasoning>")
-        if len(parts) > 1:
-            raw_json = parts[1].strip()
 
-    if raw_json.startswith("```"):
-        raw_json = raw_json.split("```")[1]
-        if raw_json.startswith("json"):
-            raw_json = raw_json[4:]
+    raw_json = _extract_json(raw_full)
 
     try:
         data = json.loads(raw_json)
     except json.JSONDecodeError:
         return TaxAnswer(
             answer=raw_full,
-            verdict="needs_verification",
+            verdict="사실관계부족",
             confidence=0.3,
             chunk_ids=[c.metadata.chunk_id for c in chunks],
             warnings=["JSON 파싱 실패 — 원문 반환"],
@@ -206,7 +273,7 @@ async def llm_fn_stream(
     2. 최종 결과물로 TaxAnswer 객체를 yield.
     """
     if not ANTHROPIC_API_KEY:
-        yield TaxAnswer(answer="[API KEY MISSING]", verdict="needs_verification")
+        yield TaxAnswer(answer="[API KEY MISSING]", verdict="사실관계부족")
         return
 
     few_shot_block = ""
@@ -226,7 +293,7 @@ async def llm_fn_stream(
 
     async with client.messages.stream(
         model=model,
-        max_tokens=1500,
+        max_tokens=4096,
         system=_SYSTEM_BLOCKS,
         messages=[{"role": "user", "content": user_prompt}],
         extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
@@ -251,14 +318,7 @@ async def llm_fn_stream(
                         yield text
 
     # 최종 파싱
-    raw_json = full_text
-    if "<reasoning>" in full_text:
-        raw_json = full_text.split("</reasoning>")[-1].strip()
-    
-    if "```json" in raw_json:
-        raw_json = raw_json.split("```json")[1].split("```")[0].strip()
-    elif "```" in raw_json:
-        raw_json = raw_json.split("```")[1].strip()
+    raw_json = _extract_json(full_text)
 
     try:
         data = json.loads(raw_json)
@@ -288,7 +348,7 @@ async def llm_fn_stream(
     except json.JSONDecodeError:
         yield TaxAnswer(
             answer=full_text,
-            verdict="needs_verification",
+            verdict="사실관계부족",
             confidence=0.3,
             chunk_ids=[c.metadata.chunk_id for c in chunks],
             warnings=["JSON 파싱 실패"],

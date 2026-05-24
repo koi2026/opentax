@@ -16,10 +16,10 @@ VERDICT_ALIASES: dict[str, list[str]] = {
     "비과세": ["비과세", "exempt"],
     "감면": ["감면", "reduced"],
     "중과": ["중과", "heavy_tax"],
-    "일반과세": ["일반과세", "general"],
+    "일반과세": ["일반과세", "general", "taxable", "과세"],
     "단기세율": ["단기세율", "short_term"],
     "고가주택": ["고가주택", "partially_exempt"],
-    "사실관계부족": ["사실관계부족", "needs_verification"],
+    "사실관계부족": ["사실관계부족", "needs_verification", "uncertain"],
 }
 
 
