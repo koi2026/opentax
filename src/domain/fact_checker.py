@@ -243,6 +243,11 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
     if sc.expropriation:
         danger.append("공익수용감면")
 
+    # ── 15. 장기임대주택 감면 — 조특법 §97의3 ───────────────────────────
+    if sc.is_long_term_rental_registered and sc.long_term_rental:
+        if sc.long_term_rental.mandatory_period_fulfilled:
+            danger.append("장기임대감면")
+
     # ── 결정 ─────────────────────────────────────────────────────────────
     critical_count = sum(1 for m in missing if m.is_critical)
     can_proceed = critical_count == 0
