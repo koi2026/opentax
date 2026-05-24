@@ -695,13 +695,19 @@ class FactVector:
                 f"소득세법시행령제156조의2"
             )
 
-        # 일시적2주택 — 종전주택 양도기한 명시 (LLM이 3년 충족 여부 판단에 필요)
+        # 일시적2주택 — 종전주택 양도기한 + 기한 초과 여부 명시
         td = self.special_cases.temp_two_house
         if td:
+            if self.transfer_date_val:
+                deadline_ok = self.transfer_date_val <= td.old_house_must_sell_by
+                label = "기한이내_특례적용" if deadline_ok else "기한초과_특례미적용"
+            else:
+                label = ""
             lines.append(
                 f"일시적2주택: 신규취득일{td.new_acquisition_date} "
-                f"종전주택양도기한{td.old_house_must_sell_by} "
-                "소득세법시행령제155조제1항"
+                f"종전주택양도기한{td.old_house_must_sell_by}"
+                + (f" {label}" if label else "")
+                + " 소득세법시행령제155조제1항"
             )
 
         # 상속주택 — 사망일 및 5년 경과 여부
