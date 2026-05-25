@@ -153,8 +153,7 @@ async def run_rag_pipeline(
     enriched_query = build_rag_query(query, fact_check.danger_flags)
 
     # ── L4: RAG + LLM ────────────────────────────────────────────────────
-    # enriched_query를 Pinecone 검색에도 사용 — L3 키워드가 벡터 검색에도 반영됨
-    chunks = retriever.retrieve_with_buchik(query, query_text=enriched_query)
+    chunks = retriever.retrieve_with_buchik(query)
     retrieved_ids: Set[str] = {c.metadata.chunk_id for c in chunks}
 
     # missing_facts를 LLM 프롬프트에 전달 → "이 정보가 없어서 불확실합니다" 안내
@@ -253,7 +252,7 @@ async def run_rag_pipeline_stream(
 
     # ── L4a Retrieval ───────────────────────────────────────────────────────
     yield "PROGRESS:관련 법령 조문 검색 중..."
-    chunks = retriever.retrieve_with_buchik(query, query_text=enriched_query)
+    chunks = retriever.retrieve_with_buchik(query)
     retrieved_ids: Set[str] = {c.metadata.chunk_id for c in chunks}
 
     yield f"PROGRESS:AI 법령 해석 중 ({len(chunks)}개 조문)..."
