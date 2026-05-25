@@ -99,6 +99,23 @@ python -m scripts.run_baseline_eval --workers 3
 
 ---
 
+## 책임소재 관리 원칙 (Critical)
+
+**새로운 책임 이슈가 생기면 → `src/domain/confirmation.py`의 `CONFIRMATION_ITEMS`에 추가한다.**
+L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라도 미확인이면 답변을 출력하지 않는다.
+
+| key | 책임 내용 |
+|-----|---------|
+| `household_house_count_verified` | 세대 전체 주택 수 (분양권·입주권·오피스텔·지분·상속 포함) |
+| `balance_or_registration_date_used` | 잔금 지급일 / 등기 접수일 중 빠른 날 사용 |
+| `no_related_party` | 매수·매도인이 특수관계인이 아님 |
+| `actual_residence_verified` | 주민등록 이전 후 실제 거주한 기간만 포함 |
+| `acquisition_document_confirmed` | 취득서류 보유 확인 + 환산취득 적용 시 사후 세액변동 책임은 납세자에 있음을 인지 |
+
+**새 항목 추가 패턴:** `CONFIRMATION_ITEMS` dict에 `(key, 질문 텍스트)` 추가 → `check_confirmation()` 자동 반영. UI·API는 별도 수정 없음.
+
+---
+
 ## 세법 개정 자동 반영 대원칙 (Critical)
 
 **모든 수치와 기준은 반드시 외부화한다. 코드에 하드코딩 절대 금지.**
