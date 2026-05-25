@@ -55,7 +55,7 @@ PINECONE_HYBRID_ALPHA = _optional_float_env("PINECONE_HYBRID_ALPHA")
 
 # 유권해석 병렬 검색 네임스페이스 (쉼표 구분, 빈 문자열이면 비활성)
 # 기본: tax-ruling-nts (국세청 예규/hotissue), tax-ruling-decisions (심판원/심사청구)
-_ruling_ns_env = os.getenv("RULING_RETRIEVAL_NAMESPACES", "tax-ruling-nts,tax-ruling-decisions")
+_ruling_ns_env = os.getenv("RULING_RETRIEVAL_NAMESPACES", "tax-ruling-nts,tax-ruling-decisions,tax-ruling-moef,tax-ruling-nts-interp")
 RULING_RETRIEVAL_NAMESPACES: list[str] = [ns.strip() for ns in _ruling_ns_env.split(",") if ns.strip()]
 
 # 유권해석 네임스페이스별 top_k (법령 top_k 기준 비율)

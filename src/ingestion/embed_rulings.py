@@ -47,6 +47,8 @@ SOURCE_LABELS: dict[str, str | dict] = {
         "_default":     "판례·결정례",
     },
     "pdf":       "세법집행기준",
+    "moef":      "기획재정부 법령해석",
+    "nts_interp": "국세청 법령해석",   # law.go.kr DRF ntsCgmExpc (양도·증여·상속·상생임대·임대주택)
 }
 
 
@@ -64,7 +66,7 @@ def get_source_label(source: str, record: dict) -> str:
     return entry.get(sub_type, entry.get("_default", source))
 
 
-SourceType = Literal["ntis", "tt", "court", "nts", "decisions", "pdf"]
+SourceType = Literal["ntis", "tt", "court", "nts", "decisions", "pdf", "moef", "nts_interp"]
 
 _NAMESPACE_MAP: dict[str, str] = {
     "ntis": "tax-ruling-ntis",
@@ -73,6 +75,8 @@ _NAMESPACE_MAP: dict[str, str] = {
     "nts": "tax-ruling-nts",        # 국세법령정보시스템 (질의회신·판단사례·세법해석례)
     "decisions": "tax-ruling-decisions",  # 판례·결정례 (심판청구·심사청구·이의신청·판례)
     "pdf": "tax-ruling-pdf",        # 세법집행기준 PDF 파싱본
+    "moef": "tax-ruling-moef",      # 기획재정부 법령해석 (law.go.kr DRF API)
+    "nts_interp": "tax-ruling-nts-interp",  # 국세청 법령해석 (law.go.kr DRF ntsCgmExpc)
 }
 
 
@@ -190,7 +194,7 @@ def embed_and_upload_rulings(source: str = "all") -> int:
     sources: list[str] = list(_NAMESPACE_MAP.keys()) if source == "all" else [source]
     invalid = [s for s in sources if s not in _NAMESPACE_MAP]
     if invalid:
-        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, nts, decisions, pdf, all")
+        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: {', '.join(_NAMESPACE_MAP.keys())}, all")
 
     embed_client, embed_model, dimension = _build_embed_client()
     print(f"임베딩 모델: {embed_model} (dim={dimension})")
