@@ -87,6 +87,60 @@ def build_few_shot_block(fact_json: dict) -> str:
     return "\n".join(lines)
 
 
+# 판결 유형별 의존 법령 (개정 감지 시 자동 플래그 기준)
+_VERDICT_LAW_DEPS: dict[str, list[str]] = {
+    "비과세": ["소득세법", "소득세법 시행령"],
+    "exempt": ["소득세법", "소득세법 시행령"],
+    "일반과세": ["소득세법"],
+    "taxable": ["소득세법"],
+    "단기세율": ["소득세법"],
+    "중과": ["소득세법", "소득세법 시행령"],
+    "감면": ["소득세법", "조세특례제한법"],
+    "reduced": ["소득세법", "조세특례제한법"],
+    "고가주택": ["소득세법", "소득세법 시행령"],
+}
+
+
+def infer_law_deps(case: dict) -> list[str]:
+    """verdict + citations에서 법률 의존성 자동 추론."""
+    verdict = case.get("verdict") or case.get("expected_verdict", "")
+    deps: set[str] = set(_VERDICT_LAW_DEPS.get(verdict, ["소득세법", "소득세법 시행령"]))
+    for cit in (case.get("citations") or []):
+        for law in ["조세특례제한법", "지방세법", "상속세 및 증여세법"]:
+            if law in str(cit):
+                deps.add(law)
+    return sorted(deps)
+
+
+def flag_for_review(changed_law_names: list[str]) -> int:
+    """
+    법령 개정 감지 시 호출. 변경된 법령에 의존하는 골든 케이스를
+    invalidated=True로 표시하고 저장한다.
+
+    Returns:
+        플래그된 케이스 수
+    """
+    if not GOLDEN_FILE.exists():
+        return 0
+
+    cases: list[dict] = []
+    try:
+        cases = json.loads(GOLDEN_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+
+    changed_set = set(changed_law_names)
+    flagged = 0
+    for case in cases:
+        deps = set(case.get("law_deps") or infer_law_deps(case))
+        if deps & changed_set:
+            case["invalidated"] = True
+            flagged += 1
+
+    GOLDEN_FILE.write_text(json.dumps(cases, ensure_ascii=False, indent=2), encoding="utf-8")
+    return flagged
+
+
 def golden_summary() -> dict:
     """골든셋 현황."""
     golden = _load_golden()
@@ -95,8 +149,14 @@ def golden_summary() -> dict:
     for g in debate_cases:
         v = g.get("verdict", "unknown")
         verdicts[v] = verdicts.get(v, 0) + 1
+    invalidated = sum(1 for g in golden if g.get("invalidated"))
+    passed = sum(1 for g in golden if g.get("last_eval", {}).get("match") is True)
+    failed = sum(1 for g in golden if g.get("last_eval", {}).get("match") is False)
     return {
-        "total_golden": len(golden),
+        "total": len(golden),
         "debate_sourced": len(debate_cases),
         "verdict_distribution": verdicts,
+        "invalidated": invalidated,
+        "last_eval_passed": passed,
+        "last_eval_failed": failed,
     }

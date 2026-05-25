@@ -164,88 +164,143 @@ for msg in st.session_state.messages:
         else:
             st.markdown(msg["content"])
         if "extra" in msg:
-            extra = msg["extra"]
-            _verdict = extra.get("verdict", "")
-            _conf = extra.get("confidence", 0.0)
-            _citations = extra.get("citations", [])
-            _missing = extra.get("missing_facts", [])
-            _warnings = extra.get("warnings", [])
-            _chunks = extra.get("chunk_ids", [])
-
-            c1, c2 = st.columns(2)
-            with c1:
-                verdict_color = {
-                    "비과세": "green", "감면": "blue", "중과": "red",
-                    "일반과세": "orange", "단기세율": "red",
-                    "고가주택": "orange", "사실관계부족": "gray",
-                }.get(_verdict, "gray")
-                st.markdown(f"**판단: :{verdict_color}[{_verdict}]**")
-            with c2:
-                st.metric("신뢰도", f"{_conf:.0%}")
-
-            if _citations:
-                with st.expander("근거 법령"):
-                    for c in _citations:
-                        st.markdown(f"- {c}")
-            if _missing:
-                with st.expander("추가 확인 필요"):
-                    for m in _missing:
-                        st.warning(m, icon="⚠️")
-            if _warnings:
-                with st.expander("유의사항"):
-                    for w in _warnings:
-                        st.info(w)
-            if _chunks:
-                with st.expander("검색된 조문 ID"):
-                    st.write(_chunks)
-            if extra.get("consulting_scenarios"):
-                _render_consulting_scenarios(extra["consulting_scenarios"])
+            _render_pipeline_result(msg["extra"])
 
 
 # ── 분석 실행 함수 ────────────────────────────────────────────────────────────
 
+_VERDICT_COLOR = {
+    "비과세": "green", "감면": "blue", "중과": "red",
+    "일반과세": "orange", "단기세율": "red",
+    "고가주택": "orange", "사실관계부족": "gray", "전문가검토": "gray",
+}
+
+_VERDICT_RATE = {
+    "비과세":       "세금 없음",
+    "감면":         "감면 세율 적용",
+    "중과":         "기본세율 + 20~30%p 중과",
+    "일반과세":     "기본세율 6~45%",
+    "단기세율":     "단기세율 60~70%",
+    "고가주택":     "12억 초과분 기본세율",
+    "사실관계부족": "추가 확인 필요",
+    "전문가검토":   "전문가 검토 필요",
+}
+
+_CONFIDENCE_LABEL = {
+    (0.0, 0.5): ("⚠️ 검토 권장", "orange"),
+    (0.5, 0.75): ("◑ 보통", "gray"),
+    (0.75, 1.01): ("● 높음", "green"),
+}
+
+
+def _confidence_label(score: float) -> tuple[str, str]:
+    for (lo, hi), (label, color) in _CONFIDENCE_LABEL.items():
+        if lo <= score < hi:
+            return label, color
+    return "—", "gray"
+
+
+def _render_debate_section(dr: dict) -> None:
+    """2단계: Red Team 검증 결과 구조화 렌더링."""
+    outcome = dr.get("outcome", "")
+    if not outcome or dr.get("error"):
+        return
+
+    outcome_cfg = {
+        "blue_won":   ("🔵", "Blue 방어 성공",      "Blue의 원판단이 유지됐습니다."),
+        "red_won":    ("🔴", "Red 지적 수용",        "판단이 수정됐습니다."),
+        "no_contest": ("✅", "Red 이의 없음",        "Red Team이 이의를 제기하지 않았습니다."),
+        "draw":       ("⚖️", "판단 보류 — 전문가 검토 권장", ""),
+    }
+    icon, title, subtitle = outcome_cfg.get(outcome, ("❓", outcome, ""))
+
+    st.markdown(f"#### {icon} 2단계: Red Team 검증 — {title}")
+    if subtitle:
+        st.caption(subtitle)
+
+    challenge_type = dr.get("challenge_type", "")
+    challenge_text = dr.get("challenge_text", "")
+    defense_text = dr.get("defense_text", "")
+    new_citations = dr.get("new_citations") or []
+
+    if outcome == "no_contest":
+        st.success("1차 판단이 법령 근거 검토를 통과했습니다.")
+        return
+
+    col_r, col_b = st.columns(2)
+    with col_r:
+        st.markdown("**🔴 Red Team 반박**")
+        if challenge_type:
+            st.caption(f"반박 유형: `{challenge_type}`")
+        st.markdown(challenge_text or "_(반박 내용 없음)_")
+
+    with col_b:
+        st.markdown("**🔵 Blue Team 방어**")
+        st.markdown(defense_text or "_(방어 내용 없음)_")
+        if new_citations:
+            st.caption("추가 인용 법령:")
+            for c in new_citations:
+                st.markdown(f"  - {c}")
+
+    if outcome == "red_won" and dr.get("revised_verdict"):
+        st.info(f"판단 수정: **{dr['revised_verdict']}** 으로 변경됐습니다.")
+
+
 def _render_pipeline_result(result: dict) -> None:
-    """파이프라인 결과를 채팅 말풍선 안에 렌더링."""
+    """3단계 결과 렌더링: 사고과정 → Red Team → 최종 판단."""
     verdict = result["verdict"]
     answer_text = result["answer"]
-    st.markdown(answer_text)
+    confidence = result.get("confidence", 0.0)
+    conf_label, conf_color = _confidence_label(confidence)
 
-    verdict_color = {
-        "비과세": "green", "감면": "blue", "중과": "red",
-        "일반과세": "orange", "단기세율": "red",
-        "고가주택": "orange", "사실관계부족": "gray",
-    }.get(verdict, "gray")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**판단: :{verdict_color}[{verdict}]**")
-    with c2:
-        st.metric("신뢰도", f"{result['confidence']:.0%}")
-
-    if result.get("citations"):
-        with st.expander("근거 법령"):
-            for c in result["citations"]:
-                st.markdown(f"- {c}")
-    if result.get("missing_facts"):
-        with st.expander("추가 확인 필요"):
+    # ── 1단계: AI 사고 과정 ───────────────────────────────────────────────────
+    with st.expander("💭 1단계: AI 사고 과정 및 1차 판단", expanded=False):
+        st.markdown(answer_text)
+        if result.get("missing_facts"):
+            st.divider()
             for m in result["missing_facts"]:
                 st.warning(m, icon="⚠️")
-    if result.get("warnings"):
-        with st.expander("유의사항"):
-            for w in result["warnings"]:
+
+    # ── 2단계: Red Team ───────────────────────────────────────────────────────
+    if result.get("debate_record") and not result["debate_record"].get("error"):
+        st.markdown("")
+        _render_debate_section(result["debate_record"])
+
+    # ── 3단계: 최종 판단 ──────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### ⚖️ 3단계: 최종 판단")
+
+    verdict_color = _VERDICT_COLOR.get(verdict, "gray")
+    rate_text = _VERDICT_RATE.get(verdict, "")
+
+    col_v, col_r, col_c = st.columns([2, 3, 2])
+    with col_v:
+        st.markdown(f"**판단**")
+        st.markdown(f"## :{verdict_color}[{verdict}]")
+    with col_r:
+        st.markdown(f"**적용 세율**")
+        st.markdown(f"**{rate_text}**")
+    with col_c:
+        st.markdown(f"**신뢰도**")
+        st.markdown(f":{conf_color}[{conf_label}]")
+
+    if result.get("citations"):
+        with st.expander("📋 근거 법령", expanded=True):
+            for c in result["citations"]:
+                st.markdown(f"- {c}")
+
+    warnings = [w for w in (result.get("warnings") or []) if not w.startswith("[Red Team")]
+    if warnings:
+        with st.expander("⚠️ 유의사항"):
+            for w in warnings:
                 st.info(w)
-    if result.get("chunk_ids"):
-        with st.expander("검색된 조문 ID"):
-            st.write(result["chunk_ids"])
-    if result.get("debate_record"):
-        dr = result["debate_record"]
-        outcome_label = {
-            "blue_won": "🔵 Blue 방어 성공",
-            "red_won": "🔴 Red 지적 수용 — 판단 수정됨",
-            "no_contest": "✅ Red 이의 없음",
-            "draw": "⚖️ 논쟁 무승부",
-        }.get(dr.get("outcome", ""), "논쟁 실행됨")
-        with st.expander(f"Red Team 검증 결과: {outcome_label}"):
-            st.write(dr)
+
+    if result.get("as_of_date"):
+        d = str(result["as_of_date"])
+        if len(d) == 8:
+            d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        st.caption(f"적용 법령 기준일: {d}  |  본 결과는 정보 제공 목적이며 세무 자문이 아닙니다.")
+
     if result.get("consulting_scenarios"):
         _render_consulting_scenarios(result["consulting_scenarios"])
 

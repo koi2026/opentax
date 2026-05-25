@@ -198,19 +198,15 @@ async def run_rag_pipeline(
                     "debate_id": debate.debate_id,
                     "outcome": debate.outcome,
                     "challenge_type": debate.red_challenge.get("challenge_type"),
+                    "challenge_text": debate.red_challenge.get("challenge_text", ""),
+                    "defense_text": debate.blue_defense.get("defense_text", ""),
+                    "new_citations": debate.blue_defense.get("new_citations", []),
                     "revised_verdict": debate.blue_defense.get("revised_verdict"),
                     "promoted_to_golden": debate.promoted_to_golden,
                 }
-                # Red가 이겼으면 파이프라인 최종 verdict 업데이트
                 if debate.outcome == "red_won":
                     revised = debate.blue_defense.get("revised_verdict", validated.verdict)
-                    result.answer = validated.with_update(
-                        verdict=revised,
-                        warnings=validated.warnings + [
-                            f"[Red Team 수정] {debate.red_challenge.get('challenge_type')}: "
-                            f"{debate.blue_defense.get('defense_text', '')[:100]}"
-                        ],
-                    )
+                    result.answer = validated.with_update(verdict=revised)
         except Exception as e:
             # 논쟁 실패가 주 파이프라인을 막으면 안 됨
             result.debate_record = {"error": str(e)}
@@ -310,18 +306,15 @@ async def run_rag_pipeline_stream(
                     "debate_id": debate.debate_id,
                     "outcome": debate.outcome,
                     "challenge_type": debate.red_challenge.get("challenge_type"),
+                    "challenge_text": debate.red_challenge.get("challenge_text", ""),
+                    "defense_text": debate.blue_defense.get("defense_text", ""),
+                    "new_citations": debate.blue_defense.get("new_citations", []),
                     "revised_verdict": debate.blue_defense.get("revised_verdict"),
                     "promoted_to_golden": debate.promoted_to_golden,
                 }
                 if debate.outcome == "red_won":
                     revised = debate.blue_defense.get("revised_verdict", validated.verdict)
-                    result.answer = validated.with_update(
-                        verdict=revised,
-                        warnings=validated.warnings + [
-                            f"[Red Team 수정] {debate.red_challenge.get('challenge_type')}: "
-                            f"{debate.blue_defense.get('defense_text', '')[:100]}"
-                        ],
-                    )
+                    result.answer = validated.with_update(verdict=revised)
         except Exception as e:
             result.debate_record = {"error": str(e)}
 

@@ -157,7 +157,12 @@ async def _red_challenge(
     - prev_blue_verdict: 재반박 라운드에서 Blue가 수정한 verdict를 기준으로 삼음.
     """
     citations_str = "\n".join(
-        f"- {c.article}" if hasattr(c, "article") else f"- {c}"
+        (
+            f"- {c.article}"
+            + (f" [시행 {str(c.law_version)[:4]}-{str(c.law_version)[4:6]}-{str(c.law_version)[6:]}]"
+               if getattr(c, "law_version", "") and len(str(c.law_version)) == 8 and str(c.law_version).isdigit()
+               else (f" [시행 {c.law_version}]" if getattr(c, "law_version", "") else ""))
+        ) if hasattr(c, "article") else f"- {c}"
         for c in blue_answer.citations
     ) or "(없음)"
 
@@ -367,15 +372,23 @@ def _promote_to_golden(record: DebateRecord) -> None:
             except json.JSONDecodeError:
                 existing = []
 
+    from src.eval.golden_injector import infer_law_deps
+
     defense = record.blue_defense
+    verdict = defense.get("revised_verdict", "")
     entry = {
         "id": record.debate_id,
         "source": "debate",
         "fact_json": record.fact_json,
-        "verdict": defense.get("revised_verdict", ""),
+        "verdict": verdict,
         "answer": defense.get("defense_text", record.blue_answer.get("answer", "")),
         "citations": defense.get("new_citations", []) or record.blue_answer.get("citations", []),
         "timestamp": record.timestamp,
+        # ── 버전 관리 메타데이터 ──────────────────────────────────────
+        "validated_at": record.timestamp[:10].replace("-", ""),  # YYYYMMDD
+        "law_deps": infer_law_deps({"verdict": verdict, "citations": defense.get("new_citations", [])}),
+        "invalidated": False,
+        "last_eval": None,
     }
     existing.append(entry)
 

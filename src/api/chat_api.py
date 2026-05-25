@@ -72,6 +72,21 @@ class ChatResponse(BaseModel):
 from typing import Any, AsyncGenerator, Optional, Union
 
 
+def _fmt_citation(c) -> str:
+    """Citation → 표시 문자열 (출처 + 조문명 + 시행일)."""
+    article = c.article if hasattr(c, "article") else str(c)
+    label = getattr(c, "source_label", "") or ""
+    version = getattr(c, "law_version", "") or ""
+    v_str = ""
+    if version:
+        v = str(version)
+        if len(v) == 8 and v.isdigit():
+            v = f"{v[:4]}-{v[4:6]}-{v[6:]}"
+        v_str = f" [시행 {v}]"
+    prefix = f"[{label}] " if label else ""
+    return f"{prefix}{article}{v_str}"
+
+
 async def chat_turn_stream(
     fact_json: Optional[dict] = None,
     question: Optional[str] = None,
@@ -105,10 +120,7 @@ async def chat_turn_stream(
                 yield item
             elif isinstance(item, PipelineResult):
                 ans = item.answer
-                citations_str = [
-                    f"[{c.source_label}] {c.article}" if getattr(c, "source_label", "") else c.article
-                    for c in ans.citations
-                ]
+                citations_str = [_fmt_citation(c) for c in ans.citations]
                 yield {
                     "session_id": sid,
                     "verdict": ans.verdict,
@@ -179,10 +191,7 @@ async def chat_turn(
         )
 
         ans = result.answer
-        citations_str = [
-            c.article if hasattr(c, "article") else str(c)
-            for c in ans.citations
-        ]
+        citations_str = [_fmt_citation(c) for c in ans.citations]
         return {
             "session_id": sid,
             "verdict": ans.verdict,
