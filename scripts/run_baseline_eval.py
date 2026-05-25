@@ -39,7 +39,8 @@ CHECKPOINT_PATH = Path("data/eval_results/baseline_checkpoint.json")
 RESULTS_DIR = Path("data/eval_results")
 RED_WINS_DIR = Path("data/red_wins")
 TRAINING_STATE_PATH = Path("data/models/bge-reranker-tax-rag/training_state.json")
-MIN_NEW_DEBATES_FOR_RETRAIN = 10  # 이 수 이상 새 debate 누적 시 자동 파인튜닝 트리거
+MIN_TOTAL_DEBATES_FOR_TRAIN = 50   # 총 debate 수가 이 미만이면 학습 건너뜀 (초기 품질 보장)
+MIN_NEW_DEBATES_FOR_RETRAIN = 20   # 마지막 학습 이후 신규 debate >= 이 수일 때 재학습 트리거
 
 # Claude Sonnet 4.6 기준 비용 추정 (입력 3$/MTok, 출력 15$/MTok)
 _COST_PER_CASE_NO_DEBATE = 0.018   # ~$0.018/케이스 (debate 없음)
@@ -235,6 +236,10 @@ def _maybe_trigger_finetune() -> None:
     delta = current - last_count
 
     print(f"\n[auto-finetune] red_wins 현재={current}건 / 마지막학습시={last_count}건 / 신규={delta}건")
+
+    if current < MIN_TOTAL_DEBATES_FOR_TRAIN:
+        print(f"[auto-finetune] 총 {current}건 < 최소 {MIN_TOTAL_DEBATES_FOR_TRAIN}건 → 데이터 부족, 스킵")
+        return
 
     if delta < MIN_NEW_DEBATES_FOR_RETRAIN:
         print(f"[auto-finetune] 신규 {delta}건 < 임계값 {MIN_NEW_DEBATES_FOR_RETRAIN}건 → 스킵")
@@ -433,7 +438,10 @@ def main() -> None:
     parser.add_argument("--report-only", action="store_true", help="기존 체크포인트 결과만 요약")
     parser.add_argument(
         "--auto-finetune", action="store_true",
-        help=f"debate 완료 후 신규 red_wins >= {MIN_NEW_DEBATES_FOR_RETRAIN}건이면 자동 파인튜닝 실행",
+        help=(
+            f"debate 완료 후 총 >= {MIN_TOTAL_DEBATES_FOR_TRAIN}건 AND "
+            f"신규 >= {MIN_NEW_DEBATES_FOR_RETRAIN}건이면 자동 파인튜닝 실행"
+        ),
     )
     args = parser.parse_args()
 
