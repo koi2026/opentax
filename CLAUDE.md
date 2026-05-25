@@ -117,34 +117,15 @@ python -m scripts.run_baseline_eval --workers 3
 
 **법령 개정 감지 자동화:** `scripts/detect_law_changes.py` → 매일 23:00 실행 → 변경 감지 시 알림 + Pinecone 재인덱스.
 
-**파인튜닝·골든셋 개정 시 처리 방식:**
-- 법령 조문: 개정일 기준 Pinecone 자동 재인덱스 → 새 버전 즉시 사용
-- TaxConstantsRegistry: 코드 업데이트 필요 (수동, 즉시 적용)
-- 골든셋: 개정으로 영향받는 케이스를 debate/eval로 재검증 → 틀린 케이스 삭제 후 새 케이스 누적
-- BGE reranker: 골든셋 50건 이상 변경 시 재파인튜닝 (수동)
-- **사전 학습(개정안 미리 준비) 불가:** 현행 법령 기준으로만 판단. 개정안 통과 후 즉시 처리.
+**개정 시 처리 목표 (전 과정 자동화 + 모니터링):**
+| 레이어 | 현재 | 목표 |
+|--------|------|------|
+| 법령 조문 | ✅ Pinecone 자동 재인덱스 | ✅ 완료 |
+| TaxConstantsRegistry | 🔧 코드 수동 수정 | 🔲 LLM 자동 파싱 → PR |
+| 골든셋·eval | 🔧 수동 케이스 검토 | 🔲 eval 자동 재실행 → 영향 케이스 Slack 알림 |
+| BGE reranker | 🔧 수동 (50건 초과 시) | 🔲 자동 파인튜닝 트리거 |
 
----
-
-## 환산취득가액 처리 원칙
-
-**환산취득가액은 판단(RAG)이 필요한 영역이므로 별도 RAG 파이프라인을 만들지 않는다.**
-현재 파이프라인이 "환산 필요"를 감지하고 missing_facts로 안내하면, 실제 계산은 외부(상위 수집기 또는 사용자 입력)에서 처리한다.
-
-### 환산취득가액이 필요한 상황
-
-| 상황 | 근거 조문 | 엔진 처리 방식 |
-|------|---------|---------|
-| 1985-01-01 이전 취득 (`AcquisitionReason.DEEMED_ACQUISITION`) | 소령 §163④ | fact_checker → missing_fact "기준시가 환산취득가액 필요" |
-| 증여받은 주택 (이월과세 적용) | 소령 §163② | fact_checker → missing_fact "증여자 원취득가액 필요" |
-| 상속주택 (취득가액 불명) | 소령 §163③ | fact_checker → missing_fact "상속개시일 기준시가 필요" |
-| 취득가액 증빙 불가 | 소령 §163① | fact_checker → missing_fact "기준시가 환산취득가액 필요" |
-
-### 책임소재 명확화 원칙
-
-- **환산취득가액 적용 시 면책 확인**: L1.5 확인서(`confirmation.py`)에 `acquisition_document_confirmed` 항목 포함 → "서류 없음으로 기준시가 환산 적용, 사후 실제거래가 확인 시 세액 변동 책임은 납세자에 있음"
-- **기준시가**: 상위 수집기에서 제공 받아 fact_json으로 수신 — 엔진이 직접 API 조회하지 않음
-- `acquisition_price=0`으로 하드코딩 금지 — L2 크리티컬 missing_fact로 처리하여 재질문
+> 환산취득가액·사전 대응 상세 → [AGENTS.md](AGENTS.md) 참조.
 
 ---
 
