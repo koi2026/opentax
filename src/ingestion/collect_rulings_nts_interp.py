@@ -4,8 +4,10 @@
 수집 경로:
   1단계: law.go.kr DRF API (target=ntsCgmExpc)
          → 서버 사이드 query 필터로 세목별 목록 수집
-  2단계: taxlaw.nts.go.kr action.do
+  2단계: taxlaw.nts.go.kr action.do (actionId=ASIQTB002PR01)
          → 상세 본문 (질의 내용 + 회신 내용)
+         paramData: {"dcmDVO": {"ntstDcmId": "..."}}
+         응답: data["ASIQTB002PR01"]["dcmDVO"]
 
 저장 위치: data/rulings/nts_interp/{id}.json  (embed_rulings.py 호환 포맷)
 
@@ -29,7 +31,6 @@ import re
 import ssl
 import sys
 import time
-import uuid
 from pathlib import Path
 
 import requests
@@ -60,12 +61,10 @@ _RETRY_DELAY = 2.0
 # 상생임대/임대주택: "양도" 쿼리에서 누락 가능한 특례·감면 보완
 DEFAULT_KEYWORDS = ["양도", "증여", "상속", "상생임대", "임대주택"]
 
-# taxlaw.nts.go.kr 상세 액션 ID 순서 (국세청 법령해석)
-_DETAIL_ACTION_IDS = [
-    "ASIQTA002MR01",   # 기재부/국세청 법령해석 상세
-    "ASIQTB001MR01",   # 대안 1
-    "ASIQTH001MR01",   # hotissue 상세 (fallback)
-]
+# taxlaw.nts.go.kr USEQTA002P 상세 화면 actionId
+# 인라인 JS에서 확인: var actionId = "ASIQTB002PR01"
+# paramData 구조: {"dcmDVO": {"ntstDcmId": "..."}}
+_DETAIL_ACTION_ID = "ASIQTB002PR01"
 
 
 # ── HTTP 세션 ─────────────────────────────────────────────────────────────────
@@ -153,34 +152,51 @@ def _extract_ntst_dcm_id(link_url: str) -> str:
 # ── taxlaw.nts.go.kr 상세 수집 ───────────────────────────────────────────────
 
 def _fetch_detail(session: requests.Session, ntst_dcm_id: str) -> dict | None:
+    """ntstDcmId로 taxlaw.nts.go.kr action.do에서 상세 본문 조회.
+
+    USEQTA002P 페이지 인라인 JS에서 확인된 actionId/paramData 구조 사용.
+    """
     if not ntst_dcm_id:
         return None
-    params = {"ntstDcmId": ntst_dcm_id, "wnSessionUuid": str(uuid.uuid4())}
-    for action_id in _DETAIL_ACTION_IDS:
-        payload = {
-            "actionId": action_id,
-            "paramData": json.dumps(params, ensure_ascii=False),
-        }
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                resp = session.post(NTS_ACTION_URL, data=payload, timeout=20)
-                resp.encoding = "utf-8"
-                data = resp.json()
-                if data.get("status") == "SUCCESS":
-                    inner = (data.get("data") or {}).get(action_id)
-                    if inner:
-                        return {"action_id": action_id, "data": inner}
-            except Exception:
-                pass
-            if attempt < _MAX_RETRIES:
-                time.sleep(0.5)
+    payload = {
+        "actionId": _DETAIL_ACTION_ID,
+        "paramData": json.dumps(
+            {"dcmDVO": {"ntstDcmId": ntst_dcm_id}},
+            ensure_ascii=False,
+        ),
+    }
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = session.post(NTS_ACTION_URL, data=payload, timeout=20)
+            resp.encoding = "utf-8"
+            data = resp.json()
+            if data.get("status") == "SUCCESS":
+                inner = (data.get("data") or {}).get(_DETAIL_ACTION_ID)
+                if inner:
+                    return {"action_id": _DETAIL_ACTION_ID, "data": inner}
+        except Exception:
+            pass
+        if attempt < _MAX_RETRIES:
+            time.sleep(0.5)
     return None
 
 
 def _extract_content_from_detail(detail: dict) -> tuple[str, str]:
+    """상세 응답에서 (question, answer) 추출.
+
+    ASIQTB002PR01 응답 구조:
+      detail["data"]["dcmDVO"] 에 실제 필드가 있음
+      - ntstDcmCntn    : 질의 본문
+      - ntstDcmGistCntn: 회신 요지
+      - ntstDcmRplyCntn: 회신 상세 (일부 문서에만 존재)
+    """
     d = detail.get("data", {})
     if isinstance(d, list):
         d = d[0] if d else {}
+
+    # dcmDVO 중첩 구조 처리 (ASIQTB002PR01)
+    if "dcmDVO" in d and isinstance(d["dcmDVO"], dict):
+        d = d["dcmDVO"]
 
     def _clean(v: str | None) -> str:
         if not v:
@@ -189,18 +205,18 @@ def _extract_content_from_detail(detail: dict) -> tuple[str, str]:
         return re.sub(r"\s+", " ", t).strip()
 
     question = _clean(
-        d.get("PRTS_BRKD_CNTN")
+        d.get("ntstDcmCntn")
+        or d.get("PRTS_BRKD_CNTN")
         or d.get("qstnCntn")
-        or d.get("question")
         or d.get("ntstDcmTtl")
         or ""
     )
     answer = _clean(
-        d.get("CNTN")
+        d.get("ntstDcmRplyCntn")
+        or d.get("ntstDcmGistCntn")
+        or d.get("CNTN")
         or d.get("GIST_CNTN")
         or d.get("ansCntn")
-        or d.get("answer")
-        or d.get("ntstDcmGistCntn")
         or ""
     )
     return question, answer
@@ -292,8 +308,13 @@ def _collect_by_keyword(
         out_path = NTS_INTERP_DIR / f"{doc_id}.json"
 
         if resume and out_path.exists():
-            skipped += 1
-            continue
+            try:
+                existing = json.loads(out_path.read_text(encoding="utf-8"))
+                if existing.get("answer"):  # 본문이 있으면 스킵
+                    skipped += 1
+                    continue
+            except Exception:
+                pass  # 파일 깨진 경우 재수집
 
         detail: dict | None = None
         if fetch_detail and session and ntst_dcm_id:

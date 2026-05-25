@@ -4,8 +4,10 @@
 수집 경로:
   1단계: law.go.kr DRF API (target=moefCgmExpc)
          → 목록 (안건명, 법령해석일련번호, ntstDcmId, 해석일자)
-  2단계: taxlaw.nts.go.kr action.do (actionId=ASIQTA002MR01)
+  2단계: taxlaw.nts.go.kr action.do (actionId=ASIQTB002PR01)
          → 상세 본문 (질의 내용 + 회신 내용)
+         paramData: {"dcmDVO": {"ntstDcmId": "..."}}
+         응답: data["ASIQTB002PR01"]["dcmDVO"]
 
 저장 위치: data/rulings/moef/{id}.json  (embed_rulings.py 호환 포맷)
 
@@ -27,7 +29,6 @@ import re
 import ssl
 import sys
 import time
-import uuid
 from pathlib import Path
 
 import requests
@@ -53,13 +54,10 @@ _DRF_PAGE_SIZE = 100   # max 100
 _MAX_RETRIES = 3
 _RETRY_DELAY = 2.0
 
-# taxlaw.nts.go.kr 기재부 질의회신 상세 액션 ID
-# USEQTA002P 상세 화면 대응 액션
-_DETAIL_ACTION_IDS = [
-    "ASIQTA002MR01",   # 기재부 법령해석 상세 (추정 1순위)
-    "ASIQTB001MR01",   # 대안 1
-    "ASIQTH001MR01",   # hotissue 상세 (호환 fallback)
-]
+# taxlaw.nts.go.kr USEQTA002P 상세 화면 actionId
+# 인라인 JS에서 확인: var actionId = "ASIQTB002PR01"
+# paramData 구조: {"dcmDVO": {"ntstDcmId": "..."}}
+_DETAIL_ACTION_ID = "ASIQTB002PR01"
 
 
 # ── HTTP 세션 ─────────────────────────────────────────────────────────────────
@@ -147,45 +145,51 @@ def _extract_ntst_dcm_id(link_url: str) -> str:
 def _fetch_detail(session: requests.Session, ntst_dcm_id: str) -> dict | None:
     """ntstDcmId로 taxlaw.nts.go.kr action.do에서 상세 본문 조회.
 
-    여러 actionId를 순서대로 시도해 성공한 것을 반환.
+    USEQTA002P 페이지 인라인 JS에서 확인된 actionId/paramData 구조 사용.
     실패 시 None 반환.
     """
     if not ntst_dcm_id:
         return None
 
-    params = {
-        "ntstDcmId": ntst_dcm_id,
-        "wnSessionUuid": str(uuid.uuid4()),
+    payload = {
+        "actionId": _DETAIL_ACTION_ID,
+        "paramData": json.dumps(
+            {"dcmDVO": {"ntstDcmId": ntst_dcm_id}},
+            ensure_ascii=False,
+        ),
     }
-
-    for action_id in _DETAIL_ACTION_IDS:
-        payload = {
-            "actionId": action_id,
-            "paramData": json.dumps(params, ensure_ascii=False),
-        }
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                resp = session.post(NTS_ACTION_URL, data=payload, timeout=20)
-                resp.encoding = "utf-8"
-                data = resp.json()
-                if data.get("status") == "SUCCESS":
-                    inner = (data.get("data") or {}).get(action_id)
-                    if inner:
-                        return {"action_id": action_id, "data": inner}
-            except Exception:
-                pass
-            if attempt < _MAX_RETRIES:
-                time.sleep(0.5)
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = session.post(NTS_ACTION_URL, data=payload, timeout=20)
+            resp.encoding = "utf-8"
+            data = resp.json()
+            if data.get("status") == "SUCCESS":
+                inner = (data.get("data") or {}).get(_DETAIL_ACTION_ID)
+                if inner:
+                    return {"action_id": _DETAIL_ACTION_ID, "data": inner}
+        except Exception:
+            pass
+        if attempt < _MAX_RETRIES:
+            time.sleep(0.5)
     return None
 
 
 def _extract_content_from_detail(detail: dict) -> tuple[str, str]:
     """상세 응답에서 (question, answer) 추출.
-    actionId별로 필드명이 다를 수 있어 여러 키를 시도.
+
+    ASIQTB002PR01 응답 구조:
+      detail["data"]["dcmDVO"] 에 실제 필드가 있음
+      - ntstDcmCntn    : 질의 본문 ([질의] 섹션 포함)
+      - ntstDcmGistCntn: 회신 요지 (핵심 답변)
+      - ntstDcmRplyCntn: 회신 상세 (일부 문서에만 존재)
     """
     d = detail.get("data", {})
     if isinstance(d, list):
         d = d[0] if d else {}
+
+    # dcmDVO 중첩 구조 처리 (ASIQTB002PR01)
+    if "dcmDVO" in d and isinstance(d["dcmDVO"], dict):
+        d = d["dcmDVO"]
 
     def _clean(v: str | None) -> str:
         if not v:
@@ -194,18 +198,19 @@ def _extract_content_from_detail(detail: dict) -> tuple[str, str]:
         return re.sub(r"\s+", " ", t).strip()
 
     question = _clean(
-        d.get("PRTS_BRKD_CNTN")
+        d.get("ntstDcmCntn")
+        or d.get("PRTS_BRKD_CNTN")
         or d.get("qstnCntn")
-        or d.get("question")
         or d.get("ntstDcmTtl")
         or ""
     )
+    # 회신 상세가 있으면 우선, 없으면 회신 요지
     answer = _clean(
-        d.get("CNTN")
+        d.get("ntstDcmRplyCntn")
+        or d.get("ntstDcmGistCntn")
+        or d.get("CNTN")
         or d.get("GIST_CNTN")
         or d.get("ansCntn")
-        or d.get("answer")
-        or d.get("ntstDcmGistCntn")
         or ""
     )
     return question, answer
@@ -320,8 +325,13 @@ def collect_moef(
 
         out_path = MOEF_DIR / f"{doc_id}.json"
         if resume and out_path.exists():
-            skipped += 1
-            continue
+            try:
+                existing = json.loads(out_path.read_text(encoding="utf-8"))
+                if existing.get("answer"):  # 본문이 있으면 스킵
+                    skipped += 1
+                    continue
+            except Exception:
+                pass  # 파일 깨진 경우 재수집
 
         detail: dict | None = None
         if fetch_detail and session and ntst_dcm_id:
