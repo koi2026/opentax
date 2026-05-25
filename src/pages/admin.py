@@ -1,5 +1,5 @@
 """
-어드민 페이지 — 총괄 대시보드 / 법령 데이터 / 지역 데이터 / 케이스 / 골든셋 / 통계 / 디버그.
+어드민 페이지 — 대시보드 / 법령 / 지역데이터 / 시나리오.
 판단 로직 없음. 표시·실행·통계 전용.
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import streamlit as st
 
-from src.api.sample_cases import CATEGORY_LABELS, SAMPLE_CASES
 
 st.set_page_config(page_title="어드민", page_icon="🛠️", layout="wide")
 
@@ -61,6 +60,35 @@ def _fmt_date8(v) -> str:
     return s or "—"
 
 
+def _fmt_freshness(path: Path) -> tuple[str, str, str]:
+    """파일 경로 → (상태 레이블, status_key, 상대 시간 문자열).
+
+    status_key: "ok" / "warn" / "error"
+    디렉터리가 전달되면 가장 최신 *.json 파일 기준으로 판단.
+    path=None 또는 "not_implemented" 문자열이면 (구현전) 반환.
+    """
+    if path is None:
+        return "❌ (구현전)", "error", "—"
+    p = Path(path) if not isinstance(path, Path) else path
+    if not p.exists():
+        return "❌ 데이터 없음", "error", "—"
+    # 디렉터리면 최신 json 파일 기준
+    if p.is_dir():
+        files = list(p.glob("*.json"))
+        if not files:
+            return "❌ 데이터 없음", "error", "—"
+        p = max(files, key=lambda f: f.stat().st_mtime)
+    hours_ago = (datetime.now().timestamp() - p.stat().st_mtime) / 3600
+    if hours_ago < 36:
+        rel = f"{int(hours_ago)}시간 전" if hours_ago >= 1 else "방금"
+        return "✅ 현행 검증 완료", "ok", rel
+    if hours_ago < 72:
+        rel = f"{int(hours_ago)}시간 전"
+        return "⚠️ 갱신 확인 필요", "warn", rel
+    rel = f"{int(hours_ago / 24)}일 전"
+    return "❌ 오래된 데이터", "error", rel
+
+
 def _fmt_value(v) -> str:
     if isinstance(v, bool):
         return "예" if v else "아니오"
@@ -89,9 +117,9 @@ def _fact_summary(fact: dict) -> str:
     return " · ".join(parts)
 
 
-def _run_case(fact_json: dict, enable_debate: bool) -> dict:
+def _run_case(fact_json: dict) -> dict:
     from src.api.chat_api import chat_turn
-    return asyncio.run(chat_turn(fact_json=fact_json, enable_debate=enable_debate))
+    return asyncio.run(chat_turn(fact_json=fact_json, enable_debate=True))
 
 
 def _render_result(result: dict, expected_verdict: str | None = None) -> None:
@@ -226,41 +254,154 @@ def _load_debate_summary() -> tuple[int, str]:
     return len(files), _fmt_mtime(latest)
 
 
+def _load_ruling_summary() -> dict[str, tuple[int, str]]:
+    """유권해석 소스별 (파일 수, 마지막수정일) 반환."""
+    sources = {
+        "nts":        ("data/rulings/nts",        "국세청 질의회신"),
+        "decisions":  ("data/rulings/decisions",  "심판청구 결정례"),
+        "pdf":        ("data/rulings/pdf",         "해석례 PDF"),
+        "moef":       ("data/rulings/moef",        "기재부 법령해석"),
+        "nts_interp": ("data/rulings/nts_interp",  "국세청 법령해석"),
+    }
+    result: dict[str, tuple[int, str]] = {}
+    for key, (rel_path, _) in sources.items():
+        d = _ROOT / rel_path
+        if not d.exists():
+            result[key] = (0, "—")
+            continue
+        files = list(d.glob("*.json"))
+        if not files:
+            result[key] = (0, "—")
+            continue
+        latest = max(files, key=lambda f: f.stat().st_mtime)
+        result[key] = (len(files), _fmt_mtime(latest))
+    return result
+
+
+# ── 헬퍼: 모니터링 데이터 로드 ─────────────────────────────────────────────────
+
+def _load_change_log(limit: int = 30) -> list[dict]:
+    p = _ROOT / "data" / "law_change_log.jsonl"
+    if not p.exists():
+        return []
+    lines = p.read_text(encoding="utf-8").strip().splitlines()
+    records = []
+    for line in reversed(lines[-100:]):
+        try:
+            records.append(json.loads(line))
+        except Exception:
+            pass
+    return records[:limit]
+
+
+def _load_image_alerts() -> list[dict]:
+    d = _ROOT / "data" / "image_table_alerts"
+    if not d.exists():
+        return []
+    alerts: list[dict] = []
+    for f in sorted(d.glob("table_alerts_*.json"), reverse=True)[:5]:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            for a in data.get("alerts", []):
+                a["_file"] = f.name
+                alerts.append(a)
+        except Exception:
+            pass
+    return alerts
+
+
+def _load_amendment_test_results() -> list[dict]:
+    d = _ROOT / "data" / "amendment_test_results"
+    if not d.exists():
+        return []
+    anomalies: list[dict] = []
+    for f in sorted(d.glob("amendment_test_*.json"), reverse=True)[:5]:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            for a in data.get("anomalies", []):
+                a["_file"] = f.name
+                a["_changed_laws"] = data.get("changed_laws", [])
+                anomalies.append(a)
+        except Exception:
+            pass
+    return anomalies
+
+
+def _load_stale_golden() -> list[dict]:
+    p = _ROOT / "data" / "law_change_log.jsonl"
+    if not p.exists():
+        return []
+    stale: list[dict] = []
+    for line in p.read_text(encoding="utf-8").strip().splitlines():
+        try:
+            rec = json.loads(line)
+            if rec.get("event") == "golden_stale_candidates":
+                stale.extend(rec.get("stale_cases", []))
+        except Exception:
+            pass
+    seen = set()
+    unique = []
+    for s in reversed(stale):
+        cid = s.get("case_id", "")
+        if cid not in seen:
+            seen.add(cid)
+            unique.append(s)
+    return unique
+
+
+def _load_red_win_progress() -> tuple[int, int]:
+    d = _ROOT / "data" / "red_wins"
+    if not d.exists():
+        return 0, 50
+    return len(list(d.glob("*.json"))), 50
+
+
+# ── 헬퍼: 골든셋 평가 로드 ────────────────────────────────────────────────────
+
+def _load_golden_eval_latest() -> dict:
+    p = _ROOT / "data" / "eval_results" / "golden_eval_latest.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _status_badge(case: dict) -> str:
+    if case.get("invalidated"):
+        return "⚠️ 재검토"
+    ev = case.get("last_eval") or {}
+    if not ev:
+        return "🔘 미평가"
+    if ev.get("error"):
+        return "🚫 오류"
+    if ev.get("blocked"):
+        return "🟡 차단"
+    match = ev.get("match")
+    if match is True:
+        return "✅ PASS"
+    if match is False:
+        return "❌ FAIL"
+    return "— 비교불가"
+
+
 # ── 사이드바 ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.title("🛠️ 어드민")
     st.divider()
-    enable_debate = st.toggle("🔴 Red Team 검증", value=True)
-    st.divider()
     _debate_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
     st.caption(f"모델: `{_debate_model}`")
-    pinecone_idx = os.getenv("PINECONE_INDEX_NAME", "tax-rag")
-    pinecone_ns = os.getenv("PINECONE_NAMESPACE", "tax-law")
-    st.caption(f"Pinecone: `{pinecone_idx}` / `{pinecone_ns}`")
 
 # ── 탭 ────────────────────────────────────────────────────────────────────────
 
 st.markdown("## 🛠️ 어드민")
 
-(
-    tab_dashboard,
-    tab_laws,
-    tab_areas,
-    tab_cases,
-    tab_golden,
-    tab_stats,
-    tab_monitor,
-    tab_debug,
-) = st.tabs([
+tab_dashboard, tab_laws, tab_scenarios = st.tabs([
     "📊 대시보드",
-    "⚖️ 법령 데이터",
-    "🗺️ 지역 데이터",
-    "📋 케이스 목록",
-    "🏅 골든셋",
-    "📈 통계",
-    "🔔 법령 모니터링",
-    "🔍 디버그",
+    "⚖️ 법령관리",
+    "📋 시나리오",
 ])
 
 
@@ -268,172 +409,671 @@ st.markdown("## 🛠️ 어드민")
 # 탭 1: 총괄 대시보드
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _sys_card(col, icon: str, title: str, value: str, detail: str, status: str) -> None:
+    bg, fg = {"ok": ("#E8F5E9", "#1B5E20"), "warn": ("#FFF3E0", "#BF360C"), "error": ("#FFEBEE", "#B71C1C")}.get(
+        status, ("#F5F5F5", "#333")
+    )
+    col.markdown(
+        f'<div style="background:{bg};border-left:5px solid {fg};padding:16px 14px;border-radius:6px;min-height:100px">'
+        f'<div style="color:{fg};font-weight:700;font-size:0.85em">{icon} {title}</div>'
+        f'<div style="color:{fg};font-size:1.8em;font-weight:800;margin:6px 0">{value}</div>'
+        f'<div style="color:#555;font-size:0.78em">{detail}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 with tab_dashboard:
+    import pandas as pd
+
+    # ── 데이터 일괄 로드 ─────────────────────────────────────────────────────
     law_rows = _load_law_inventory()
     area_active, area_total, area_mtime = _load_area_summary()
     golden_cnt, golden_mtime = _load_golden_summary()
     debate_cnt, debate_mtime = _load_debate_summary()
+    ruling_summary = _load_ruling_summary()
+    img_alerts = _load_image_alerts()
+    amd_anomalies = _load_amendment_test_results()
+    stale_cases = _load_stale_golden()
+    red_wins, red_target = _load_red_win_progress()
 
-    total_chunks = sum(r["총 청크"] for r in law_rows)
-    all_chunks_mtime = _fmt_mtime(_ROOT / "data" / "processed" / "all_chunks.json")
+    # golden_pairs 로드
+    _gp_file = _ROOT / "data" / "golden" / "qa_pairs.json"
+    golden_pairs: list[dict] = []
+    if _gp_file.exists():
+        try:
+            golden_pairs = json.loads(_gp_file.read_text(encoding="utf-8"))
+        except Exception:
+            golden_pairs = []
 
-    # ── 핵심 메트릭 ──────────────────────────────────────────────────────────
-    st.subheader("현재 반영 중인 데이터")
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("법령 수", f"{len(law_rows)}개")
-    m2.metric("총 청크 (Pinecone)", f"{total_chunks:,}")
-    m3.metric("현행 규제지역", f"{area_active}건")
-    m4.metric("골든셋", f"{golden_cnt}건")
-    m5.metric("누적 논쟁", f"{debate_cnt}건")
+    # pending_proposals 로드
+    try:
+        from src.ingestion.area_designation_pipeline import get_pending_proposals as _gpp
+        pending_proposals = _gpp()
+    except Exception:
+        pending_proposals = []
+
+    # 파생 통계
+    passed_cnt = sum(1 for g in golden_pairs if (g.get("last_eval") or {}).get("match") is True)
+    failed_cnt = sum(1 for g in golden_pairs if (g.get("last_eval") or {}).get("match") is False)
+    needs_review_cnt = sum(1 for g in golden_pairs if g.get("invalidated"))
+
+    # 서브시스템 상태 판정
+    law_status = "ok" if (law_rows and not img_alerts and not amd_anomalies) else ("error" if (img_alerts or amd_anomalies) else "warn")
+    area_status = "ok" if (area_total > 0 and not pending_proposals) else ("warn" if area_total > 0 else "error")
+    scenario_status = "ok" if (golden_cnt > 0 and failed_cnt == 0 and needs_review_cnt == 0) else ("error" if failed_cnt > 0 else "warn")
+
+    # ── 전역 상태 배너 ───────────────────────────────────────────────────────
+    _has_issues = law_status != "ok" or area_status != "ok" or scenario_status != "ok"
+    if _has_issues:
+        st.warning("⚠️ 점검 필요 항목이 있습니다. 아래 알람을 확인하세요.")
+    else:
+        st.success("✅ 모든 항목 정상")
+
+    # ── 4 시스템 카드 ────────────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    _all_chunks_label, _all_chunks_sk, _all_chunks_rel = _fmt_freshness(
+        _ROOT / "data" / "processed" / "all_chunks.json"
+    )
+    _sys_card(
+        c1, "⚖️", "법령",
+        f"{len(law_rows)}개 법령",
+        f"{_all_chunks_label} · {_all_chunks_rel}",
+        _all_chunks_sk,
+    )
+    _sys_card(
+        c2, "🗺️", "지역데이터",
+        f"{area_active}건 현행",
+        f"전체 {area_total}건 · 대기 {len(pending_proposals)}건",
+        area_status,
+    )
+    _sys_card(
+        c3, "📋", "시나리오",
+        f"{golden_cnt}건 검증",
+        f"PASS {passed_cnt} · FAIL {failed_cnt} · 재검토 {needs_review_cnt}",
+        scenario_status,
+    )
+    _red_pct = int(red_wins / red_target * 100) if red_target else 0
+    _sys_card(
+        c4, "🤖", "학습 진행",
+        f"{red_wins}/{red_target}건",
+        f"Red Win {_red_pct}% · 파인튜닝 {'완료' if red_wins >= red_target else '미완'}",
+        "ok" if red_wins >= red_target else "warn",
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── 알람 섹션 ────────────────────────────────────────────────────────────
+    _high_stale = [s for s in stale_cases if s.get("sensitivity") == "high"]
+    alerts: list[tuple[str, str]] = []
+    if img_alerts:
+        alerts.append(("error", f"🔴 별표·이미지 테이블 불일치 {len(img_alerts)}건 → ⚖️ 법령 탭 확인"))
+    if amd_anomalies:
+        alerts.append(("error", f"🔴 개정 경계 케이스 이상 {len(amd_anomalies)}건 → ⚖️ 법령 탭 확인"))
+    if _high_stale:
+        alerts.append(("error", f"🔴 HIGH stale {len(_high_stale)}건 → 전문가 즉시 검토"))
+    if needs_review_cnt:
+        alerts.append(("warning", f"⚠️ 골든셋 재검토 {needs_review_cnt}건 (법령 개정 영향) → 📋 시나리오 탭"))
+    if failed_cnt:
+        alerts.append(("warning", f"⚠️ 시나리오 평가 실패 {failed_cnt}건 → 📋 시나리오 탭"))
+    if pending_proposals:
+        alerts.append(("warning", f"⚠️ 지역 승인 대기 {len(pending_proposals)}건 → ⚖️ 법령관리 탭 (지역데이터)"))
+
+    if alerts:
+        st.markdown("#### 🚨 알람")
+        for level, msg in alerts:
+            if level == "error":
+                st.error(msg)
+            else:
+                st.warning(msg)
 
     st.divider()
 
-    # ── 데이터 인벤토리 ───────────────────────────────────────────────────────
-    st.subheader("데이터 인벤토리 — 출처 · 수량 · 최종 수집")
+    # ── 하단 2열 요약 ────────────────────────────────────────────────────────
+    col_left, col_right = st.columns(2)
 
-    inventory = [
-        {
-            "데이터": "법령 조문",
-            "출처": "law.go.kr DRF API",
-            "수집 방식": "수동 실행 (`python -m src.ingestion.collect`)",
-            "마지막 수집": all_chunks_mtime,
-            "현황": f"{len(law_rows)}개 법령 / {total_chunks:,}청크",
-            "상태": "✅ 수집됨" if law_rows else "❌ 없음",
-        },
-        {
-            "데이터": "Pinecone 벡터 인덱스",
-            "출처": f"Pinecone `{pinecone_idx}` / `{pinecone_ns}`",
-            "수집 방식": "수동 실행 (`python -m src.ingestion.embed`)",
-            "마지막 수집": all_chunks_mtime,
-            "현황": f"{total_chunks:,}청크 (embed 기준)",
-            "상태": "✅ 수집됨" if law_rows else "❌ 없음",
-        },
-        {
-            "데이터": "규제지역 현황",
-            "출처": "수동 관리 (manual_table.json)",
-            "수집 방식": "어드민 직접 편집 또는 제안서 승인",
-            "마지막 수집": area_mtime,
-            "현황": f"현행 {area_active}건 / 전체 {area_total}건",
-            "상태": "✅ 관리 중" if area_total > 0 else "❌ 없음",
-        },
-        {
-            "데이터": "골든셋 QA",
-            "출처": "Red-Blue 논쟁 자동 생성",
-            "수집 방식": "debate.py → golden_injector.py 자동 누적",
-            "마지막 수집": golden_mtime,
-            "현황": f"{golden_cnt}건",
-            "상태": "✅ 운영 중" if golden_cnt > 0 else "⚠️ 비어있음",
-        },
-        {
-            "데이터": "Red-Blue 논쟁 기록",
-            "출처": "내부 논쟁 엔진",
-            "수집 방식": "신뢰도 < 0.8 또는 danger_flags ≥ 2 시 자동 실행",
-            "마지막 수집": debate_mtime,
-            "현황": f"{debate_cnt}건",
-            "상태": "✅ 운영 중" if debate_cnt > 0 else "⚠️ 없음",
-        },
+    with col_left:
+        st.markdown("##### 📡 파이프라인 상태")
+
+        # 데이터 소스 freshness
+        _pipe_sources = [
+            ("법령조문 수집",       _ROOT / "data" / "processed" / "all_chunks.json"),
+            ("질의회신 수집",       _ROOT / "data" / "rulings" / "nts"),
+            ("결정례 수집",         _ROOT / "data" / "rulings" / "decisions"),
+            ("PDF 수집",            _ROOT / "data" / "rulings" / "pdf"),
+            ("기재부 법령해석",     _ROOT / "data" / "rulings" / "moef"),
+            ("국세청 법령해석",     _ROOT / "data" / "rulings" / "nts_interp"),
+            ("판례 수집",           None),   # 미구현
+        ]
+        _pipe_rows = []
+        for _label, _fpath in _pipe_sources:
+            _slabel, _skey, _rel = _fmt_freshness(_fpath)
+            _pipe_rows.append({"단계": _label, "상태": _slabel, "업데이트": _rel})
+
+        # 케이스 생성 (논쟁→골든셋)
+        _debate_label = f"✅ {debate_cnt}건 완료" if debate_cnt > 0 else "⚠️ 논쟁 없음"
+        _pipe_rows.append({"단계": "케이스 생성 (논쟁→골든셋)", "상태": _debate_label, "업데이트": debate_mtime})
+
+        # AI 학습 (파인튜닝)
+        if red_wins >= red_target and red_target > 0:
+            _ft_label = "✅ 파인튜닝 완료"
+        elif red_wins > 0:
+            _ft_label = f"⚠️ 진행중 {red_wins}/{red_target}"
+        else:
+            _ft_label = "🔘 대기 중"
+        _pipe_rows.append({"단계": "AI 학습 (파인튜닝)", "상태": _ft_label, "업데이트": "—"})
+
+        st.dataframe(
+            pd.DataFrame(_pipe_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "단계": st.column_config.TextColumn("단계", width="medium"),
+                "상태": st.column_config.TextColumn("상태", width="large"),
+                "업데이트": st.column_config.TextColumn("업데이트", width="small"),
+            },
+            height=280,
+        )
+
+        change_log_preview = _load_change_log(3)
+        if change_log_preview:
+            for rec in change_log_preview:
+                detected = rec.get("detected_at", "")[:16]
+                event = rec.get("event", "")
+                st.caption(f"{detected}  {event}")
+
+    with col_right:
+        st.markdown("##### 📋 시나리오 & 학습")
+        try:
+            from src.eval.golden_injector import golden_summary as _gs
+            from src.eval.debate import debate_summary as _ds
+            _gs_data = _gs()
+            _ds_data = _ds()
+
+            if isinstance(_gs_data, dict) and _gs_data:
+                _dist_rows = [
+                    {"판결": k, "건수": v}
+                    for k, v in _gs_data.items()
+                    if isinstance(v, int)
+                ]
+                if _dist_rows:
+                    _dist_df = pd.DataFrame(_dist_rows).set_index("판결")
+                    st.bar_chart(_dist_df, height=180)
+
+            _d1, _d2, _d3 = st.columns(3)
+            _d1.metric("총 논쟁", _ds_data.get("total", 0))
+            _d2.metric("Blue승", _ds_data.get("blue_won", 0))
+            _d3.metric("Red승", _ds_data.get("red_won", 0))
+        except Exception:
+            st.info("통계 모듈 미로드")
+
+        _prog_val = red_wins / red_target if red_target else 0
+        st.progress(_prog_val, text=f"Red Win {red_wins}/{red_target} ({_red_pct}%)")
+
+        latest_report = _load_golden_eval_latest()
+        _last_run = latest_report.get("run_at", "")
+        _last_run_fmt = _last_run[:16].replace("T", " ") if _last_run else "미실행"
+        st.caption(f"마지막 평가: {_last_run_fmt}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 탭 2: 법령관리 (법령조문·유권해석·지역데이터 통합)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_laws:
+    import pandas as pd
+
+    # ── 1. 데이터 소스 현황 ───────────────────────────────────────────────────
+    st.markdown("### 📡 데이터 소스 현황")
+    st.caption("매일 자동 수집 기준. 36시간 이내 = 현행 검증 완료, 36~72h = 갱신 확인 필요, 72h+ = 오래된 데이터.")
+
+    # (분류, 유형명, 경로, 출처, Pinecone 네임스페이스, 수집 주기)
+    _src_defs = [
+        ("법령 조문",   "법령 조문 (소득세법·시행령·조특법 등 핵심 9종)",
+         _ROOT / "data" / "processed" / "all_chunks.json",
+         "law.go.kr DRF API", "tax-law", "매일 23:00"),
+        ("유권해석",    "국세청 질의회신 (서면·법령해석·기준-통칙) — hotissue·qt·ic·pd 4종",
+         _ROOT / "data" / "rulings" / "nts",
+         "taxlaw.nts.go.kr", "tax-ruling-nts", "매일 02:00"),
+        ("유권해석",    "심판청구 결정례 (조세심판원·심사청구·이의신청·과세적부) — 키워드: 양도",
+         _ROOT / "data" / "rulings" / "decisions",
+         "tt.go.kr (조세심판원)", "tax-ruling-decisions", "매일 02:00"),
+        ("유권해석",    "해석례 PDF (국세청 책자·고시 PDF)",
+         _ROOT / "data" / "rulings" / "pdf",
+         "국세청 PDF 공개자료", "tax-ruling-pdf", "매일 02:00"),
+        ("법령해석",    "기재부 법령해석 — law.go.kr DRF 전체 2,305건 → 양도 키워드 클라이언트 필터",
+         _ROOT / "data" / "rulings" / "moef",
+         "law.go.kr DRF (moefCgmExpc)", "tax-ruling-moef", "매일 02:00"),
+        ("법령해석",    "국세청 법령해석 — 서버 필터 양도(24,408)·증여(8,819)·상속(7,743)·상생임대(72)·임대주택(1,534)",
+         _ROOT / "data" / "rulings" / "nts_interp",
+         "law.go.kr DRF (ntsCgmExpc)", "tax-ruling-nts-interp", "매일 02:00"),
+        ("판례",        "대법원·고등법원 판례 (구현전)",
+         None,
+         "대법원 종합법률정보", "—", "—"),
     ]
 
-    import pandas as pd
-    inv_df = pd.DataFrame(inventory)
+    _src_rows = []
+    for _src_cat, _src_detail, _src_path, _src_origin, _src_ns, _src_sched in _src_defs:
+        _slabel, _skey, _rel = _fmt_freshness(_src_path)
+        _cnt = "—"
+        if _src_path is not None:
+            _p = Path(_src_path)
+            if _p.exists():
+                if _p.is_dir():
+                    _cnt = f"{len(list(_p.glob('*.json')))}건"
+                else:
+                    try:
+                        _cnt = f"{len(json.loads(_p.read_text(encoding='utf-8')))}건"
+                    except Exception:
+                        _cnt = "—"
+        _src_rows.append({
+            "분류": _src_cat,
+            "유형 / 설명": _src_detail,
+            "상태": _slabel,
+            "업데이트": _rel,
+            "수집량": _cnt,
+            "출처": _src_origin,
+            "Pinecone NS": _src_ns,
+            "수집 주기": _src_sched,
+        })
+
     st.dataframe(
-        inv_df,
+        pd.DataFrame(_src_rows),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "데이터": st.column_config.TextColumn("데이터", width="medium"),
-            "출처": st.column_config.TextColumn("출처", width="large"),
-            "수집 방식": st.column_config.TextColumn("수집 방식", width="large"),
-            "마지막 수집": st.column_config.TextColumn("마지막 수집", width="medium"),
-            "현황": st.column_config.TextColumn("현황", width="medium"),
-            "상태": st.column_config.TextColumn("상태", width="small"),
+            "분류": st.column_config.TextColumn("분류", width="small"),
+            "유형 / 설명": st.column_config.TextColumn("유형 / 설명", width="large"),
+            "상태": st.column_config.TextColumn("상태", width="medium"),
+            "업데이트": st.column_config.TextColumn("업데이트", width="small"),
+            "수집량": st.column_config.TextColumn("수집량", width="small"),
+            "출처": st.column_config.TextColumn("출처", width="medium"),
+            "Pinecone NS": st.column_config.TextColumn("Pinecone NS", width="medium"),
+            "수집 주기": st.column_config.TextColumn("수집 주기", width="small"),
         },
     )
 
     st.divider()
 
-    # ── 법령 요약 (간략) ──────────────────────────────────────────────────────
-    st.subheader("법령별 청크 수")
-    if law_rows:
-        col_chart, col_table = st.columns([1, 1])
-        with col_chart:
-            chart_data = pd.DataFrame({
-                "법령명": [r["법령명"] for r in law_rows],
-                "청크": [r["총 청크"] for r in law_rows],
-            }).set_index("법령명")
-            st.bar_chart(chart_data)
-        with col_table:
-            quick_df = pd.DataFrame([
-                {"법령명": r["법령명"], "분류": r["분류"], "청크": r["총 청크"], "최신시행": r["최신 시행일"]}
-                for r in law_rows
+    # ── 2. 수집 데이터 통합 상세 ─────────────────────────────────────────────
+    with st.expander("📜 수집 데이터 통합 상세 (법령조문 · 유권해석 · 결정례 · PDF)", expanded=False):
+
+        # 분류 필터 (기본 전체 선택)
+        _detail_cats = ["법령 조문", "국세청 질의회신", "심판청구 결정례", "해석례 PDF",
+                        "기재부 법령해석", "국세청 법령해석"]
+        _sel_detail = st.multiselect(
+            "유형 필터 (필요할 때만 사용)",
+            _detail_cats,
+            default=_detail_cats,
+            key="detail_cat_filter",
+        )
+
+        # ── 법령 조문 ──
+        if "법령 조문" in _sel_detail:
+            st.markdown("#### ⚖️ 법령 조문")
+            _law_rows_d = _load_law_inventory()
+            if not _law_rows_d:
+                st.info("법령 데이터 없음 — `python -m src.ingestion.collect` 실행 필요")
+            else:
+                _law_cats = sorted({r["분류"] for r in _law_rows_d})
+                _sel_law_cats = st.multiselect(
+                    "법령 분류 필터", _law_cats, default=_law_cats, key="law_cat_filter"
+                )
+                _filtered_laws = [r for r in _law_rows_d if r["분류"] in _sel_law_cats]
+                st.dataframe(
+                    pd.DataFrame(_filtered_laws),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "법령명": st.column_config.TextColumn("법령명", width="large"),
+                        "분류": st.column_config.TextColumn("분류", width="small"),
+                        "MST": st.column_config.TextColumn("MST", width="small"),
+                        "총 청크": st.column_config.NumberColumn("총 청크", format="%d"),
+                        "본칙": st.column_config.NumberColumn("본칙", format="%d"),
+                        "부칙": st.column_config.NumberColumn("부칙", format="%d"),
+                        "최신 시행일": st.column_config.TextColumn("최신 시행일", width="medium"),
+                        "마지막 수집": st.column_config.TextColumn("마지막 수집", width="medium"),
+                    },
+                )
+                st.code(
+                    "python -m src.ingestion.collect   # law.go.kr 재수집\n"
+                    "python -m src.ingestion.embed     # Pinecone 재인덱싱"
+                )
+                st.caption("⚠️ reindex 시 기존 벡터가 덮어쓰여집니다.")
+
+        # ── 국세청 질의회신 ──
+        if "국세청 질의회신" in _sel_detail:
+            st.markdown("#### 📋 국세청 질의회신")
+            _nts_dir = _ROOT / "data" / "rulings" / "nts"
+            _nts_files = sorted(_nts_dir.glob("*.json"), reverse=True) if _nts_dir.exists() else []
+            if not _nts_files:
+                st.info("질의회신 데이터 없음 — `python -m src.ingestion.collect_rulings_nts --resume`")
+            else:
+                _nts_rows = []
+                for _f in _nts_files[:200]:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, list):
+                            for _item in _d[:5]:
+                                _nts_rows.append({
+                                    "문서번호": _item.get("doc_id") or _item.get("ruling_id", ""),
+                                    "제목": (_item.get("title") or "")[:60],
+                                    "유형": _item.get("type", ""),
+                                    "일자": _item.get("date", ""),
+                                })
+                        elif isinstance(_d, dict):
+                            _nts_rows.append({
+                                "문서번호": _d.get("doc_id") or _d.get("ruling_id", ""),
+                                "제목": (_d.get("title") or "")[:60],
+                                "유형": _d.get("type", ""),
+                                "일자": _d.get("date", ""),
+                            })
+                    except Exception:
+                        pass
+                if _nts_rows:
+                    st.caption(f"최근 {len(_nts_rows)}건 미리보기")
+                    st.dataframe(pd.DataFrame(_nts_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"파일 {len(_nts_files)}개 존재 — 내용 파싱 필요")
+                    st.caption(f"마지막 파일: {_nts_files[0].name}")
+
+        # ── 심판청구 결정례 ──
+        if "심판청구 결정례" in _sel_detail:
+            st.markdown("#### ⚖️ 심판청구 결정례")
+            _dec_dir = _ROOT / "data" / "rulings" / "decisions"
+            _dec_files = sorted(_dec_dir.glob("*.json"), reverse=True) if _dec_dir.exists() else []
+            if not _dec_files:
+                st.info("결정례 데이터 없음 — `python -m src.ingestion.collect_rulings_decisions --resume`")
+            else:
+                _dec_rows = []
+                for _f in _dec_files[:200]:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, list):
+                            for _item in _d[:5]:
+                                _dec_rows.append({
+                                    "사건번호": _item.get("case_id") or _item.get("ruling_id", ""),
+                                    "제목": (_item.get("title") or "")[:60],
+                                    "결정유형": _item.get("decision_type", ""),
+                                    "결정일": _item.get("date", ""),
+                                })
+                        elif isinstance(_d, dict):
+                            _dec_rows.append({
+                                "사건번호": _d.get("case_id") or _d.get("ruling_id", ""),
+                                "제목": (_d.get("title") or "")[:60],
+                                "결정유형": _d.get("decision_type", ""),
+                                "결정일": _d.get("date", ""),
+                            })
+                    except Exception:
+                        pass
+                if _dec_rows:
+                    st.caption(f"최근 {len(_dec_rows)}건 미리보기")
+                    st.dataframe(pd.DataFrame(_dec_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"파일 {len(_dec_files)}개 존재")
+                    st.caption(f"마지막 파일: {_dec_files[0].name}")
+
+        # ── 해석례 PDF ──
+        if "해석례 PDF" in _sel_detail:
+            st.markdown("#### 📄 해석례 PDF")
+            _pdf_dir = _ROOT / "data" / "rulings" / "pdf"
+            _pdf_files = sorted(_pdf_dir.glob("*.json"), reverse=True) if _pdf_dir.exists() else []
+            if not _pdf_files:
+                st.info("PDF 데이터 없음 — `python -m src.ingestion.embed_rulings pdf`")
+            else:
+                _pdf_rows = []
+                for _f in _pdf_files[:100]:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, list):
+                            for _item in _d[:3]:
+                                _pdf_rows.append({
+                                    "파일명": _f.stem,
+                                    "제목": (_item.get("title") or "")[:60],
+                                    "페이지": _item.get("page", ""),
+                                })
+                        elif isinstance(_d, dict):
+                            _pdf_rows.append({
+                                "파일명": _f.stem,
+                                "제목": (_d.get("title") or "")[:60],
+                                "페이지": _d.get("page", ""),
+                            })
+                    except Exception:
+                        pass
+                if _pdf_rows:
+                    st.caption(f"최근 {len(_pdf_rows)}건 미리보기")
+                    st.dataframe(pd.DataFrame(_pdf_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"파일 {len(_pdf_files)}개 존재")
+                    st.caption(f"마지막 파일: {_pdf_files[0].name}")
+
+        # ── 기재부 법령해석 ──
+        if "기재부 법령해석" in _sel_detail:
+            st.markdown("#### 🏛️ 기재부 법령해석")
+            st.caption(
+                "수집 경로: law.go.kr DRF API (moefCgmExpc) → 전체 2,305건 수집 → "
+                "안건명 기준 양도 키워드 클라이언트 필터\n\n"
+                "저장 위치: `data/rulings/moef/` | Pinecone: `tax-ruling-moef` | 자동갱신: 매일 02:00"
+            )
+            _moef_dir = _ROOT / "data" / "rulings" / "moef"
+            _moef_files = sorted(_moef_dir.glob("*.json"), reverse=True) if _moef_dir.exists() else []
+            if not _moef_files:
+                st.info(
+                    "기재부 법령해석 데이터 없음 — 아래 명령 실행:\n\n"
+                    "`python -m src.ingestion.collect_rulings_moef --resume`"
+                )
+            else:
+                _moef_rows = []
+                for _f in _moef_files[:200]:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, dict):
+                            _moef_rows.append({
+                                "문서번호": _d.get("doc_number") or _d.get("id", ""),
+                                "제목": (_d.get("title") or "")[:70],
+                                "해석기관": _d.get("agency", ""),
+                                "해석일자": _d.get("issued_at", ""),
+                            })
+                    except Exception:
+                        pass
+                if _moef_rows:
+                    st.caption(f"전체 {len(_moef_files)}건 | 최근 {len(_moef_rows)}건 미리보기")
+                    st.dataframe(pd.DataFrame(_moef_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"파일 {len(_moef_files)}개 존재")
+                st.code(
+                    "python -m src.ingestion.collect_rulings_moef --resume   # 신규 수집\n"
+                    "python -m src.ingestion.embed_rulings moef               # Pinecone 업로드"
+                )
+
+        # ── 국세청 법령해석 ──
+        if "국세청 법령해석" in _sel_detail:
+            st.markdown("#### 📘 국세청 법령해석")
+            st.caption(
+                "수집 경로: law.go.kr DRF API (ntsCgmExpc) → 서버 사이드 키워드 필터\n\n"
+                "키워드별 건수: 양도 24,408 / 증여 8,819 / 상속 7,743 / 상생임대 72 / 임대주택 1,534\n\n"
+                "저장 위치: `data/rulings/nts_interp/` | Pinecone: `tax-ruling-nts-interp` | 자동갱신: 매일 02:00"
+            )
+            _ni_dir = _ROOT / "data" / "rulings" / "nts_interp"
+            _ni_files = sorted(_ni_dir.glob("*.json"), reverse=True) if _ni_dir.exists() else []
+            if not _ni_files:
+                st.info(
+                    "국세청 법령해석 데이터 없음 — 아래 명령 실행:\n\n"
+                    "`python -m src.ingestion.collect_rulings_nts_interp --resume`"
+                )
+            else:
+                # tax_category별 건수 집계
+                _cat_counts: dict[str, int] = {}
+                _ni_rows = []
+                for _f in _ni_files:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, dict):
+                            _cat = _d.get("tax_category", "")
+                            _cat_counts[_cat] = _cat_counts.get(_cat, 0) + 1
+                    except Exception:
+                        pass
+                for _f in _ni_files[:200]:
+                    try:
+                        _d = json.loads(_f.read_text(encoding="utf-8"))
+                        if isinstance(_d, dict):
+                            _ni_rows.append({
+                                "문서번호": _d.get("doc_number") or _d.get("id", ""),
+                                "제목": (_d.get("title") or "")[:70],
+                                "세목": _d.get("tax_category", ""),
+                                "해석기관": _d.get("agency", ""),
+                                "해석일자": _d.get("issued_at", ""),
+                            })
+                    except Exception:
+                        pass
+                _cat_str = " / ".join(f"{k} {v}건" for k, v in sorted(_cat_counts.items()))
+                st.caption(
+                    f"전체 {len(_ni_files)}건 (세목별: {_cat_str or '—'}) | "
+                    f"최근 {min(len(_ni_rows), 200)}건 미리보기"
+                )
+                if _ni_rows:
+                    st.dataframe(pd.DataFrame(_ni_rows), use_container_width=True, hide_index=True)
+            st.code(
+                "# 초기 수집 (5개 키워드 전체, 시간 소요)\n"
+                "python -m src.ingestion.collect_rulings_nts_interp --resume\n\n"
+                "# 특정 키워드만\n"
+                "python -m src.ingestion.collect_rulings_nts_interp --keywords 상생임대 --resume\n\n"
+                "# Pinecone 업로드\n"
+                "python -m src.ingestion.embed_rulings nts_interp"
+            )
+
+    # ── 3. 별표·이미지 테이블 반영 현황 ──────────────────────────────────────
+    _img_alerts_l = _load_image_alerts()
+    _amd_anomalies_l = _load_amendment_test_results()
+
+    st.markdown("### 📋 별표·이미지 테이블 반영 현황")
+    st.caption("법령 API에서 이미지로 제공되는 별표(장기보유특별공제율 표1/표2 등)의 레지스트리 반영 상태.")
+
+    try:
+        from src.domain.tax_constants import _REGISTRY
+        _table_rows_l = []
+        for _tkey in ["LONG_TERM_DEDUCTION_RATE_TABLE1", "LONG_TERM_DEDUCTION_RATE_TABLE2"]:
+            _versions = _REGISTRY.get(_tkey, [])
+            if _versions:
+                _v = max(_versions, key=lambda x: x.effective_from)
+                _val = _v.value
+                _row_cnt = len(_val) if isinstance(_val, dict) else "—"
+                _table_rows_l.append({
+                    "상수 키": _tkey,
+                    "설명": "장기보유특별공제율 표1 (일반)" if "TABLE1" in _tkey else "장기보유특별공제율 표2 (1세대1주택)",
+                    "시행일": _v.effective_from.strftime("%Y-%m-%d"),
+                    "행 수": _row_cnt,
+                    "검토 필요": "⚠️ 예" if _v.manual_review_required else "✅ 정상",
+                    "법령조문": _v.source_law,
+                })
+        if _img_alerts_l:
+            st.error(f"🔴 별표 불일치 {len(_img_alerts_l)}건 — tax_constants.py 확인 후 ConstantVersion 추가 필요")
+            for _alert in _img_alerts_l[:5]:
+                with st.expander(f"⚠️ {_alert.get('law_name')} {_alert.get('table_id')} 불일치"):
+                    _diff = _alert.get("diff", {})
+                    if _diff:
+                        _diff_rows = [
+                            {"년수": k, "상태": v.get("status"), "레지스트리": v.get("current"), "추출값": v.get("extracted")}
+                            for k, v in sorted(_diff.items(), key=lambda x: int(x[0]))
+                        ]
+                        st.dataframe(pd.DataFrame(_diff_rows), use_container_width=True, hide_index=True)
+                    st.caption(f"파일: {_alert.get('_file', '—')}")
+        elif _table_rows_l:
+            st.success("✅ 별표 검증 이상 없음 — 레지스트리 반영 확인됨")
+        else:
+            st.info("별표 테이블 상수 없음 (TaxConstantsRegistry 확인)")
+        if _table_rows_l:
+            st.dataframe(pd.DataFrame(_table_rows_l), use_container_width=True, hide_index=True)
+    except Exception as _e:
+        st.warning(f"레지스트리 로드 실패: {_e}")
+
+    # 개정 임계값 경계 케이스 — 이상 있을 때만 알람 표시
+    if _amd_anomalies_l:
+        st.error(f"🚨 개정 경계 케이스 verdict 불일치 {len(_amd_anomalies_l)}건 — 파이프라인 또는 골든케이스 수정 필요")
+        with st.expander("불일치 상세"):
+            _df_amd_l = pd.DataFrame([
+                {
+                    "케이스 ID": a.get("case_id"),
+                    "설명": a.get("description", "")[:40],
+                    "법령": ", ".join(a.get("_changed_laws", [])),
+                    "판단 결과": a.get("verdict"),
+                    "예상 결과": a.get("expected_verdict"),
+                }
+                for a in _amd_anomalies_l[:20]
             ])
-            st.dataframe(quick_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("data/processed/all_chunks.json 파일이 없습니다. `python -m src.ingestion.collect` 후 `embed`를 실행하세요.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 2: 법령 데이터
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_laws:
-    all_chunks_path = _ROOT / "data" / "processed" / "all_chunks.json"
-
-    # ── 출처 배너 ──────────────────────────────────────────────────────────────
-    c_src1, c_src2, c_src3 = st.columns(3)
-    c_src1.info("**출처** law.go.kr DRF API")
-    c_src2.info(f"**마지막 수집** {_fmt_mtime(all_chunks_path)}")
-    c_src3.info(f"**수집 명령** `python -m src.ingestion.collect`")
+            st.dataframe(_df_amd_l, use_container_width=True, hide_index=True)
 
     st.divider()
 
-    law_rows = _load_law_inventory()
-    if not law_rows:
-        st.warning("law 데이터가 없습니다. ingestion을 먼저 실행하세요.")
+    # ── 4. 법령 개정 감지 이력 ───────────────────────────────────────────────
+    st.markdown("### 🔔 법령 개정 감지 이력")
+    _change_log_l = _load_change_log(15)
+
+    if _change_log_l:
+        _log_rows_l = []
+        for _rec in _change_log_l:
+            _event = _rec.get("event", "law_change")
+            _detected = _rec.get("detected_at", "")[:16]
+            if _event == "golden_stale_candidates":
+                _laws = ", ".join(_rec.get("triggered_by_laws", []))
+                _desc = f"Stale 후보 {len(_rec.get('stale_cases', []))}건"
+            elif _event == "amendment_test_results":
+                _laws = ""
+                _desc = f"경계케이스 {_rec.get('total_cases', 0)}건, 이상 {_rec.get('anomaly_count', 0)}건"
+            elif _event == "image_table_verification":
+                _laws = ""
+                _desc = f"별표 검증 ✅{_rec.get('verified_count', 0)} / 🔴{_rec.get('alert_count', 0)}"
+            else:
+                _laws = _rec.get("law_name", "")
+                _msts = _rec.get("new_msts", [])
+                _desc = f"신규 MST {len(_msts)}건"
+            _log_rows_l.append({"감지 시각": _detected, "법령": _laws, "내용": _desc})
+        st.dataframe(pd.DataFrame(_log_rows_l), use_container_width=True, hide_index=True)
     else:
-        total = sum(r["총 청크"] for r in law_rows)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("수집된 법령", f"{len(law_rows)}개")
-        m2.metric("총 조문 청크", f"{total:,}")
-        m3.metric("부칙 포함", f"{sum(r['부칙'] for r in law_rows):,}")
+        st.info("개정 감지 이력 없음 — `python -m scripts.detect_law_changes` 실행 후 표시됩니다.")
 
-        st.subheader("법령별 상세")
+    st.divider()
 
-        # 분류 필터
-        cats = sorted({r["분류"] for r in law_rows})
-        sel_cats = st.multiselect("분류 필터", cats, default=cats, key="law_cat_filter")
-        filtered_laws = [r for r in law_rows if r["분류"] in sel_cats]
+    # ── 5. 조문 검색 ─────────────────────────────────────────────────────────
+    st.markdown("### 🔍 조문 검색")
+    st.caption("키워드로 검색해서 법령이 올바르게 수집·색인됐는지 확인합니다.")
 
-        import pandas as pd
-        df = pd.DataFrame(filtered_laws)
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "법령명": st.column_config.TextColumn("법령명", width="large"),
-                "분류": st.column_config.TextColumn("분류", width="small"),
-                "MST": st.column_config.TextColumn("MST", width="small"),
-                "총 청크": st.column_config.NumberColumn("총 청크", format="%d"),
-                "본칙": st.column_config.NumberColumn("본칙", format="%d"),
-                "부칙": st.column_config.NumberColumn("부칙", format="%d"),
-                "최신 시행일": st.column_config.TextColumn("최신 시행일", width="medium"),
-                "마지막 수집": st.column_config.TextColumn("마지막 수집", width="medium"),
-                "출처": st.column_config.TextColumn("출처", width="medium"),
-            },
-        )
+    srch_query = st.text_input("검색 쿼리 (한국어 자유 입력)", key="law_search_query")
+    sc1, sc2, sc3 = st.columns([1, 1, 1])
+    with sc1:
+        srch_run = st.button("🔍 검색", type="primary", key="law_search_btn")
+    with sc2:
+        srch_top_k = st.slider("후보 수 (top_k)", 5, 50, 20, key="law_search_top_k")
+    with sc3:
+        srch_rerank_n = st.slider("최종 조문 수 (rerank_top_n)", 1, 10, 5, key="law_search_rerank_n")
 
-        st.divider()
-        st.subheader("데이터 갱신")
-        st.code("python -m src.ingestion.collect   # law.go.kr 재수집\npython -m src.ingestion.embed     # Pinecone 재인덱싱")
-        st.caption("⚠️ reindex 시 기존 벡터가 덮어쓰여집니다. 운영 중 실행은 주의하세요.")
+    if srch_run and srch_query:
+        try:
+            from src.rag import retrieve_tax_law
+            with st.spinner("검색 중..."):
+                chunks = retrieve_tax_law(srch_query, top_k=srch_top_k, rerank_top_n=srch_rerank_n)
+            st.success(f"{len(chunks)}개 조문 검색됨")
+            for i, c in enumerate(chunks, 1):
+                with st.expander(f"[{i}] {c.law_name} 제{c.article_number}조  score={c.score:.3f}"):
+                    st.text(c.full_text)
+                    col_a, col_b = st.columns(2)
+                    col_a.caption(f"chunk_id: `{c.id}`")
+                    col_b.caption(
+                        f"시행: {c.effective_date} ~ {c.expiration_date}"
+                        if hasattr(c, "effective_date") else ""
+                    )
+        except Exception as e:
+            st.error(f"검색 실패: {e}")
+    elif srch_run:
+        st.warning("쿼리를 입력하세요.")
 
+    st.divider()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 3: 지역 데이터
-# ══════════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    # 지역데이터 (법령관리 하위)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown("### 🗺️ 지역데이터 관리")
+    st.caption("조정대상지역·투기과열지구·투기지역·토지거래허가구역 현행 지정 현황 및 자동 감지")
 
-with tab_areas:
     REG_FILE = _ROOT / "data" / "area_designations" / "manual_table.json"
 
     _ALL_AREA_TYPES = ["조정대상지역", "투기과열지구", "투기지역", "토지거래허가구역"]
@@ -491,6 +1131,7 @@ with tab_areas:
         current_reg, active_reg, released_reg = [], [], []
         st.error("manual_table.json 파일이 없습니다.")
 
+    import pandas as pd
     col_left, col_right = st.columns([1, 1])
 
     # ── 현행 / 이력 탭 ────────────────────────────────────────────────────────
@@ -501,24 +1142,42 @@ with tab_areas:
             f"해제 이력 ({len(released_reg)})",
         ])
 
-        import pandas as pd
-
         with sub_active:
             if active_reg:
+                # 지역별 묶음: 같은 region이 여러 area_type으로 지정된 경우 한 줄로 표시
+                from collections import defaultdict as _dd
+                _region_map: dict = _dd(list)
+                for r in active_reg:
+                    _region_map[r.get("region", "")].append(r)
+
                 rows_a = []
-                for r in sorted(active_reg, key=lambda x: (x.get("region", ""), x.get("area_type", ""))):
+                _type_emoji = {
+                    "조정대상지역":   "🟠",
+                    "투기과열지구":   "🔴",
+                    "투기지역":       "🟣",
+                    "토지거래허가구역": "🔵",
+                }
+                for region in sorted(_region_map):
+                    regs = _region_map[region]
+                    types_str = "  ".join(
+                        f"{_type_emoji.get(r.get('area_type',''), '●')} {r.get('area_type','')}"
+                        for r in sorted(regs, key=lambda x: x.get("area_type", ""))
+                    )
+                    earliest = min(r.get("designated_at", "") for r in regs)
                     rows_a.append({
-                        "지역": r.get("region", ""),
-                        "구역 유형": r.get("area_type", ""),
-                        "지정일": r.get("designated_at", ""),
-                        "고시 번호": r.get("announcement_no", ""),
-                        "출처": r.get("source_url", ""),
+                        "지역": region,
+                        "지정 유형": types_str,
+                        "최초 지정일": earliest,
                     })
                 st.dataframe(
                     pd.DataFrame(rows_a),
                     use_container_width=True,
                     hide_index=True,
-                    column_config={"출처": st.column_config.LinkColumn("출처")},
+                    column_config={
+                        "지역": st.column_config.TextColumn("지역", width="medium"),
+                        "지정 유형": st.column_config.TextColumn("지정 유형", width="large"),
+                        "최초 지정일": st.column_config.TextColumn("최초 지정일", width="small"),
+                    },
                 )
             else:
                 st.info("현행 지정된 지역이 없습니다.")
@@ -617,440 +1276,117 @@ with tab_areas:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 4: 케이스 목록
+# 탭 4: 시나리오
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_cases:
-    st.subheader(f"전체 케이스 — {len(SAMPLE_CASES)}개")
+with tab_scenarios:
+    import pandas as pd
 
-    all_cats = sorted({c["category"] for c in SAMPLE_CASES})
-    selected_cats = st.multiselect(
-        "카테고리 필터",
-        options=all_cats,
-        default=all_cats,
-        format_func=lambda c: CATEGORY_LABELS.get(c, c),
-    )
-    filtered_cases = [c for c in SAMPLE_CASES if c["category"] in selected_cats]
-    st.caption(f"{len(filtered_cases)}개 표시 중")
+    _GOLDEN_FILE = _ROOT / "data" / "golden" / "qa_pairs.json"
+    st.subheader("📋 시나리오 평가 현황")
 
-    for idx, case in enumerate(filtered_cases):
-        orig_idx = SAMPLE_CASES.index(case)
-        cat_label = CATEGORY_LABELS.get(case["category"], case["category"])
-        summary = _fact_summary(case["fact_json"])
-
-        col_cat, col_label, col_summary, col_btn = st.columns([1.2, 2.5, 3, 1])
-        col_cat.markdown(cat_label)
-        col_label.markdown(f"**{case['label']}**")
-        col_summary.caption(summary)
-
-        if col_btn.button("▶ 실행", key=f"run_case_{orig_idx}"):
-            with st.spinner(f"분석 중: {case['label']}"):
-                result = _run_case(case["fact_json"], enable_debate)
-            st.session_state.admin_result = result
-            st.session_state.admin_running_idx = orig_idx
-
-        if (
-            st.session_state.admin_running_idx == orig_idx
-            and st.session_state.admin_result is not None
-        ):
-            with st.expander("결과 보기", expanded=True):
-                _render_result(st.session_state.admin_result)
-
-        st.divider()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 5: 골든셋
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_golden:
-    GOLDEN_FILE = _ROOT / "data" / "golden" / "qa_pairs.json"
-    st.subheader("골든셋 — qa_pairs.json")
-
-    if not GOLDEN_FILE.exists():
+    if not _GOLDEN_FILE.exists():
         st.warning("data/golden/qa_pairs.json 파일이 없습니다.")
     else:
         try:
-            golden_pairs = json.loads(GOLDEN_FILE.read_text(encoding="utf-8"))
+            sc_pairs = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             st.error("qa_pairs.json 파싱 오류")
-            golden_pairs = []
+            sc_pairs = []
 
-        if not golden_pairs:
+        latest_report_sc = _load_golden_eval_latest()
+        last_run_sc = latest_report_sc.get("run_at", "")
+        last_run_sc_fmt = last_run_sc[:16].replace("T", " ") if last_run_sc else "미실행"
+
+        # ── 요약 메트릭 ──────────────────────────────────────────────────────
+        sc_total = len(sc_pairs)
+        sc_passed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is True)
+        sc_failed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is False)
+        sc_needs_review = sum(1 for g in sc_pairs if g.get("invalidated"))
+        sc_not_run = sum(1 for g in sc_pairs if not g.get("last_eval"))
+        sc_has_expected = sum(1 for g in sc_pairs if g.get("expected_verdict") or g.get("verdict"))
+        sc_acc_str = f"{sc_passed}/{sc_has_expected} ({sc_passed/sc_has_expected*100:.0f}%)" if sc_has_expected else "—"
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("총 케이스", sc_total)
+        m2.metric("✅ PASS", sc_passed)
+        m3.metric("❌ FAIL", sc_failed)
+        m4.metric("⚠️ 재검토", sc_needs_review)
+        m5.metric("정확도", sc_acc_str)
+        m6.metric("마지막 평가", last_run_sc_fmt)
+
+        st.divider()
+
+        # ── 필터 라디오 ──────────────────────────────────────────────────────
+        filter_choice = st.radio(
+            "보기",
+            ["전체", "미검증", "검증됨", "재검토필요"],
+            horizontal=True,
+            key="sc_filter",
+        )
+
+        if filter_choice == "미검증":
+            filtered_pairs = [g for g in sc_pairs if not g.get("last_eval")]
+        elif filter_choice == "검증됨":
+            filtered_pairs = [g for g in sc_pairs if g.get("last_eval") and not g.get("invalidated")]
+        elif filter_choice == "재검토필요":
+            filtered_pairs = [
+                g for g in sc_pairs
+                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
+            ]
+        else:
+            filtered_pairs = sc_pairs
+
+        # ── 상태 테이블 ──────────────────────────────────────────────────────
+        if not sc_pairs:
             st.info("골든셋이 비어 있습니다.")
         else:
-            total = len(golden_pairs)
-            chunk_filled = sum(1 for g in golden_pairs if g.get("gold_chunk_ids"))
-            m1, m2, m3 = st.columns(3)
-            m1.metric("총 케이스", total)
-            m2.metric("chunk_ids 채워짐", chunk_filled)
-            m3.metric("chunk_ids 비어있음", total - chunk_filled)
-
-            st.divider()
-
-            for g_idx, golden in enumerate(golden_pairs):
-                chunk_status = "✅" if golden.get("gold_chunk_ids") else "⚠️"
-                exp_v = golden.get("expected_verdict", "—")
-                color = _VERDICT_COLOR.get(exp_v, "gray")
-
-                col_id, col_desc, col_verdict, col_chunk, col_btn = st.columns([1, 3, 1.2, 0.6, 1])
-                col_id.caption(golden.get("id", f"#{g_idx}"))
-                col_desc.markdown(golden.get("description", ""))
-                col_verdict.markdown(f":{color}[{exp_v}]")
-                col_chunk.write(chunk_status)
-
-                if col_btn.button("▶ 실행", key=f"run_golden_{g_idx}"):
-                    question = golden.get("question", "")
-                    if question:
-                        with st.spinner(f"분석 중: {golden.get('description', '')}"):
-                            from src.api.chat_api import chat_turn
-                            result = asyncio.run(chat_turn(question=question, enable_debate=enable_debate))
-                        st.session_state.admin_golden_result = result
-                        st.session_state.admin_golden_running_idx = g_idx
-
-                if (
-                    st.session_state.admin_golden_running_idx == g_idx
-                    and st.session_state.admin_golden_result is not None
-                ):
-                    with st.expander("결과 보기", expanded=True):
-                        _render_result(
-                            st.session_state.admin_golden_result,
-                            expected_verdict=golden.get("expected_verdict"),
-                        )
-
-                if golden.get("notes"):
-                    st.caption(f"📎 {golden['notes']}")
-                st.divider()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 6: 통계
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_stats:
-    st.subheader("논쟁 & 골든셋 통계")
-    if st.button("🔄 새로고침"):
-        st.rerun()
-
-    try:
-        from src.eval.debate import debate_summary
-        from src.eval.golden_injector import golden_summary
-        ds = debate_summary()
-        gs = golden_summary()
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("총 논쟁", ds.get("total", 0))
-        m2.metric("🔵 Blue 승", ds.get("blue_won", 0))
-        m3.metric("🔴 Red 승", ds.get("red_won", 0))
-        m4.metric("골든셋 크기", gs.get("total", 0))
-        st.divider()
-        st.json({**ds, "golden": gs})
-
-    except Exception as e:
-        st.warning(f"통계 로드 실패: {e}")
-
-    st.divider()
-    st.subheader("카테고리별 케이스 분포")
-    from collections import Counter
-    cat_counts = Counter(c["category"] for c in SAMPLE_CASES)
-    rows = [
-        {"카테고리": CATEGORY_LABELS.get(cat, cat), "케이스 수": cnt}
-        for cat, cnt in sorted(cat_counts.items(), key=lambda x: -x[1])
-    ]
-    import pandas as pd
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 7: 법령 모니터링
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_monitor:
-    st.subheader("🔔 법령 개정 모니터링")
-    if st.button("🔄 새로고침", key="monitor_refresh"):
-        st.rerun()
-
-    # ── 헬퍼: 모니터링 데이터 로드 ────────────────────────────────────────────
-
-    def _load_change_log(limit: int = 30) -> list[dict]:
-        p = _ROOT / "data" / "law_change_log.jsonl"
-        if not p.exists():
-            return []
-        lines = p.read_text(encoding="utf-8").strip().splitlines()
-        records = []
-        for line in reversed(lines[-100:]):
-            try:
-                records.append(json.loads(line))
-            except Exception:
-                pass
-        return records[:limit]
-
-    def _load_image_alerts() -> list[dict]:
-        d = _ROOT / "data" / "image_table_alerts"
-        if not d.exists():
-            return []
-        alerts: list[dict] = []
-        for f in sorted(d.glob("table_alerts_*.json"), reverse=True)[:5]:
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                for a in data.get("alerts", []):
-                    a["_file"] = f.name
-                    alerts.append(a)
-            except Exception:
-                pass
-        return alerts
-
-    def _load_amendment_test_results() -> list[dict]:
-        d = _ROOT / "data" / "amendment_test_results"
-        if not d.exists():
-            return []
-        anomalies: list[dict] = []
-        for f in sorted(d.glob("amendment_test_*.json"), reverse=True)[:5]:
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                for a in data.get("anomalies", []):
-                    a["_file"] = f.name
-                    a["_changed_laws"] = data.get("changed_laws", [])
-                    anomalies.append(a)
-            except Exception:
-                pass
-        return anomalies
-
-    def _load_stale_golden() -> list[dict]:
-        p = _ROOT / "data" / "law_change_log.jsonl"
-        if not p.exists():
-            return []
-        stale: list[dict] = []
-        for line in p.read_text(encoding="utf-8").strip().splitlines():
-            try:
-                rec = json.loads(line)
-                if rec.get("event") == "golden_stale_candidates":
-                    stale.extend(rec.get("stale_cases", []))
-            except Exception:
-                pass
-        seen = set()
-        unique = []
-        for s in reversed(stale):
-            cid = s.get("case_id", "")
-            if cid not in seen:
-                seen.add(cid)
-                unique.append(s)
-        return unique
-
-    def _load_red_win_progress() -> tuple[int, int]:
-        d = _ROOT / "data" / "red_wins"
-        if not d.exists():
-            return 0, 50
-        return len(list(d.glob("*.json"))), 50
-
-    # ── 요약 메트릭 ──────────────────────────────────────────────────────────
-
-    img_alerts = _load_image_alerts()
-    amd_anomalies = _load_amendment_test_results()
-    stale_cases = _load_stale_golden()
-    red_wins, red_target = _load_red_win_progress()
-
-    high_stale = [s for s in stale_cases if s.get("sensitivity") == "high"]
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(
-        "별표 불일치",
-        f"{len(img_alerts)}건",
-        delta="수동 확인 필요" if img_alerts else None,
-        delta_color="inverse",
-    )
-    c2.metric(
-        "개정 케이스 이상",
-        f"{len(amd_anomalies)}건",
-        delta="즉시 확인" if amd_anomalies else None,
-        delta_color="inverse",
-    )
-    c3.metric(
-        "골든케이스 Stale",
-        f"{len(stale_cases)}건",
-        delta=f"🔴 HIGH {len(high_stale)}건" if high_stale else None,
-        delta_color="inverse",
-    )
-    c4.metric(
-        "Red Win 누적",
-        f"{red_wins}/{red_target}건",
-        delta=f"목표 {red_target - red_wins}건 남음" if red_wins < red_target else "✅ 목표 달성",
-        delta_color="normal" if red_wins >= red_target else "inverse",
-    )
-
-    st.divider()
-
-    # ── 1. 별표 이미지 테이블 검증 현황 ────────────────────────────────────
-
-    st.markdown("#### 📋 별표·이미지 테이블 반영 현황")
-    st.caption("법령 API에서 이미지로 제공되는 별표(장기보유특별공제율 표1/표2 등)의 레지스트리 반영 상태")
-
-    try:
-        from src.domain.tax_constants import TaxConstantsRegistry, _REGISTRY
-        table_rows = []
-        today_d = datetime.now().date()
-
-        for key in ["LONG_TERM_DEDUCTION_RATE_TABLE1", "LONG_TERM_DEDUCTION_RATE_TABLE2"]:
-            versions = _REGISTRY.get(key, [])
-            if versions:
-                v = max(versions, key=lambda x: x.effective_from)
-                val = v.value
-                row_count = len(val) if isinstance(val, dict) else "—"
-                table_rows.append({
-                    "상수 키": key,
-                    "설명": "장기보유특별공제율 표1 (일반)" if "TABLE1" in key else "장기보유특별공제율 표2 (1세대1주택)",
-                    "시행일": v.effective_from.strftime("%Y-%m-%d"),
-                    "행 수": row_count,
-                    "수동검토필요": "⚠️ 예" if v.manual_review_required else "✅ 정상",
-                    "법령조문": v.source_law,
+            sc_rows = []
+            for g in filtered_pairs:
+                ev = g.get("last_eval") or {}
+                exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
+                actual_v = ev.get("verdict", "—")
+                conf = ev.get("confidence")
+                run_at = ev.get("run_at", "")
+                run_at_fmt = f"{run_at[:4]}-{run_at[4:6]}-{run_at[6:8]}" if len(run_at) >= 8 else "—"
+                sc_rows.append({
+                    "ID": (g.get("id") or g.get("case_id", ""))[:10],
+                    "설명": g.get("description", "")[:45],
+                    "출처": g.get("source", "manual"),
+                    "예상판결": exp_v,
+                    "실제판결": actual_v,
+                    "신뢰도": f"{conf:.2f}" if conf is not None else "—",
+                    "상태": _status_badge(g),
+                    "평가일": run_at_fmt,
                 })
 
-        # 별표 알림 통합 표시
-        if img_alerts:
-            st.error(f"🔴 별표 불일치 {len(img_alerts)}건 — tax_constants.py 수동 확인 후 ConstantVersion 추가 필요")
-            for alert in img_alerts[:5]:
-                with st.expander(f"⚠️ {alert.get('law_name')} {alert.get('table_id')} 불일치"):
-                    diff = alert.get("diff", {})
-                    if diff:
-                        import pandas as pd
-                        diff_rows = [
-                            {"년수": k, "상태": v.get("status"), "레지스트리": v.get("current"), "추출값": v.get("extracted")}
-                            for k, v in sorted(diff.items(), key=lambda x: int(x[0]))
-                        ]
-                        st.dataframe(pd.DataFrame(diff_rows), use_container_width=True, hide_index=True)
-                    st.caption(f"파일: {alert.get('_file', '—')}")
-        elif table_rows:
-            st.success("✅ 별표 검증 이상 없음 — 레지스트리 반영 확인됨")
+            st.caption(f"{len(filtered_pairs)}건 표시 중")
+            sc_df = pd.DataFrame(sc_rows)
+            st.dataframe(sc_df, use_container_width=True, hide_index=True)
 
-        if table_rows:
-            import pandas as pd
-            st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+            # ── 실패·재검토 케이스 상세 ──────────────────────────────────────
+            problem_cases_sc = [
+                g for g in filtered_pairs
+                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
+            ]
+            if problem_cases_sc:
+                with st.expander(f"⚠️ 조치 필요 케이스 ({len(problem_cases_sc)}건)", expanded=True):
+                    for g in problem_cases_sc:
+                        ev = g.get("last_eval") or {}
+                        badge = _status_badge(g)
+                        exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
+                        gid = (g.get("id") or g.get("case_id", ""))[:10]
+                        st.markdown(
+                            f"**{badge}** `{gid}` — {g.get('description', '')}  \n"
+                            f"예상: **{exp_v}** → 실제: **{ev.get('verdict', '—')}** "
+                            f"(신뢰도 {ev.get('confidence', 0):.2f})"
+                        )
+                        if g.get("invalidated"):
+                            deps = g.get("law_deps", [])
+                            st.caption(f"법령 개정 영향: {', '.join(deps) or '알 수 없음'}")
+                        if ev.get("error"):
+                            st.caption(f"오류: {ev['error']}")
+                        st.divider()
 
-    except Exception as e:
-        st.warning(f"레지스트리 로드 실패: {e}")
-
-    st.divider()
-
-    # ── 2. 개정 임계값 경계 케이스 검증 결과 ────────────────────────────────
-
-    st.markdown("#### 🧪 개정 임계값 경계 케이스 검증")
-    st.caption("법령 개정 감지 시 자동 생성한 경계 케이스 verdict 불일치 내역")
-
-    if amd_anomalies:
-        st.error(f"🚨 verdict 불일치 {len(amd_anomalies)}건 — 파이프라인 또는 골든케이스 수정 필요")
-        import pandas as pd
-        df_amd = pd.DataFrame([
-            {
-                "케이스 ID": a.get("case_id"),
-                "설명": a.get("description", "")[:40],
-                "법령": ", ".join(a.get("_changed_laws", [])),
-                "판단 결과": a.get("verdict"),
-                "예상 결과": a.get("expected_verdict"),
-                "파일": a.get("_file", "—"),
-            }
-            for a in amd_anomalies[:20]
-        ])
-        st.dataframe(df_amd, use_container_width=True, hide_index=True)
-    else:
-        latest_amd = sorted(
-            (_ROOT / "data" / "amendment_test_results").glob("*.json"),
-            reverse=True,
-        )[:1] if (_ROOT / "data" / "amendment_test_results").exists() else []
-        if latest_amd:
-            mtime = _fmt_mtime(latest_amd[0])
-            st.success(f"✅ 경계 케이스 verdict 모두 정상 (마지막 검증: {mtime})")
-        else:
-            st.info("검증 이력 없음 — 법령 개정 감지 시 자동 실행됩니다.")
-
-    st.divider()
-
-    # ── 3. 골든케이스 Stale 현황 ─────────────────────────────────────────────
-
-    st.markdown("#### 🏅 골든케이스 Stale 현황")
-    st.caption("법령 개정에 의해 expected_verdict가 바뀔 수 있는 케이스 목록")
-
-    if stale_cases:
-        import pandas as pd
-        df_stale = pd.DataFrame([
-            {
-                "케이스 ID": s.get("case_id"),
-                "민감도": {"high": "🔴 HIGH", "medium": "🟡 MEDIUM", "low": "🟢 LOW"}.get(s.get("sensitivity", ""), s.get("sensitivity", "")),
-                "촉발 법령": s.get("triggered_by", "—"),
-                "영향": s.get("notes", "")[:50],
-            }
-            for s in sorted(stale_cases, key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x.get("sensitivity", ""), 9))
-        ])
-        st.dataframe(df_stale, use_container_width=True, hide_index=True)
-        if high_stale:
-            st.error(f"🚨 HIGH sensitivity {len(high_stale)}건 — 즉시 expected_verdict 재검토 필요")
-    else:
-        st.success("✅ 개정으로 인한 stale 케이스 없음")
-
-    st.divider()
-
-    # ── 4. 최근 법령 개정 감지 이력 ─────────────────────────────────────────
-
-    st.markdown("#### 📜 최근 법령 개정 감지 이력")
-    change_log = _load_change_log(20)
-
-    if change_log:
-        import pandas as pd
-        log_rows = []
-        for rec in change_log:
-            event = rec.get("event", "law_change")
-            detected = rec.get("detected_at", "")[:16]
-            if event == "golden_stale_candidates":
-                laws = ", ".join(rec.get("triggered_by_laws", []))
-                desc = f"Stale 후보 {len(rec.get('stale_cases', []))}건"
-            elif event == "amendment_test_results":
-                desc = f"경계 케이스 {rec.get('total_cases', 0)}건, 이상 {rec.get('anomaly_count', 0)}건"
-                laws = ""
-            elif event == "image_table_verification":
-                desc = f"별표 검증: ✅{rec.get('verified_count', 0)} / 🔴{rec.get('alert_count', 0)}"
-                laws = ""
-            else:
-                laws = rec.get("law_name", "")
-                msts = rec.get("new_msts", [])
-                desc = f"신규 MST {len(msts)}건: {', '.join(msts[:3])}"
-            log_rows.append({"감지 시각": detected, "이벤트": event, "법령": laws, "내용": desc})
-
-        st.dataframe(pd.DataFrame(log_rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("법령 개정 감지 이력 없음\n`python -m scripts.detect_law_changes` 실행 후 결과가 표시됩니다.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 8: 디버그
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_debug:
-    st.subheader("법령 검색 디버그")
-
-    debug_query = st.text_input("검색 쿼리 (한국어 자유 입력)")
-    col_btn, col_k, col_rn = st.columns([1, 1, 1])
-    with col_btn:
-        run_debug = st.button("🔍 검색", type="primary")
-    with col_k:
-        top_k = st.slider("top_k (후보 수)", 5, 50, 20)
-    with col_rn:
-        rerank_top_n = st.slider("rerank_top_n (LLM 전달 수)", 1, 10, 5)
-
-    if run_debug and debug_query:
-        try:
-            from src.rag import retrieve_tax_law
-            with st.spinner("검색 중..."):
-                chunks = retrieve_tax_law(debug_query, top_k=top_k, rerank_top_n=rerank_top_n)
-            st.success(f"{len(chunks)}개 조문 검색됨")
-            for i, c in enumerate(chunks, 1):
-                with st.expander(f"[{i}] {c.law_name} 제{c.article_number}조  score={c.score:.3f}"):
-                    st.text(c.full_text)
-                    col_a, col_b = st.columns(2)
-                    col_a.caption(f"chunk_id: `{c.id}`")
-                    col_b.caption(
-                        f"effective: {c.effective_date} ~ {c.expiration_date}"
-                        if hasattr(c, "effective_date") else ""
-                    )
-        except Exception as e:
-            st.error(f"검색 실패: {e}")
-    elif run_debug:
-        st.warning("쿼리를 입력하세요.")
+            if sc_not_run > 0:
+                st.info(f"미평가 케이스 {sc_not_run}건 — `python -m scripts.run_golden_eval` 으로 평가를 실행하세요.")
