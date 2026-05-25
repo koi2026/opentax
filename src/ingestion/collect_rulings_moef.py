@@ -303,19 +303,7 @@ def collect_moef(
             print(f"  DRF page {page}/{pages} ({len(all_items)}건 누적)")
         time.sleep(0.5)
 
-    # 클라이언트 세목 필터: 안건명에 tax_keyword 포함 또는 양도 관련 키워드
-    _TRANSFER_KEYWORDS = ["양도", "비과세", "1세대1주택", "세대", "취득", "이월과세", "양수"]
-    if tax_keyword == "양도소득세":
-        filtered = [
-            item for item in all_items
-            if any(kw in (item.get("안건명") or "") for kw in _TRANSFER_KEYWORDS)
-        ]
-    else:
-        filtered = [item for item in all_items if tax_keyword in (item.get("안건명") or "")]
-
-    print(f"  세목 필터 후: {len(filtered)}건 (전체 {len(all_items)}건 중)")
-
-    print(f"  DRF 수집 완료: {len(all_items)}건")
+    print(f"  DRF 수집 완료: {len(all_items)}건 (전체 저장, BGE reranker가 쿼리 시 필터링)")
 
     # 2단계: 상세 본문 + 저장
     session = _make_nts_session() if fetch_detail else None
