@@ -1504,7 +1504,7 @@ def generate_all_boundary_cases(n_per_type: int = 10) -> List[SyntheticCase]:
 
 def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[SyntheticCase]:
     """
-    현행법 기준 종합 케이스 생성 (~130건).
+    현행법 기준 종합 케이스 생성 (~180건).
 
     카테고리:
     - 기본 보유기간 경계 (6)
@@ -1528,7 +1528,9 @@ def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[Synth
     - 복합 특례 (5)
     - 특수관계자 거래 (3)
     - 조정대상지역 경계 (4)
-    합계: ~약 90-130건
+    - 예규/해석 심화 케이스 (~49): 상생임대·동거봉양·농어촌·비거주자·분양권·
+      재건축·장기임대·공익수용·상속·혼인합가 세무사급 경계 케이스
+    합계: ~약 180건
     """
     today = as_of or date.today()
     cases: List[SyntheticCase] = []
@@ -1557,6 +1559,13 @@ def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[Synth
     cases.extend(generate_one_house_exempt_variations(today))
     cases.extend(generate_general_tax_baseline_cases(today))
     cases.extend(generate_additional_l2_block_cases())
+
+    # 예규/해석 심화 케이스 — ruling_case_generator.py
+    try:
+        from src.eval.ruling_case_generator import generate_all_ruling_cases
+        cases.extend(generate_all_ruling_cases(today))
+    except ImportError:
+        pass
 
     return cases
 
