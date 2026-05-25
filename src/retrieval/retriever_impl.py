@@ -183,8 +183,8 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         self.rerank_top_n = rerank_top_n
         self.namespace = namespace
 
-    def retrieve(self, query: RAGQueryInput) -> List[RetrievedChunk]:
-        query_text = query.fact_vector.to_text()
+    def retrieve(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
+        query_text = query_text or query.fact_vector.to_text()
         vector = embed_query(query_text)
 
         # query.top_k 우선, 없으면 인스턴스 기본값
@@ -328,7 +328,7 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         # 앵커 날짜가 이 부칙의 시행일 이후여야 적용 대상
         return anchor_date >= effective_from
 
-    def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
+    def retrieve_with_buchik(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
         """본칙 검색 후 linked_buchik_ids로 부칙 보강, applicability_anchor 하드필터 적용.
 
         부칙 적용례 예:
@@ -336,7 +336,7 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
           "취득분부터 적용" → anchor=acquisition_date
         앵커 날짜 < 부칙 시행일이면 해당 부칙은 이 사건에 미적용 → 제외.
         """
-        results = self.retrieve(query)
+        results = self.retrieve(query, query_text=query_text)
         if not query.include_buchik:
             return results
 

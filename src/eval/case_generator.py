@@ -1173,7 +1173,7 @@ def generate_combination_cases(
         tags=["비거주자", "중과", "조정대상지역"],
     )
 
-    # 분양권 보유 중 기존주택 양도 — 일시적2주택 특례
+    # 분양권 보유 중 기존주택 양도 — 일시적2주택 특례 (기한 내)
     yield SyntheticCase(
         description="분양권 보유 + 기존주택 양도 (일시적2주택 특례 적용 여부)",
         fact_json={
@@ -1189,7 +1189,7 @@ def generate_combination_cases(
             "special_cases": {
                 "temp_two_house": {
                     "new_acquisition_date": "20230101",
-                    "old_house_must_sell_by": "20260101",
+                    "old_house_must_sell_by": "20261201",  # transfer_date(20260401) 이후 → 기한 내
                     "new_is_adjustment_area": False,
                 }
             },
