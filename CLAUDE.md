@@ -6,40 +6,11 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 
 ## Backlog (Claude Code 전용)
 
-세션 시작 시 이 목록을 확인한다.
-사용자가 다른 작업을 요청하시면 그것을 우선하고, 완료한 항목은 즉시 삭제한다.
+세션 시작 시 `AGENTS.md > 개발 로드맵` 을 확인한다.
+사용자가 다른 작업을 요청하면 그것을 우선한다.
 
-> Phase 1~6 전체 완료. 상세 이력은 git log 참조. 전체 로드맵은 `AGENTS.md > 개발 로드맵` 참조.
-
----
-
-### 남은 작업 — 사용자 실행 필요
-
-> 아래는 코드가 아닌 데이터·인프라·운영 작업이다. Claude Code가 대신할 수 없다.
-
-- [ ] **법령 재수집** — `python -m src.ingestion.collect`
-  - 새 MST 14개 법령 + chunk_id 신포맷 + applicability_anchor 포함
-- [ ] **Pinecone reindex** — `python -m src.ingestion.embed`
-  - linked_buchik_ids, applicability_anchor, article_type 신규 필드 반영
-- [ ] **스케줄러 등록** — 관리자 PowerShell에서 `.\scripts\setup_scheduler.ps1`
-  - 매일 23:00 자동 감지 + Pinecone 업로드
-
----
-
-### 장기 로드맵 (코드 작업, 우선순위 낮음)
-
-- [ ] **BGE reranker 파인튜닝** — red_won 케이스 50건+ 축적 후 (`scripts/extract_reranker_pairs.py` 활용)
-  - `python -m scripts.accumulate_red_wins --phase 1` 으로 골든케이스 replay
-  - `python -m scripts.accumulate_red_wins --phase 2` 로 합성 경계케이스 추가
-  - 현재 `data/red_wins/` 건수 확인 후 50건 초과 시 파인튜닝 진행
-- [ ] **환산취득가액 감지 강화** — `src/domain/fact_checker.py`
-  - `acquisition_reason=의제취득일` 또는 `acquisition_price` 미제출 시 → missing_fact 안내
-  - "환산 필요" 감지 후 상위 수집기/사용자 재입력으로 처리 (엔진 내 계산 없음)
-  - L1.5 확인서(`acquisition_document_confirmed`) 활성화 로직 추가
-- [ ] **개정세법 사전 대응** — `src/ingestion/collect_amendment_pdf.py` (유형2 고객용)
-  - 기재부 세법개정안(8월 발표) PDF → `data/amendments/` 드롭 → 파싱·임베딩
-  - Pinecone namespace: `tax-law-pending` (현행법과 격리)
-  - 쿼리 시 현행법 + 개정예정법 병렬 응답 → 유형2 시뮬레이션 연동
+> Phase 1~6 전체 완료. 상세 이력은 git log 참조.
+> 남은 운영 작업·장기 로드맵(BGE 파인튜닝·개정세법 대응 등)은 **AGENTS.md** 참조.
 
 ---
 
