@@ -218,7 +218,7 @@ class TaxConstantsRegistry:
 
         # No version matched — fall back to oldest to avoid hard failure
         oldest = min(versions, key=lambda x: x.effective_from)
-        logger.warning(
+        logger.debug(
             "상수 %r에 대해 %s 기준 유효한 버전이 없습니다. "
             "가장 오래된 버전(%s)으로 대체합니다.",
             key, as_of, oldest.effective_from,
