@@ -41,6 +41,7 @@ RED_WINS_DIR = Path("data/red_wins")
 TRAINING_STATE_PATH = Path("data/models/bge-reranker-tax-rag/training_state.json")
 MIN_TOTAL_DEBATES_FOR_TRAIN = 50   # 총 debate 수가 이 미만이면 학습 건너뜀 (초기 품질 보장)
 MIN_NEW_DEBATES_FOR_RETRAIN = 20   # 마지막 학습 이후 신규 debate >= 이 수일 때 재학습 트리거
+ACCURACY_TARGET = 0.85             # 이 미만이면 다음 eval 사이클 자동 권고
 
 # Claude Sonnet 4.6 기준 비용 추정 (입력 3$/MTok, 출력 15$/MTok)
 _COST_PER_CASE_NO_DEBATE = 0.018   # ~$0.018/케이스 (debate 없음)
@@ -217,6 +218,26 @@ def _save_training_state(state: dict) -> None:
     )
 
 
+def _read_finetune_accuracy(output_dir: Path) -> float | None:
+    """파인튜닝 결과 CSV에서 최고 Accuracy 값을 읽어 반환. 파일 없으면 None."""
+    csv_path = output_dir / "eval" / "CrossEncoderClassificationEvaluator_tax-rag-eval_results.csv"
+    if not csv_path.exists():
+        # finetune_reranker.py 기본 output_dir 외부에 저장된 경우 fallback
+        csv_path = Path("checkpoints") / "model" / "eval" / "CrossEncoderClassificationEvaluator_tax-rag-eval_results.csv"
+    if not csv_path.exists():
+        return None
+    try:
+        import csv as _csv
+        rows = list(_csv.DictReader(csv_path.open(encoding="utf-8")))
+        if not rows:
+            return None
+        # 마지막 epoch 행 기준 (best model 저장 시 마지막 행이 최고 성능)
+        accuracies = [float(r["Accuracy"]) for r in rows if r.get("Accuracy")]
+        return max(accuracies) if accuracies else None
+    except Exception:
+        return None
+
+
 def _update_env_model_path(model_path: str) -> None:
     env_path = Path(".env")
     if not env_path.exists():
@@ -262,18 +283,33 @@ def _maybe_trigger_finetune() -> None:
             check=True,
         )
 
-        # 3. 학습 상태 저장 + .env 업데이트
+        # 3. 정확도 확인 + 학습 상태 저장 + .env 업데이트
         model_path = "data/models/bge-reranker-tax-rag"
+        accuracy = _read_finetune_accuracy(Path(model_path))
+
         _save_training_state({
             "debate_count": current,
             "trained_at": datetime.now().isoformat(),
             "model_path": model_path,
+            "accuracy": accuracy,
         })
         _update_env_model_path(model_path)
 
         print(f"\n=== [3/3] 완료 ===")
         print(f"  BGE_RERANKER_MODEL={model_path} (.env 반영)")
-        print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
+
+        if accuracy is not None:
+            acc_pct = accuracy * 100
+            if accuracy >= ACCURACY_TARGET:
+                print(f"  정확도: {acc_pct:.1f}% ✓ (목표 {ACCURACY_TARGET*100:.0f}% 달성)")
+                print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
+            else:
+                print(f"  정확도: {acc_pct:.1f}% ✗ (목표 {ACCURACY_TARGET*100:.0f}% 미달)")
+                print(f"  → 다음 eval 사이클을 실행해 debate를 더 수집하세요.")
+                print(f"  → 권장 명령: python -m scripts.run_baseline_eval --debate --auto-finetune --workers 3")
+        else:
+            print(f"  정확도 CSV 없음 — 수동 확인 필요")
+            print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
 
     except subprocess.CalledProcessError as e:
         print(f"[auto-finetune] 오류 발생: {e} — 수동으로 스크립트를 실행하세요.")
