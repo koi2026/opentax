@@ -107,7 +107,7 @@ def _confirmation_blocked_result(unconfirmed_questions: List[str]) -> PipelineRe
 def _l2_blocked_result(fact_check: FactCheckResult) -> PipelineResult:
     answer = TaxAnswer(
         answer="판단에 필요한 사실관계가 불충분합니다. 아래 항목을 추가로 확인해 주세요.",
-        verdict="needs_verification",
+        verdict=TaxVerdict.NEEDS_VERIFICATION,
         confidence=0.0,
         missing_facts=fact_check.missing_fact_texts(),
         warnings=[f"크리티컬 정보 {len(fact_check.critical_missing)}건 누락으로 추론 중단"],
@@ -268,7 +268,7 @@ async def run_rag_pipeline_stream(
     if raw_answer is None:
         raw_answer = TaxAnswer(
             answer="AI 추론 중 오류가 발생했습니다.",
-            verdict="needs_verification",
+            verdict=TaxVerdict.NEEDS_VERIFICATION,
             confidence=0.0,
             chunk_ids=list(retrieved_ids),
             warnings=["스트리밍 오류"],
