@@ -81,6 +81,10 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
   - `python -m scripts.accumulate_red_wins --phase 1` 으로 골든케이스 replay
   - `python -m scripts.accumulate_red_wins --phase 2` 로 합성 경계케이스 추가
   - 현재 `data/red_wins/` 건수 확인 후 50건 초과 시 파인튜닝 진행
+- [ ] **환산취득가액 감지 강화** — `src/domain/fact_checker.py`
+  - `acquisition_reason=의제취득일` 또는 `acquisition_price` 미제출 시 → missing_fact 안내
+  - "환산 필요" 감지 후 상위 수집기/사용자 재입력으로 처리 (엔진 내 계산 없음)
+  - L1.5 확인서(`acquisition_document_confirmed`) 활성화 로직 추가
 
 ---
 
@@ -402,6 +406,55 @@ pytest                                # 테스트
 | 필드 | 이유 |
 |------|------|
 | is_related_party_transaction=True | §101 부당행위계산부인 — 양도가액 시가 재계산 가능, 조세불복 아이템 |
+
+---
+
+## 세법 개정 자동 반영 대원칙 (Critical)
+
+**모든 수치와 기준은 반드시 외부화한다. 코드에 하드코딩 절대 금지.**
+
+| 항목 | 구현 위치 | 비고 |
+|------|---------|------|
+| 세율 테이블 (6%~45%, 단기 70%/60%) | `TaxConstantsRegistry` | 개정 시 registry 값만 수정 |
+| 중과세율 (+20%/+30%) | `TaxConstantsRegistry` | |
+| 중과 한시적 면세 기간 | `TaxConstantsRegistry.HEAVY_TAX_SUSPENSION_END` | |
+| 장기보유특별공제율 표1/표2 | `data/tax_tables/` JSON | 개정 시 JSON만 교체 |
+| 1세대1주택 비과세 한도 (12억) | `TaxConstantsRegistry.EXEMPT_THRESHOLD` | |
+| 일시적2주택 처분기한 (3년) | `TaxConstantsRegistry` | |
+| 상생임대 특례 유효기간 | `TaxConstantsRegistry.SANGSAENG_WINDOW_*` | |
+| 이월과세 기산 기간 (10년) | `TaxConstantsRegistry.IOTA_PERIOD_YEARS` | |
+| 기준시가 (공시가격) | 상위 수집기에서 제공 — 엔진 역할 아님 | fact_json으로 수신 |
+
+**법령 개정 감지 자동화:** `scripts/detect_law_changes.py` → 매일 23:00 실행 → 변경 감지 시 알림 + Pinecone 재인덱스.
+
+**파인튜닝·골든셋 개정 시 처리 방식:**
+- 법령 조문: 개정일 기준 Pinecone 자동 재인덱스 → 새 버전 즉시 사용
+- TaxConstantsRegistry: 코드 업데이트 필요 (수동, 즉시 적용)
+- 골든셋: 개정으로 영향받는 케이스를 debate/eval로 재검증 → 틀린 케이스 삭제 후 새 케이스 누적
+- BGE reranker: 골든셋 50건 이상 변경 시 재파인튜닝 (수동)
+- **사전 학습(개정안 미리 준비) 불가:** 현행 법령 기준으로만 판단. 개정안 통과 후 즉시 처리.
+
+---
+
+## 환산취득가액 처리 원칙
+
+**환산취득가액은 판단(RAG)이 필요한 영역이므로 별도 RAG 파이프라인을 만들지 않는다.**
+현재 파이프라인이 "환산 필요"를 감지하고 missing_facts로 안내하면, 실제 계산은 외부(상위 수집기 또는 사용자 입력)에서 처리한다.
+
+### 환산취득가액이 필요한 상황
+
+| 상황 | 근거 조문 | 엔진 처리 방식 |
+|------|---------|---------|
+| 1985-01-01 이전 취득 (`AcquisitionReason.DEEMED_ACQUISITION`) | 소령 §163④ | fact_checker → missing_fact "기준시가 환산취득가액 필요" |
+| 증여받은 주택 (이월과세 적용) | 소령 §163② | fact_checker → missing_fact "증여자 원취득가액 필요" |
+| 상속주택 (취득가액 불명) | 소령 §163③ | fact_checker → missing_fact "상속개시일 기준시가 필요" |
+| 취득가액 증빙 불가 | 소령 §163① | fact_checker → missing_fact "기준시가 환산취득가액 필요" |
+
+### 책임소재 명확화 원칙
+
+- **환산취득가액 적용 시 면책 확인**: L1.5 확인서(`confirmation.py`)에 `acquisition_document_confirmed` 항목 포함 → "서류 없음으로 기준시가 환산 적용, 사후 실제거래가 확인 시 세액 변동 책임은 납세자에 있음"
+- **기준시가**: 상위 수집기에서 제공 받아 fact_json으로 수신 — 엔진이 직접 API 조회하지 않음
+- `acquisition_price=0`으로 하드코딩 금지 — L2 크리티컬 missing_fact로 처리하여 재질문
 
 ---
 
