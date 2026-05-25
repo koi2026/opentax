@@ -18,6 +18,10 @@ class TaxVerdict(str, Enum):
     PARTIALLY_EXEMPT = "고가주택"  # 12억 초과분만 과세
     NEEDS_VERIFICATION = "사실관계부족"  # 필수 사실관계 미확인
 
+    def __str__(self) -> str:
+        # Python 3.12+에서 str(member)가 'ClassName.MEMBER'를 반환하는 문제 방지
+        return self.value
+
 
 @dataclass
 class Citation:
