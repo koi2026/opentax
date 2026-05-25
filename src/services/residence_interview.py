@@ -16,12 +16,15 @@ from typing import List, Optional
 
 # ── 상수 ─────────────────────────────────────────────────────────────────────
 
-# 조정대상지역 거주요건 제도 시행일 (소득세법 §154① 개정, 2017.8.3 취득분부터)
-_ADJUSTMENT_AREA_RESIDENCE_RULE_START = date(2017, 8, 3)
+from src.domain.tax_constants import TaxConstantsRegistry as _TCR
 
-# 거주요건 충족 기준 연수
-_REQUIRED_RESIDENCE_YEARS_ADJUSTMENT = 2.0  # 조정대상지역 취득
-_REQUIRED_RESIDENCE_YEARS_NON_ADJUSTMENT = 0.0  # 비조정지역 (거주요건 없음)
+_ADJUSTMENT_AREA_RESIDENCE_RULE_START: date = _TCR.get(
+    "ADJUSTMENT_AREA_RESIDENCE_RULE_START", date.today()
+)
+_REQUIRED_RESIDENCE_YEARS_ADJUSTMENT: float = _TCR.get(
+    "RESIDENCE_REQUIRED_YEARS_ADJUSTMENT", date.today()
+)
+_REQUIRED_RESIDENCE_YEARS_NON_ADJUSTMENT = 0.0
 
 # 경계값 판단 기준: 이 여유분 이내면 is_borderline=True
 _BORDERLINE_MARGIN_YEARS = 0.5

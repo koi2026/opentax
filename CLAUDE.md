@@ -25,11 +25,13 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 - 조문 인용은 실제 검색된 chunk_id가 있는 것만 허용한다. (phantom citation 금지)
 - 불확실한 사실관계가 있으면 결론을 내리지 말고 missing_facts에 명시한다.
 - 모든 판단은 추적 가능(traceable)하고 감사 가능(auditable)해야 한다.
+- **모든 세율·기간·금액 기준은 `TaxConstantsRegistry`와 `data/tax_tables/` JSON에서만 읽는다.** 계산기·파이프라인·서비스 레이어 어디에도 수치 리터럴을 박지 않는다. 이 원칙을 어기면 법령 개정 즉시 대응이 불가능해진다.
 
 **시스템 철학:**
 - **엔드투엔드 에이전트 자동화** — 법령 수집 → 임베딩 → 검색 → 판단 → 출력까지 전 과정이 에이전트 파이프라인으로 자동화된다. 인간이 개입하는 지점은 예외 처리와 최종 승인에 한정된다.
 - **인간 전문가 즉시 개입 가능** — 파이프라인 전 단계의 입출력(fact_json, citations, debate_record, expert_review_signals)이 항상 노출된다. 세무사·전문가가 어느 단계에서든 판단 근거를 확인하고 개입할 수 있어야 한다.
 - **전 과정 모니터링** — 추적 불가능한 블랙박스 판단을 허용하지 않는다. 모든 verdict는 검색된 chunk_id, 인용 조문, debate 기록과 함께 저장된다.
+- **상수 외부화(No Magic Numbers)** — 세율·기간·금액 한도 등 세법이 정한 수치는 `TaxConstantsRegistry` 또는 `data/tax_tables/` JSON이 유일한 진실의 원천이다. 개정 발생 시 단일 지점만 수정하면 전 시스템에 반영된다. 이 원칙은 RAG 검색·계산기·시뮬레이션·검증 레이어 모두에 동등하게 적용된다.
 
 ---
 
@@ -87,7 +89,9 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 
 ---
 
-## 세법 개정 자동 반영 대원칙 (Critical)
+## 상수 외부화 원칙 & 세법 개정 자동 반영 (Critical)
+
+> 이 원칙은 세법 개정 대응에 그치지 않는다. 계산기(tax_calculator)·시뮬레이션(simulation_engine)·파이프라인(pipeline)·검증(output_validator) 등 **모든 레이어를 관통하는 설계 계약**이다.
 
 **모든 수치와 기준은 반드시 외부화한다. 코드에 하드코딩 절대 금지.**
 
@@ -151,6 +155,7 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 ## 절대 금지 사항 (Critical DO NOTs)
 
 - API 키, OC 코드, 인덱스명 **하드코딩 금지** — .env에서만 로드한다.
+- **세율·기간·금액 기준값 코드 리터럴 금지** — `TaxConstantsRegistry.get()` 또는 `data/tax_tables/` JSON 사용 의무. `tax_calculator.py`, `simulation_engine.py`, `output_validator.py` 등 모든 파일에 동등 적용.
 - **.env 커밋 금지**
 - **RAG 우회 금지** — 법령 질문에 LLM 직접 답변은 허용되지 않는다.
 - **BGE Reranker 생략 금지** — 최종 조문 선택은 반드시 reranking 이후에 진행한다.

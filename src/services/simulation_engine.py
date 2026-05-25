@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from datetime import date as _date
+
 from src.calculator.tax_calculator import (
     TaxCalculationInput,
     TaxCalculation,
@@ -24,8 +26,10 @@ from src.calculator.tax_calculator import (
     _apply_basic_brackets,
 )
 from src.domain.tax_answer import TaxVerdict
+from src.domain.tax_constants import TaxConstantsRegistry as _TCR
 
 # ── 증여세율표 (상속세 및 증여세법 §56) ──────────────────────────────────────
+# TODO: TaxConstantsRegistry 확장 시 "GIFT_TAX_BRACKETS" / "GIFT_DEDUCTIONS" 키로 이관
 _GIFT_TAX_BRACKETS: list[tuple] = [
     (100_000_000,     0.10,          0),
     (500_000_000,     0.20,   10_000_000),
@@ -35,6 +39,7 @@ _GIFT_TAX_BRACKETS: list[tuple] = [
 ]
 
 # 증여재산공제 10년 합산 기준 (상증법 §53)
+# TODO: TaxConstantsRegistry "GIFT_DEDUCTIONS" 키로 이관
 _GIFT_DEDUCTIONS: dict[str, int] = {
     "배우자":              600_000_000,  # 6억
     "직계존비속":           50_000_000,  # 5천만 (성년)
@@ -110,8 +115,10 @@ def _calc_gift_tax(gift_value: int, recipient: str, is_adult: bool) -> int:
 
 
 def _estimate_acquisition_tax(value: int, *, is_gift: bool = True) -> int:
-    """수증자 취득세 추산 — 증여 3.5%, 유상 4% (지방세법 §15 기준, 감면 미포함)."""
-    return int(value * (0.035 if is_gift else 0.04))
+    """수증자 취득세 추산 — 증여 3.5%, 유상 4% (지방세법 §15, 감면 미포함)."""
+    as_of = _date.today()
+    rate = _TCR.get("ACQUISITION_TAX_RATE_GIFT" if is_gift else "ACQUISITION_TAX_RATE_GENERAL", as_of)
+    return int(value * rate)
 
 
 def build_transfer_scenario(
@@ -134,8 +141,8 @@ def build_transfer_scenario(
     is_heavy = verdict == TaxVerdict.HEAVY_TAX
     short_term = holding_years < 2.0
 
-    ltd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house)
     today = _date.today()
+    ltd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house, as_of=today)
 
     inp = TaxCalculationInput(
         transfer_price=market_value,
@@ -255,21 +262,28 @@ def build_burden_gift_scenario(
     enc_expenses = int(necessary_expenses * ratio)
     gain_on_debt = max(0, encumbrance - enc_acquisition - enc_expenses)
 
-    ltd_rate = compute_ltshd_rate(holding_years, 0.0, False)  # 부담부증여는 표1 적용
+    _today = _date.today()
+    ltd_rate = compute_ltshd_rate(holding_years, 0.0, False, as_of=_today)
     short_term = holding_years < 2.0
+    _brackets = _TCR.get("BASIC_TAX_BRACKETS", _today)
+    _short_rates = _TCR.get("SHORT_TERM_RATES", _today)
+    _heavy_add = _TCR.get("HEAVY_TAX_ADDITIONAL", _today)
+    _basic_ded: int = _TCR.get("BASIC_DEDUCTION", _today)
+    _local_rate: float = _TCR.get("LOCAL_INCOME_TAX_RATE", _today)
 
     if gain_on_debt > 0:
         ltd = int(gain_on_debt * ltd_rate) if not short_term and not is_heavy_tax else 0
-        taxable = max(0, gain_on_debt - ltd - 2_500_000)  # 기본공제 250만
+        taxable = max(0, gain_on_debt - ltd - _basic_ded)
         if short_term:
-            rate = 0.70 if holding_years < 1.0 else 0.60
+            rate = _short_rates["under_1_year"] if holding_years < 1.0 else _short_rates["1_to_2_years"]
             debt_tax = int(taxable * rate)
         elif is_heavy_tax:
-            base_tax, base_rate = _apply_basic_brackets(taxable)
-            debt_tax = base_tax + int(taxable * 0.30)  # +30% 추산 (3주택 기준)
+            base_tax, base_rate = _apply_basic_brackets(taxable, _brackets)
+            additional = _heavy_add.get(3, 0.30)  # 부담부증여는 3주택 기준 추산
+            debt_tax = base_tax + int(taxable * additional)
         else:
-            debt_tax, _ = _apply_basic_brackets(taxable)
-        debt_local = int(debt_tax * 0.10)
+            debt_tax, _ = _apply_basic_brackets(taxable, _brackets)
+        debt_local = int(debt_tax * _local_rate)
     else:
         debt_tax = debt_local = 0
 

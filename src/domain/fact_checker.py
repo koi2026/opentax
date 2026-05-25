@@ -192,14 +192,9 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
         if fv.adjustment_area_at_transfer:
             # 한시적 중과배제 기간(2022.5.10~) 확인 — 기간 내면 조정지역이어도 일반세율
             _transfer_dt = query.date_bundle.transfer_date
-            _suspension_start = date(2022, 5, 10)
-            try:
-                from .tax_constants import TaxConstantsRegistry
-                _suspension_end = TaxConstantsRegistry.get("HEAVY_TAX_SUSPENSION_END", _transfer_dt)
-                if isinstance(_suspension_end, str):
-                    _suspension_end = date.fromisoformat(_suspension_end)
-            except Exception:
-                _suspension_end = date(2026, 5, 9)  # fallback
+            from .tax_constants import TaxConstantsRegistry
+            _suspension_start: date = TaxConstantsRegistry.get("HEAVY_TAX_SUSPENSION_START", _transfer_dt)
+            _suspension_end: date = TaxConstantsRegistry.get("HEAVY_TAX_SUSPENSION_END", _transfer_dt)
 
             if _suspension_start <= _transfer_dt <= _suspension_end:
                 danger.append("중과한시면세")  # 면세 기간 중 → 조정지역이어도 일반세율

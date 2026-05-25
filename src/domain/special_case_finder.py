@@ -18,6 +18,7 @@ from .query_input import (
     PropertyType,
     ResidenceExemptionType,
 )
+from .tax_constants import TaxConstantsRegistry as _TCR
 
 
 @dataclass
@@ -147,7 +148,8 @@ def _detect_sangsaeng_rental(fv: FactVector, transfer_date: date) -> Optional[Ap
             missing.append("직전 임대차계약 존재 여부 확인")
         if sr.increase_rate > 0.05:
             missing.append(f"임대료 인상률 5% 초과 ({sr.increase_rate:.1%}) — 요건 미충족")
-        if sr.contract_period_months < 24:
+        _min_months: int = _TCR.get("SANGSAENG_MIN_PERIOD_MONTHS", transfer_date)
+        if sr.contract_period_months < _min_months:
             missing.append(f"실제 임대기간 2년 미만 ({sr.contract_period_months}개월)")
         desc = "상생임대 요건 일부 미충족 — 추가 확인 후 적용 가능 여부 판단 필요"
 
@@ -441,7 +443,8 @@ def _detect_non_resident_exemption(fv: FactVector, transfer_date: date) -> Optio
 
     if nr is not None and nr.emigration_exemption_possible:
         months_since_departure = (transfer_date - nr.departure_date).days / 30.44
-        if months_since_departure <= 24:
+        _exemption_months: int = _TCR.get("NON_RESIDENT_DEPARTURE_EXEMPTION_MONTHS", transfer_date)
+        if months_since_departure <= _exemption_months:
             missing = ["해외이주 후 2년 이내 양도 — 비과세 예외 적용 가능 여부 확인"]
             desc = f"해외이주 후 {months_since_departure:.0f}개월 경과 — 2년 이내 양도 비과세 예외 검토"
         else:

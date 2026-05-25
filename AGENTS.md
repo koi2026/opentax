@@ -215,7 +215,15 @@ scripts/detect_law_changes.py
 | verdict_matcher | `src/eval/verdict_matcher.py` | ✅ 완성 |
 | Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
 | Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
-| BGE 파인튜닝 | `scripts/extract_reranker_pairs.py` | ⏳ red_wins 50건 대기 중 |
+| BGE 파인튜닝 파이프라인 수정 | `scripts/extract_reranker_pairs.py`, `scripts/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
+| BGE 파인튜닝 실행 | `scripts/finetune_reranker.py` | ⏳ red_wins 22→50건 대기 중 |
+
+> **파인튜닝 파이프라인 수정 내역 (2026-05-25):**
+> - `extract_reranker_pairs.py`: LLM 텍스트 인용을 chunk ID로 오인하던 버그 수정 → `debates/*.json`의 `new_chunks_found`(positives) / `blue_answer.chunk_ids`(negatives) 직접 사용
+> - `finetune_reranker.py`: row 단위 split → debate_id 기준 그룹 split (평가 부풀림 방지), max_length 256→512, 소규모 데이터셋 기본값 조정 (epochs=4, batch_size=4, lr=1e-5)
+> - 현재 191개 complete triplet / 22개 unique debate 소스 확보
+> - 미확보 24개 chunk ID = Pinecone에만 존재 (로컬 미반영)
+> - **22개 unique source = 도메인 실험 수준. 50개+ 이후 프로덕션 적용 권장**
 
 **수집 실행 순서 (사용자 실행):**
 ```bash

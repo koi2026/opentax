@@ -369,8 +369,9 @@ class RolloverTaxationDetail:
 
     @property
     def iota_period_years(self) -> int:
-        """이월과세 적용 기간: 2023년 이후 증여는 10년, 이전은 5년"""
-        return 10 if self.gift_date >= date(2023, 1, 1) else 5
+        """이월과세 적용 기간 — Registry에서 증여일 기준으로 조회."""
+        from .tax_constants import TaxConstantsRegistry
+        return TaxConstantsRegistry.get("IOTA_PERIOD_YEARS", self.gift_date, anchor_key="gift_date")
 
     @property
     def iota_applies(self) -> bool:

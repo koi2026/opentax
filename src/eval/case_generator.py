@@ -29,6 +29,17 @@ def _get_heavy_tax_suspension_end(as_of: Optional[date] = None) -> date:
         return date(2026, 5, 9)  # fallback
 
 
+def _capture_snapshot(deps: List[str], as_of: date) -> dict:
+    """registry_deps 키들의 현재값을 문자열로 스냅샷 — stale 감지용."""
+    if not deps:
+        return {}
+    try:
+        from src.domain.tax_constants import TaxConstantsRegistry
+        return {key: str(TaxConstantsRegistry.get(key, as_of)) for key in deps}
+    except Exception:
+        return {}
+
+
 @dataclass
 class SyntheticCase:
     case_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -40,6 +51,11 @@ class SyntheticCase:
     registry_deps: List[str] = field(default_factory=list)
     # 이 케이스의 expected_verdict가 의존하는 TaxConstantsRegistry 키 목록.
     # 개정 감지 시 해당 키가 바뀌면 이 케이스를 자동 stale 처리.
+    registry_snapshot: dict = field(default_factory=dict)
+    # 케이스 생성 시점의 registry_deps 값 스냅샷 (str 직렬화).
+    # eval.py _is_stale()이 현재값과 비교해 stale 여부를 판단한다.
+    gold_chunk_ids: List[str] = field(default_factory=list)
+    # bootstrap_gold_chunks.py가 채운다. eval.py Recall@K 산출에 사용.
 
 
 def generate_date_boundary_cases(
@@ -105,6 +121,8 @@ def generate_price_boundary_cases(
         (threshold + margin, f"{threshold_label} 초과 고가주택"),
         (threshold + 300_000_000, f"{threshold_label} +3억 고가주택"),
     ]
+    _deps = ["HIGH_VALUE_THRESHOLD"]
+    _snapshot = _capture_snapshot(_deps, transfer_date)
     for price, description in prices:
         yield SyntheticCase(
             description=description,
@@ -122,7 +140,8 @@ def generate_price_boundary_cases(
             expected_verdict="고가주택" if price > threshold else "비과세",
             boundary_type="price_boundary",
             tags=[f"{threshold_label}경계", "고가주택"],
-            registry_deps=["HIGH_VALUE_THRESHOLD"],
+            registry_deps=_deps,
+            registry_snapshot=_snapshot,
         )
 
 
@@ -684,6 +703,8 @@ def generate_heavy_tax_cases(
             "tags": ["중과", "장기보유공제배제"],
         },
     ]
+    _deps = ["HEAVY_TAX_SUSPENSION_END"]
+    _snapshot = _capture_snapshot(_deps, transfer_date)
     for s in scenarios:
         yield SyntheticCase(
             description=s["desc"],
@@ -702,7 +723,8 @@ def generate_heavy_tax_cases(
             expected_verdict=s["expected"],
             boundary_type="heavy_tax",
             tags=s["tags"],
-            registry_deps=["HEAVY_TAX_SUSPENSION_END"],
+            registry_deps=_deps,
+            registry_snapshot=_snapshot,
         )
 
 

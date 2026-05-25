@@ -171,14 +171,10 @@ def validate_output(
     if verdict == TaxVerdict.PARTIALLY_EXEMPT and query is not None:
         _tp = query.fact_vector.transfer_price
         if _tp is not None:
-            try:
-                from .tax_constants import TaxConstantsRegistry
-                _threshold = TaxConstantsRegistry.get(
-                    "EXEMPT_THRESHOLD", query.date_bundle.transfer_date
-                )
-                _threshold_int = int(_threshold) if _threshold is not None else 1_200_000_000
-            except Exception:
-                _threshold_int = 1_200_000_000
+            from .tax_constants import TaxConstantsRegistry
+            _threshold_int = int(TaxConstantsRegistry.get(
+                "HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date
+            ))
             if _tp <= _threshold_int:
                 verdict = TaxVerdict.EXEMPT
                 warnings.append(

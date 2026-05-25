@@ -190,7 +190,7 @@ async def calculate_tax(
     high_value_threshold = TaxConstantsRegistry.get("HIGH_VALUE_THRESHOLD", t_date)
     is_high_value = transfer_price > high_value_threshold
     is_one_house = household_house_count == 1
-    ltshd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house)
+    ltshd_rate = compute_ltshd_rate(holding_years, residence_years, is_one_house, as_of=t_date)
     is_short_term = holding_years < 2.0
     is_heavy = household_house_count >= 2 and is_adjustment_area_at_transfer
 

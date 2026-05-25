@@ -77,6 +77,90 @@ _REGISTRY: Dict[str, List[ConstantVersion]] = {
             anchor_key="gift_date",
         ),
     ],
+    # 기본세율 구간표 (소득세법 §55①) — list[(상한, 세율, 누진공제)]
+    "BASIC_TAX_BRACKETS": [
+        ConstantVersion(
+            date(2021, 1, 1), date.max,
+            [
+                (14_000_000, 0.06, 0),
+                (50_000_000, 0.15, 1_260_000),
+                (88_000_000, 0.24, 5_760_000),
+                (150_000_000, 0.35, 15_440_000),
+                (300_000_000, 0.38, 19_940_000),
+                (500_000_000, 0.40, 25_940_000),
+                (1_000_000_000, 0.42, 35_940_000),
+                (float("inf"), 0.45, 65_940_000),
+            ],
+            "소득세법 §55①",
+        ),
+    ],
+    # 단기보유 세율 (소득세법 §104①)
+    "SHORT_TERM_RATES": [
+        ConstantVersion(
+            date(2021, 6, 1), date.max,
+            {"under_1_year": 0.70, "1_to_2_years": 0.60},
+            "소득세법 §104①1호",
+        ),
+    ],
+    # 다주택 중과 추가세율 (소득세법 §104①2,3호)
+    "HEAVY_TAX_ADDITIONAL": [
+        ConstantVersion(
+            date(2018, 4, 1), date.max,
+            {2: 0.20, 3: 0.30},
+            "소득세법 §104①2호,3호",
+        ),
+    ],
+    # 비거주자 단일세율 (소득세법 §121②)
+    "NON_RESIDENT_RATE": [
+        ConstantVersion(date(2000, 1, 1), date.max, 0.20, "소득세법 §121②"),
+    ],
+    # 기본공제 (소득세법 §103)
+    "BASIC_DEDUCTION": [
+        ConstantVersion(date(2000, 1, 1), date.max, 2_500_000, "소득세법 §103①"),
+    ],
+    # 지방소득세율 (지방세법 §92, 개인지방소득세)
+    "LOCAL_INCOME_TAX_RATE": [
+        ConstantVersion(date(2014, 1, 1), date.max, 0.10, "지방세법 §92"),
+    ],
+    # 한시적 중과배제 시작일
+    "HEAVY_TAX_SUSPENSION_START": [
+        ConstantVersion(
+            date(2022, 5, 10), date.max,
+            date(2022, 5, 10),
+            "소득세법 §104①, 한시적 중과배제",
+        ),
+    ],
+    # 조정대상지역 거주요건 제도 시행일 (소득세법 §154① 개정)
+    "ADJUSTMENT_AREA_RESIDENCE_RULE_START": [
+        ConstantVersion(
+            date(2017, 8, 3), date.max,
+            date(2017, 8, 3),
+            "소득세법 §154①, 2017.8.3 취득분부터 적용",
+        ),
+    ],
+    # 조정대상지역 취득 시 거주요건 연수 (소득세법 §154①)
+    "RESIDENCE_REQUIRED_YEARS_ADJUSTMENT": [
+        ConstantVersion(date(2017, 8, 3), date.max, 2.0, "소득세법 §154①"),
+    ],
+    # 상생임대 최소 임대기간 (소득세법 시행령 §155의3)
+    "SANGSAENG_MIN_PERIOD_MONTHS": [
+        ConstantVersion(
+            date(2021, 12, 20), date.max,
+            24,
+            "소득세법 시행령 §155의3",
+        ),
+    ],
+    # 비거주자 해외이주 후 비과세 예외 적용 기한 (소득세법 §89①4호)
+    "NON_RESIDENT_DEPARTURE_EXEMPTION_MONTHS": [
+        ConstantVersion(date(2000, 1, 1), date.max, 24, "소득세법 §89①4호"),
+    ],
+    # 취득세율 추산 — 시뮬레이션 전용 (지방세법 §15, 감면 미포함)
+    "ACQUISITION_TAX_RATE_GIFT": [
+        ConstantVersion(date(2020, 8, 12), date.max, 0.035, "지방세법 §15①1호 (증여)"),
+    ],
+    "ACQUISITION_TAX_RATE_GENERAL": [
+        ConstantVersion(date(2020, 8, 12), date.max, 0.04, "지방세법 §15①2호 (유상취득)"),
+    ],
     # 장기보유특별공제율 표1 — 일반 (소득세법 §95② 별표1)
     # 보유기간(년): 공제율
     "LONG_TERM_DEDUCTION_RATE_TABLE1": [
