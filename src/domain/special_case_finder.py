@@ -385,23 +385,22 @@ def _detect_association_right_exemption(fv: FactVector, transfer_date: date) -> 
         return None
 
     rc = sc.reconstruction
-    certainty: Literal["확정", "가능", "검토_필요"] = "가능"
-    missing: List[str] = []
 
     if not rc.is_original_member:
-        missing.append("승계조합원의 경우 보유기간 불리 — 입주권 취득일부터만 인정")
-        desc = "승계조합원 입주권 — 종전주택 취득일 불인정, 보유기간 불리 적용"
-    else:
-        desc = (
-            f"원조합원 입주권 — 종전주택 취득일({rc.original_house_acquisition_date})부터 "
-            "보유기간 합산 인정 가능"
-        )
+        # 승계조합원(관리처분 후 취득)은 §156의2 비과세 특례 적용 불가.
+        # 입주권 자체 양도 시 보유기간에 따라 단기세율 또는 일반과세 적용.
+        return None
+
+    desc = (
+        f"원조합원 입주권 — 종전주택 취득일({rc.original_house_acquisition_date})부터 "
+        "보유기간 합산 인정 가능"
+    )
 
     return ApplicableSpecialCase(
         name="조합원입주권 1세대1주택 특례",
-        certainty=certainty,
+        certainty="가능",
         article_ref="소득세법 시행령 §156의2",
-        missing_evidence=missing,
+        missing_evidence=[],
         description=desc,
     )
 
