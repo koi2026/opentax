@@ -18,6 +18,8 @@ import argparse
 import asyncio
 import io
 import json
+import re
+import subprocess
 import sys
 import time
 
@@ -35,6 +37,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 CHECKPOINT_PATH = Path("data/eval_results/baseline_checkpoint.json")
 RESULTS_DIR = Path("data/eval_results")
+RED_WINS_DIR = Path("data/red_wins")
+TRAINING_STATE_PATH = Path("data/models/bge-reranker-tax-rag/training_state.json")
+MIN_NEW_DEBATES_FOR_RETRAIN = 10  # 이 수 이상 새 debate 누적 시 자동 파인튜닝 트리거
 
 # Claude Sonnet 4.6 기준 비용 추정 (입력 3$/MTok, 출력 15$/MTok)
 _COST_PER_CASE_NO_DEBATE = 0.018   # ~$0.018/케이스 (debate 없음)
@@ -189,6 +194,86 @@ def _print_progress(
     )
 
 
+def _count_red_wins() -> int:
+    if not RED_WINS_DIR.exists():
+        return 0
+    return len(list(RED_WINS_DIR.glob("*.json")))
+
+
+def _load_training_state() -> dict:
+    if not TRAINING_STATE_PATH.exists():
+        return {}
+    try:
+        return json.loads(TRAINING_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_training_state(state: dict) -> None:
+    TRAINING_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TRAINING_STATE_PATH.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _update_env_model_path(model_path: str) -> None:
+    env_path = Path(".env")
+    if not env_path.exists():
+        return
+    content = env_path.read_text(encoding="utf-8")
+    if "BGE_RERANKER_MODEL=" in content:
+        content = re.sub(r"BGE_RERANKER_MODEL=.*", f"BGE_RERANKER_MODEL={model_path}", content)
+    else:
+        content += f"\nBGE_RERANKER_MODEL={model_path}\n"
+    env_path.write_text(content, encoding="utf-8")
+
+
+def _maybe_trigger_finetune() -> None:
+    current = _count_red_wins()
+    last_state = _load_training_state()
+    last_count = last_state.get("debate_count", 0)
+    delta = current - last_count
+
+    print(f"\n[auto-finetune] red_wins 현재={current}건 / 마지막학습시={last_count}건 / 신규={delta}건")
+
+    if delta < MIN_NEW_DEBATES_FOR_RETRAIN:
+        print(f"[auto-finetune] 신규 {delta}건 < 임계값 {MIN_NEW_DEBATES_FOR_RETRAIN}건 → 스킵")
+        return
+
+    print(f"[auto-finetune] 임계값 초과 → 자동 파인튜닝 시작\n")
+
+    try:
+        # 1. pair 추출
+        print("=== [1/3] reranker pair 추출 ===")
+        subprocess.run(
+            [sys.executable, "scripts/extract_reranker_pairs.py"],
+            check=True,
+        )
+
+        # 2. 파인튜닝
+        print("\n=== [2/3] BGE 파인튜닝 ===")
+        subprocess.run(
+            [sys.executable, "scripts/finetune_reranker.py"],
+            check=True,
+        )
+
+        # 3. 학습 상태 저장 + .env 업데이트
+        model_path = "data/models/bge-reranker-tax-rag"
+        _save_training_state({
+            "debate_count": current,
+            "trained_at": datetime.now().isoformat(),
+            "model_path": model_path,
+        })
+        _update_env_model_path(model_path)
+
+        print(f"\n=== [3/3] 완료 ===")
+        print(f"  BGE_RERANKER_MODEL={model_path} (.env 반영)")
+        print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
+
+    except subprocess.CalledProcessError as e:
+        print(f"[auto-finetune] 오류 발생: {e} — 수동으로 스크립트를 실행하세요.")
+
+
 def _print_report(state: CheckpointState) -> None:
     results = state.results
     if not results:
@@ -334,6 +419,9 @@ async def main_async(args: argparse.Namespace) -> None:
     )
     print(f"\n최종 결과 저장: {final_path}")
 
+    if args.debate and args.auto_finetune:
+        _maybe_trigger_finetune()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Phase A 베이스라인 평가 실행기")
@@ -343,6 +431,10 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=3, help="병렬 처리 워커 수 (기본 3)")
     parser.add_argument("--cases-file", type=str, default="", help="외부 케이스 JSON 파일 경로")
     parser.add_argument("--report-only", action="store_true", help="기존 체크포인트 결과만 요약")
+    parser.add_argument(
+        "--auto-finetune", action="store_true",
+        help=f"debate 완료 후 신규 red_wins >= {MIN_NEW_DEBATES_FOR_RETRAIN}건이면 자동 파인튜닝 실행",
+    )
     args = parser.parse_args()
 
     asyncio.run(main_async(args))
