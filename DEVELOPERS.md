@@ -108,12 +108,12 @@ answer 본문이 채워지면 37,400건 전부가 훈련 쌍이 됩니다. 사�
 [L3]   쿼리 보강 — 검색용 키워드 생성
        ↓
 [L4]   법령 검색 + LLM 추론
-       │   Pinecone 5개 네임스페이스:
-       │     tax-law (법령 조문)
-       │     tax-ruling-nts (국세청 질의회신)
-       │     tax-ruling-decisions (심판원 결정례)
-       │     tax-ruling-moef (기재부 해석) ← 본문 수집 필요
+       │   Pinecone 5개 네임스페이스 (구속력 높은 순):
+       │     tax-law              (법령 조문 — 최상위 근거)
+       │     tax-ruling-moef      (기재부 법령해석 — 유권해석 최고 권위) ← 본문 수집 필요
+       │     tax-ruling-nts       (국세청 질의회신)
        │     tax-ruling-nts-interp (국세청 법령해석) ← 본문 수집 필요
+       │     tax-ruling-decisions  (심판원 결정례 — 준사법적)
        │   BGE Reranker로 최종 조문 선택
        ↓
 [L5]   출력 검증 — phantom citation 검출, confidence 계산
@@ -165,13 +165,13 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 
 ## 데이터 현황
 
-| 소스 | 파일 수 | answer 상태 | Pinecone 상태 |
-|------|---------|-------------|--------------|
-| 법령 조문 | — | ✅ | ✅ `tax-law` |
-| 국세청 질의회신 | ~3,000건 | ✅ | ✅ `tax-ruling-nts` |
-| 심판원 결정례 | ~수천건 | ✅ | ✅ `tax-ruling-decisions` |
-| 기재부 법령해석 | 2,305건 | ❌ 제목만 | ⏳ 미완 |
-| 국세청 법령해석 | 37,400건 | ❌ 제목만 | ⏳ 미완 |
+| 소스 | 구속력 순위 | 파일 수 | answer 상태 | Pinecone 상태 |
+|------|-----------|---------|-------------|--------------|
+| 법령 조문 (소득세법 등) | 최상위 | — | ✅ | ✅ `tax-law` |
+| 기재부 법령해석 | 유권해석 1위 | 2,305건 | ❌ 제목만 | ⏳ `tax-ruling-moef` |
+| 국세청 질의회신 | 유권해석 2위 | ~3,000건 | ✅ | ✅ `tax-ruling-nts` |
+| 국세청 법령해석 | 유권해석 2위 | 37,400건 | ❌ 제목만 | ⏳ `tax-ruling-nts-interp` |
+| 심판원 결정례 | 준사법적 결정 | ~수천건 | ✅ | ✅ `tax-ruling-decisions` |
 
 BGE Reranker:
 - 위치: `data/models/bge-reranker-tax-rag/` (epoch 2 best checkpoint)

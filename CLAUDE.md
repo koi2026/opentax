@@ -58,7 +58,7 @@ JSON 사실관계 입력 → L1.5(확인서) → L2(팩트체크) → L3(쿼리 
 
 **핵심 요약:**
 - 임베딩: Upstage Solar `solar-embedding-1-large-passage` (dim=4096)
-- 벡터 DB: Pinecone Serverless (`tax-rag` 인덱스, 5개 네임스페이스)
+- 벡터 DB: Pinecone Serverless (`tax-rag` 인덱스, 5개 네임스페이스 — 구속력 순: tax-law → moef → nts → nts-interp → decisions)
 - Reranker: `data/models/bge-reranker-tax-rag` (CrossEncoder 세법 파인튜닝, RERANK_TOP_N=7)
 - LLM: Claude Sonnet 4.6 기본, Opus 4.7 고정밀
 - 파이프라인: `src/domain/pipeline.py` (L1.5→L2→L3→L4→L5)
