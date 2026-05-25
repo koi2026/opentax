@@ -4,6 +4,27 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 
 ---
 
+## 이 시스템이 지향하는 것 (가장 먼저 읽어라)
+
+이 프로젝트는 단순한 세금 계산기가 아니다.  
+**한국 양도소득세 판단을 위한 법령 기반 자율 추론 시스템**이다.
+
+두 가지 원칙이 이 프로젝트의 DNA다. 코드를 어떻게 바꾸든 이 두 원칙은 충돌하지 않아야 한다.
+
+### 원칙 1 — 완전 자동화
+법령 수집 → 임베딩 → 검색 → 추론 → 출력 → 법령 개정 감지 → 재인덱스까지  
+전 과정이 에이전트 파이프라인으로 자동화된다.  
+인간이 개입하는 지점은 **예외 처리와 최종 승인**에 한정된다.
+
+### 원칙 2 — 인간 즉각 개입 가능
+파이프라인 전 단계의 입출력(fact_json, citations, debate_record, expert_review_signals)이 **항상 노출**된다.  
+세무사·전문가가 어느 단계에서든 판단 근거를 확인하고 즉시 개입할 수 있어야 한다.  
+추적 불가능한 블랙박스 판단은 허용하지 않는다.
+
+이 두 원칙은 서로 모순되지 않는다. 자동화할수록 더 투명해야 한다.
+
+---
+
 ## Backlog (Claude Code 전용)
 
 세션 시작 시 `AGENTS.md > 개발 로드맵` 을 확인한다.
@@ -12,26 +33,22 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 > Phase 1~6 전체 완료. 상세 이력은 git log 참조.
 > 남은 운영 작업·장기 로드맵(BGE 파인튜닝·개정세법 대응 등)은 **AGENTS.md** 참조.
 
+**README.md 업데이트 기준:** 달성 현황 표, 진행 중 항목, 기술 스택이 실제와 달라졌을 때 자율 업데이트한다.
+
 ---
 
 ## 프로젝트 개요
 
 한국 **양도소득세 비과세 / 감면 / 중과 여부 판단**을 위한 법령 RAG 엔진이다.
 
-JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법령 검색 + LLM 추론) → L5(출력 검증) → TaxAnswer 반환.
+JSON 사실관계 입력 → L1.5(확인서) → L2(팩트체크) → L3(쿼리 보강) → L4(법령 검색 + LLM 추론) → L5(출력 검증) → TaxAnswer 반환.
 
-**핵심 원칙:**
+**판단 원칙:**
 - 모든 답변은 반드시 검색된 조문에 근거해야 한다. LLM 기억에서 직접 답변하는 것은 허용하지 않는다.
 - 조문 인용은 실제 검색된 chunk_id가 있는 것만 허용한다. (phantom citation 금지)
 - 불확실한 사실관계가 있으면 결론을 내리지 말고 missing_facts에 명시한다.
 - 모든 판단은 추적 가능(traceable)하고 감사 가능(auditable)해야 한다.
-- **모든 세율·기간·금액 기준은 `TaxConstantsRegistry`와 `data/tax_tables/` JSON에서만 읽는다.** 계산기·파이프라인·서비스 레이어 어디에도 수치 리터럴을 박지 않는다. 이 원칙을 어기면 법령 개정 즉시 대응이 불가능해진다.
-
-**시스템 철학:**
-- **엔드투엔드 에이전트 자동화** — 법령 수집 → 임베딩 → 검색 → 판단 → 출력까지 전 과정이 에이전트 파이프라인으로 자동화된다. 인간이 개입하는 지점은 예외 처리와 최종 승인에 한정된다.
-- **인간 전문가 즉시 개입 가능** — 파이프라인 전 단계의 입출력(fact_json, citations, debate_record, expert_review_signals)이 항상 노출된다. 세무사·전문가가 어느 단계에서든 판단 근거를 확인하고 개입할 수 있어야 한다.
-- **전 과정 모니터링** — 추적 불가능한 블랙박스 판단을 허용하지 않는다. 모든 verdict는 검색된 chunk_id, 인용 조문, debate 기록과 함께 저장된다.
-- **상수 외부화(No Magic Numbers)** — 세율·기간·금액 한도 등 세법이 정한 수치는 `TaxConstantsRegistry` 또는 `data/tax_tables/` JSON이 유일한 진실의 원천이다. 개정 발생 시 단일 지점만 수정하면 전 시스템에 반영된다. 이 원칙은 RAG 검색·계산기·시뮬레이션·검증 레이어 모두에 동등하게 적용된다.
+- **모든 세율·기간·금액 기준은 `TaxConstantsRegistry`와 `data/tax_tables/` JSON에서만 읽는다.** 계산기·파이프라인·서비스 레이어 어디에도 수치 리터럴을 박지 않는다.
 
 ---
 
@@ -41,8 +58,8 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 
 **핵심 요약:**
 - 임베딩: Upstage Solar `solar-embedding-1-large-passage` (dim=4096)
-- 벡터 DB: Pinecone Serverless (`tax-rag` 인덱스, `tax-law` 네임스페이스)
-- Reranker: `BAAI/bge-reranker-v2-m3` (CrossEncoder, RERANK_TOP_N=7)
+- 벡터 DB: Pinecone Serverless (`tax-rag` 인덱스, 5개 네임스페이스)
+- Reranker: `data/models/bge-reranker-tax-rag` (CrossEncoder 세법 파인튜닝, RERANK_TOP_N=7)
 - LLM: Claude Sonnet 4.6 기본, Opus 4.7 고정밀
 - 파이프라인: `src/domain/pipeline.py` (L1.5→L2→L3→L4→L5)
 
@@ -114,7 +131,7 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 |--------|------|------|
 | 법령 조문 | ✅ Pinecone 자동 재인덱스 | ✅ 완료 |
 | TaxConstantsRegistry | 🔧 코드 수동 수정 | 🔲 LLM 자동 파싱 → PR |
-| 골든셋·eval | 🔧 수동 케이스 검토 | 🔲 eval 자동 재실행 → 영향 케이스 Slack 알림 |
+| 골든셋·eval | 🔧 수동 케이스 검토 | 🔲 eval 자동 재실행 → 영향 케이스 알림 |
 | BGE reranker | 🔧 수동 (50건 초과 시) | 🔲 자동 파인튜닝 트리거 |
 
 > 환산취득가액·사전 대응 상세 → [AGENTS.md](AGENTS.md) 참조.
@@ -137,7 +154,7 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 - 버그 수정, 기존 기능 개선, 성능 최적화
 - 테스트 케이스 추가·수정, 골든셋 관리
 - 문서·주석 업데이트
-- CLAUDE.md / AGENTS.md 업데이트
+- CLAUDE.md / AGENTS.md / README.md 업데이트
 - `CONFIRMATION_ITEMS` 신규 항목 추가 (책임소재)
 - `TaxConstantsRegistry` 상수 값 수정 (세법 개정 반영)
 - `DANGER_KEYWORD_MAP` 키워드 추가 (검색 개선)
