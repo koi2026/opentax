@@ -153,6 +153,8 @@ def generate_temp_two_house_cases(
     transfer_date: date = date(2026, 4, 1),
 ) -> Iterator[SyntheticCase]:
     """일시적2주택 특례 — 소득세법 §155①."""
+    _suspension_end = _get_heavy_tax_suspension_end(transfer_date)
+    _after_suspension = transfer_date > _suspension_end
     scenarios = [
         {
             "desc": "일시적2주택 — 3년 내 종전주택 양도 (비과세)",
@@ -161,9 +163,9 @@ def generate_temp_two_house_cases(
             "tags": ["일시적2주택", "3년이내"],
         },
         {
-            "desc": "일시적2주택 — 3년 초과 후 양도 (일반과세)",
+            "desc": "일시적2주택 — 3년 초과 후 양도 (일반과세)" if not _after_suspension else "일시적2주택 — 3년 초과 후 양도 (중과)",
             "new_acq": "20221201",
-            "expected": "일반과세",
+            "expected": "중과" if _after_suspension else "일반과세",
             "tags": ["일시적2주택", "3년초과"],
         },
         {

@@ -81,6 +81,76 @@ src/services/tier_router.py  — 상담 3티어 라우터 [NEW]
 
 ---
 
+## 세법 개정 완전 자동화 대원칙 (Critical)
+
+**모든 세법 개정은 시행일 기준으로 자동 감지·반영·검증되어야 한다. 수동 단계는 예외를 제외하고 허용하지 않는다.**
+
+### 자동화 파이프라인 (목표 상태)
+
+```text
+[법령 개정 공포]
+    ↓ (매일 23:00 자동)
+scripts/detect_law_changes.py
+    ├── 조문 변경 감지 → Pinecone 재인덱스 자동 실행           ✅ 구현됨
+    ├── TaxConstantsRegistry 변경 LLM 자동 파싱 → PR 생성     🔲 목표
+    ├── 영향 케이스 eval 자동 실행 → Slack/이메일 알림         🔲 목표
+    └── eval 정확도 하락 시 RERANK_TOP_N 자동 조정 시도        🔲 목표
+    ↓
+[정확도 회복 확인]
+    ├── red_wins 50건 초과 → BGE 파인튜닝 자동 트리거         🔲 목표
+    └── 파인튜닝 완료 → golden_injector few-shot 자동 갱신    🔲 목표
+```
+
+### 레이어별 개정 반영 방법
+
+| 레이어 | 구현 위치 | 반영 방식 | 자동화 여부 |
+|--------|---------|----------|-----------|
+| 법령 조문 | Pinecone `tax-law` | detect_law_changes.py | ✅ 자동 |
+| 유권해석 DB | Pinecone `tax-ruling-*` | collect_rulings_*.py → embed_rulings.py | 🔲 스케줄링 목표 |
+| 세율·기간·한도 | `TaxConstantsRegistry` | LLM 파싱 → 코드 PR | 🔲 목표 (현재: 수동 즉시) |
+| 장기보유공제율 | `data/tax_tables/*.json` | JSON 교체 | 수동 |
+| 골든셋·eval | `data/golden/qa_pairs.json` | eval 자동 재실행 | 🔲 목표 (현재: 반수동) |
+| BGE reranker | `BAAI/bge-reranker-v2-m3` | red_wins 50건 → 재파인튜닝 | 🔲 목표 (현재: 수동) |
+
+### 모니터링 대원칙
+
+- **정확도 대시보드**: eval 결과를 시계열로 저장 → 개정 전후 정확도 비교 자동 표시
+- **회귀 알림**: eval 정확도가 직전 대비 -3%p 이상 하락 시 즉시 알림
+- **개정 영향 케이스 목록**: 변경된 법령에 연관된 케이스 자동 재평가 후 NG 목록 리포트
+- **하드코딩 상수 감지**: 코드 변경 PR에서 숫자 하드코딩 자동 탐지 (CI 훅)
+
+### 사전 학습(개정안 미리 준비)
+
+**불가능하다.** 개정안 단계에서는 법령이 확정되지 않으므로 현행법 기준으로만 판단한다.  
+개정 공포 + 시행일 기준으로 Pinecone 날짜 필터가 자동으로 새 버전을 적용한다.
+
+---
+
+## 환산취득가액 처리 원칙
+
+**환산취득가액은 판단(RAG)이 필요하므로 현재 파이프라인이 "환산 필요"를 감지한다. 실제 계산은 상위 수집기(외부)가 담당하며 엔진 내부에서 계산하지 않는다.**
+
+### 환산이 필요한 상황 → fact_checker.py 감지
+
+| 상황 | 근거 조문 | 엔진 처리 |
+|------|---------|---------|
+| 1985-01-01 이전 취득 (의제취득일) | 소령 §163④ | missing_fact → 상위 수집기에서 환산값 재입력 |
+| 증여받은 주택 (이월과세 적용) | 소령 §163② | missing_fact → 증여자 원취득가액 재입력 |
+| 상속주택 (취득가액 불명) | 소령 §163③ | missing_fact → 상속개시일 기준시가 재입력 |
+| 취득가액 증빙 불가 | 소령 §163① | missing_fact → 기준시가 환산값 재입력 |
+
+### 기준시가
+
+- **상위 수집기(외부 프로그램)에서 제공** — 엔진이 직접 국토부 API를 호출하지 않는다.
+- fact_json의 `standard_price` 필드로 수신.
+
+### 책임소재 명확화 (L1.5 확인서)
+
+`confirmation.py`의 `acquisition_document_confirmed` 항목:  
+"서류가 없어 기준시가 환산취득가액을 적용할 경우, 이후 실제거래가가 확인되면 세액이 크게 달라질 수 있으며 그 책임은 납세자에게 있음을 인지."
+
+---
+
 ## 개발 로드맵
 
 > CCG(Claude+Codex+Gemini) 3모델 합의 로드맵. 2026-05-21 확정.
@@ -105,11 +175,12 @@ src/services/tier_router.py  — 상담 3티어 라우터 [NEW]
 | S1-5 article_tag_map | `src/infra/article_tag_map.json` | 태그 외부화 |
 | S1-6 Multi-anchor filter | `src/retrieval/retriever_impl.py` | 날짜 앵커 분기 |
 
-**S1-4 확인서 4항목 (전부 차단, No 시 재요청):**
+**S1-4 확인서 5항목 (전부 차단, No 시 재요청):**
 1. 세대원 전원 주택수 (오피스텔·분양권·입주권·지분·상속주택 포함)
 2. 잔금지급일/등기접수일 중 빠른 날 정확히 입력 확인
 3. 특수관계인 간 거래 없음 (§101 부당행위계산부인)
 4. 실질 거주 요건 — 주민등록 외 거주 사실 확인
+5. 취득 관련 서류 보유 확인 — 없을 경우 기준시가 환산 적용, 사후 실거래가 확인 시 세액 변동 책임 납세자 귀속 인지
 
 ### Phase 2 — Search Enhancement
 
@@ -200,6 +271,56 @@ python -m src.ingestion.embed_rulings pdf
 | 초안 완성도 | 세무사 수정 없이 승인한 비율 | >80% |
 | recall@k | 필수 조문 검색 성공률 | >95% |
 | Tax-Gap 감소액 | AI 미사용 대비 납세자 절세 평균액 | 측정 후 목표 설정 |
+
+### Phase 7 — 개정세법 사전 대응 (유형2 고객 커버리지, 장기)
+
+**배경:** 한국 세법 개정 타임라인
+
+| 시점 | 이벤트 | 우리 시스템 |
+|------|--------|------------|
+| 7~8월 | 기재부 세법개정안 발표 (PDF 공개) | ← **유일한 조기 입수 경로** |
+| 9~12월 | 국회 심의 (변경 가능성 있음) | 미확정 — 반영 보류 |
+| 12월 말 | 국회 통과 + 공포 → law.go.kr 등록 | API 수집 자동화 |
+| 다음해 1월 1일 | 시행 (부칙 명시) | 벡터 DB 전환 |
+
+**문제:** law.go.kr API는 공포(12월)된 법령만 제공. 개정안 발표(8월) ~ 공포(12월) 4개월간 API로 커버 불가.
+
+**유형2 고객 니즈 (개정안 발표 이후):**
+- "내년 세법 기준으로 올해 팔까요 vs 내년에 팔까요?" (가장 많은 질문)
+- 개정안 적용 시 세액 차이 시뮬레이션
+- 특례 일몰/신설 확인
+
+**솔루션 설계:**
+
+```text
+기재부 세법개정안 PDF
+    ↓
+[PDF 파서] → 개정 조문 추출 + 시행예정일 파싱
+    ↓
+Pinecone namespace: "tax-law-pending" (별도 격리)
+    ↓
+쿼리 시: 현행법 + 개정예정법 두 가지 응답
+    예: "현행 기준: 비과세 (12억 이하)"
+        "개정안 기준(2027.1.1 시행예정): [변경 내용]"
+    ↓
+시행일 도래 시: "tax-law-pending" → "tax-law" 자동 이전
+```
+
+**구현 목록:**
+
+| 태스크 | 파일 | 핵심 |
+|--------|------|------|
+| 개정안 PDF 파서 | `src/ingestion/collect_amendment_pdf.py` | 기재부 PDF → 개정 조문 추출 |
+| pending namespace 업로드 | `src/ingestion/embed_amendment.py` | 시행예정일 메타데이터 포함 |
+| 이중 검색 쿼리 | `src/retrieval/retriever_impl.py` | 현행 + pending 병렬 검색 |
+| 개정 예고 UI 컴포넌트 | `src/ui.py` | "개정안 기준 시뮬레이션" 탭 |
+| 자동 전환 스케줄러 | `scripts/promote_pending_law.py` | 시행일 0시 pending→main |
+
+**개정안 입수 방법:** API 불가. 기재부 홈페이지(moef.go.kr) PDF 수동 다운로드 → `data/amendments/` 드롭 → 자동 파싱.
+
+**주의:** 국회 심의 중 내용이 바뀔 수 있음. 개정안(안)과 확정 법률 명확히 구분해서 사용자에게 고지.
+
+---
 
 ### 추가 논의 필요 (다모델 공동 검토 예정)
 
@@ -359,7 +480,7 @@ PINECONE_REGION=us-east-1
 
 BGE_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 RETRIEVER_TOP_K=20
-RETRIEVER_RERANK_TOP_N=5
+RETRIEVER_RERANK_TOP_N=7
 
 MCP_PORT=8001
 STREAMLIT_PORT=8501
