@@ -25,7 +25,9 @@ from src.domain.chunk_metadata import (
     LawId,
     LawLevel,
 )
+from src.domain.fact_checker import check_facts
 from src.domain.query_input import RAGQueryInput
+from src.domain.retrieval_quality import ArticleRef, assess_retrieval_quality
 from src.domain.retriever import RetrievedChunk, TaxLawRetriever
 from src.infra.embedder import bm25_sparse_vector, embed_query
 from src.infra.pinecone_client import get_pinecone_index, query_pinecone
@@ -170,6 +172,11 @@ def _pinecone_meta_to_chunk_metadata(match_id: str, meta: dict) -> LawChunkMetad
     )
 
 
+def _article_ref_from_label(label: str) -> ArticleRef:
+    law_name, article = label.rsplit(" 제", 1)
+    return ArticleRef(law_name=law_name, article_number=article.removesuffix("조"))
+
+
 class PineconeTaxLawRetriever(TaxLawRetriever):
     """Pinecone + BGE Reranker 기반 TaxLawRetriever 구현."""
 
@@ -280,6 +287,45 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         meta = vec.get("metadata", {}) if isinstance(vec, dict) else getattr(vec, "metadata", {})
         return (meta or {}).get("full_text", "")
 
+    def _get_required_article_by_metadata(self, label: str) -> Optional[RetrievedChunk]:
+        """Fetch one exact legal anchor by Pinecone metadata.
+
+        Pinecone still requires a query vector, but relevance is constrained by
+        exact law_name/article_number metadata filters.
+        """
+        ref = _article_ref_from_label(label)
+        matches = query_pinecone(
+            vector=embed_query(label),
+            top_k=5,
+            namespace=self.namespace,
+            filter_dict={
+                "$and": [
+                    {"law_name": {"$eq": ref.law_name}},
+                    {"article_number": {"$eq": ref.article_number}},
+                ]
+            },
+        )
+        if not matches:
+            return None
+
+        best = max(matches, key=lambda m: float(m.get("score", 0.0)))
+        meta = best.get("metadata", {})
+        return RetrievedChunk(
+            metadata=_pinecone_meta_to_chunk_metadata(best["id"], meta),
+            content=meta.get("full_text", ""),
+            score=float(best.get("score", 0.0)),
+        )
+
+    def _dedupe_chunks(self, chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
+        seen: set[str] = set()
+        result: List[RetrievedChunk] = []
+        for chunk in chunks:
+            if chunk.metadata.chunk_id in seen:
+                continue
+            seen.add(chunk.metadata.chunk_id)
+            result.append(chunk)
+        return result
+
     def _get_anchor_date(self, query: RAGQueryInput, anchor_key: str) -> Optional[date]:
         """부칙 앵커 키 → 쿼리의 해당 날짜.
 
@@ -329,12 +375,16 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         return anchor_date >= effective_from
 
     def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
-        """본칙 검색 후 linked_buchik_ids로 부칙 보강, applicability_anchor 하드필터 적용.
+        """본칙 검색 후 linked_buchik_ids와 누락 핵심 조항을 보강한다.
 
         부칙 적용례 예:
           "이 법 시행 후 양도분부터 적용" → anchor=transfer_date
           "취득분부터 적용" → anchor=acquisition_date
         앵커 날짜 < 부칙 시행일이면 해당 부칙은 이 사건에 미적용 → 제외.
+
+        기본 embedding retrieval이 핵심 조항을 놓친 경우, query 유형별 필수
+        anchor 조항을 Pinecone metadata exact filter로 보강하고 그 anchor의
+        linked_buchik_ids도 동일한 applicability 기준으로 확장한다.
         """
         results = self.retrieve(query)
         if not query.include_buchik:
@@ -361,4 +411,36 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
                 extra.append(buchik_chunk)
                 seen_ids.add(buchik_id)
 
-        return results + extra
+        repaired = results + extra
+
+        fact_check = check_facts(query)
+        quality = assess_retrieval_quality(query, repaired, fact_check.danger_flags)
+        if not quality.missing_required_articles:
+            return repaired
+
+        for label in quality.missing_required_articles:
+            anchor_chunk = self._get_required_article_by_metadata(label)
+            if anchor_chunk is None or anchor_chunk.metadata.chunk_id in seen_ids:
+                continue
+
+            repaired.append(anchor_chunk)
+            seen_ids.add(anchor_chunk.metadata.chunk_id)
+
+            for buchik_id in anchor_chunk.metadata.linked_buchik_ids:
+                if buchik_id in seen_ids:
+                    continue
+                buchik_meta = self._get_chunk_by_id(buchik_id)
+                if buchik_meta is None:
+                    continue
+                buchik_chunk = RetrievedChunk(
+                    metadata=buchik_meta,
+                    content=self._get_content(buchik_id),
+                    score=anchor_chunk.score,
+                    included_as_linked_buchik=True,
+                )
+                if not self._is_buchik_applicable(buchik_chunk, query):
+                    continue
+                repaired.append(buchik_chunk)
+                seen_ids.add(buchik_id)
+
+        return self._dedupe_chunks(repaired)

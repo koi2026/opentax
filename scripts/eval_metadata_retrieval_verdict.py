@@ -25,6 +25,7 @@ from src.domain.query_input import RAGQueryInput
 from src.domain.retrieval_quality import (
     ArticleRef,
     assess_retrieval_quality,
+    required_articles_for_query,
 )
 from src.domain.retriever import RetrievedChunk
 from src.eval.verdict_matcher import compute_reward
@@ -55,9 +56,12 @@ class VerdictEvalCase:
     expected_verdict: Optional[str]
     base: VerdictRun
     repaired: VerdictRun
+    expanded: VerdictRun
     base_match: Optional[bool]
     repaired_match: Optional[bool]
-    verdict_changed: bool
+    expanded_match: Optional[bool]
+    metadata_verdict_changed: bool
+    expanded_verdict_changed: bool
     elapsed_s: float
 
 
@@ -108,6 +112,92 @@ def _fetch_required_articles(labels: list[str], namespace: str) -> list[Retrieve
     return chunks
 
 
+def _dedupe_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    seen: set[str] = set()
+    result: list[RetrievedChunk] = []
+    for chunk in chunks:
+        if chunk.metadata.chunk_id in seen:
+            continue
+        seen.add(chunk.metadata.chunk_id)
+        result.append(chunk)
+    return result
+
+
+def _secondary_query_for_anchor(chunk: RetrievedChunk) -> str:
+    label = f"{chunk.metadata.law_name} 제{chunk.metadata.article_number}조"
+    content = " ".join(chunk.content.split())[:700]
+    return f"{label} {content}"
+
+
+def _secondary_retrieve_for_anchors(
+    retriever: PineconeTaxLawRetriever,
+    query: RAGQueryInput,
+    anchors: list[RetrievedChunk],
+    max_total: int = 5,
+) -> list[RetrievedChunk]:
+    from src.infra.embedder import bm25_sparse_vector, embed_query
+    from src.infra.pinecone_client import query_pinecone
+    from src.infra.reranker import rerank
+    from src.retrieval.retriever_impl import (
+        _HYBRID_ALPHA,
+        _cheap_prefilter,
+        _pinecone_meta_to_chunk_metadata,
+        _select_anchor_date,
+    )
+
+    results: list[RetrievedChunk] = []
+    anchor_date = _select_anchor_date(query)
+    as_of_int = int(anchor_date.strftime("%Y%m%d"))
+    for anchor in anchors:
+        query_text = _secondary_query_for_anchor(anchor)
+        pinecone_filter = {
+            "$and": [
+                {"effective_date": {"$lte": as_of_int}},
+                {"expiration_date": {"$gte": as_of_int}},
+                {"law_name": {"$eq": anchor.metadata.law_name}},
+            ]
+        }
+        sparse_vec = None
+        hybrid_alpha = None
+        if _HYBRID_ALPHA is not None:
+            hybrid_alpha = _HYBRID_ALPHA
+            sparse_vec = bm25_sparse_vector(query_text)
+
+        matches = query_pinecone(
+            vector=embed_query(query_text),
+            top_k=8,
+            namespace=retriever.namespace,
+            filter_dict=pinecone_filter,
+            sparse_vector=sparse_vec,
+            alpha=hybrid_alpha,
+        )
+        if not matches:
+            continue
+
+        scope_val = query.entity_scope.value
+        if scope_val:
+            scoped = [
+                m for m in matches
+                if not m.get("metadata", {}).get("entity_scopes")
+                or scope_val in m["metadata"]["entity_scopes"]
+            ]
+            matches = scoped if scoped else matches
+
+        for score, match in rerank(query_text, _cheap_prefilter(matches, query_text), top_n=3):
+            meta = match["metadata"]
+            results.append(
+                RetrievedChunk(
+                    metadata=_pinecone_meta_to_chunk_metadata(match["id"], meta),
+                    content=meta.get("full_text", ""),
+                    score=float(score),
+                )
+            )
+            if len(_dedupe_chunks(results)) >= max_total:
+                return _dedupe_chunks(results)[:max_total]
+
+    return _dedupe_chunks(results)[:max_total]
+
+
 class MetadataRepairRetriever(PineconeTaxLawRetriever):
     """Evaluation wrapper that repairs missing required articles after retrieval."""
 
@@ -126,6 +216,50 @@ class MetadataRepairRetriever(PineconeTaxLawRetriever):
             chunks.append(extra)
             seen.add(extra.metadata.chunk_id)
         return chunks
+
+
+class ExpandedMetadataRepairRetriever(PineconeTaxLawRetriever):
+    """Metadata repair plus linked-buchik expansion, without secondary search."""
+
+    def _expand_buchik_for(self, chunks: list[RetrievedChunk], query: RAGQueryInput) -> list[RetrievedChunk]:
+        expanded: list[RetrievedChunk] = []
+        for chunk in chunks:
+            for buchik_id in chunk.metadata.linked_buchik_ids:
+                buchik_meta = self._get_chunk_by_id(buchik_id)
+                if buchik_meta is None:
+                    continue
+                buchik_chunk = RetrievedChunk(
+                    metadata=buchik_meta,
+                    content=self._get_content(buchik_id),
+                    score=chunk.score,
+                    included_as_linked_buchik=True,
+                )
+                if not self._is_buchik_applicable(buchik_chunk, query):
+                    continue
+                expanded.append(buchik_chunk)
+        return expanded
+
+    def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
+        chunks = super().retrieve_with_buchik(query)
+        fact_check = check_facts(query)
+        quality = assess_retrieval_quality(query, chunks, fact_check.danger_flags)
+        if not quality.missing_required_articles:
+            return chunks
+
+        anchors = _fetch_required_articles(quality.missing_required_articles, self.namespace)
+        linked_buchik = self._expand_buchik_for(anchors, query)
+        return _dedupe_chunks(chunks + anchors + linked_buchik)
+
+
+class MetadataOnlyRetriever(ExpandedMetadataRepairRetriever):
+    """Use only rule-derived metadata anchors plus linked buchik, no base embedding retrieval."""
+
+    def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
+        fact_check = check_facts(query)
+        required = required_articles_for_query(query, fact_check.danger_flags)
+        anchors = _fetch_required_articles([req.label for req in required], self.namespace)
+        linked_buchik = self._expand_buchik_for(anchors, query)
+        return _dedupe_chunks(anchors + linked_buchik)
 
 
 async def _run_pipeline_once(query: RAGQueryInput, retriever: PineconeTaxLawRetriever) -> VerdictRun:
@@ -194,6 +328,7 @@ async def _run_case(case: dict[str, Any]) -> VerdictEvalCase:
 
     base = await _run_pipeline_once(query, PineconeTaxLawRetriever())
     repaired = await _run_pipeline_once(query, MetadataRepairRetriever())
+    expanded = await _run_pipeline_once(query, ExpandedMetadataRepairRetriever())
 
     return VerdictEvalCase(
         case_id=case["case_id"],
@@ -201,17 +336,24 @@ async def _run_case(case: dict[str, Any]) -> VerdictEvalCase:
         expected_verdict=expected,
         base=base,
         repaired=repaired,
+        expanded=expanded,
         base_match=_match(expected, base.verdict, case["case_id"]),
         repaired_match=_match(expected, repaired.verdict, case["case_id"]),
-        verdict_changed=base.verdict != repaired.verdict,
+        expanded_match=_match(expected, expanded.verdict, case["case_id"]),
+        metadata_verdict_changed=base.verdict != repaired.verdict,
+        expanded_verdict_changed=repaired.verdict != expanded.verdict,
         elapsed_s=round(time.monotonic() - started, 2),
     )
 
 
 def _summarize(results: list[VerdictEvalCase]) -> dict[str, Any]:
-    comparable = [r for r in results if r.base_match is not None and r.repaired_match is not None]
-    changed = [r for r in results if r.verdict_changed]
-    errors = [r for r in results if r.base.error or r.repaired.error]
+    comparable = [
+        r for r in results
+        if r.base_match is not None and r.repaired_match is not None and r.expanded_match is not None
+    ]
+    metadata_changed = [r for r in results if r.metadata_verdict_changed]
+    expanded_changed = [r for r in results if r.expanded_verdict_changed]
+    errors = [r for r in results if r.base.error or r.repaired.error or r.expanded.error]
 
     def acc(which: str) -> float:
         if not comparable:
@@ -228,20 +370,36 @@ def _summarize(results: list[VerdictEvalCase]) -> dict[str, Any]:
         "total": len(results),
         "comparable": len(comparable),
         "errors": len(errors),
-        "verdict_changed": len(changed),
+        "metadata_verdict_changed": len(metadata_changed),
+        "expanded_verdict_changed": len(expanded_changed),
         "base_accuracy": acc("base"),
         "repaired_accuracy": acc("repaired"),
-        "accuracy_delta": round(acc("repaired") - acc("base"), 4),
+        "expanded_accuracy": acc("expanded"),
+        "metadata_accuracy_delta": round(acc("repaired") - acc("base"), 4),
+        "expanded_accuracy_delta": round(acc("expanded") - acc("repaired"), 4),
+        "total_accuracy_delta": round(acc("expanded") - acc("base"), 4),
         "avg_base_answer_confidence": avg([r.base.confidence for r in results if not r.base.error]),
         "avg_repaired_answer_confidence": avg([r.repaired.confidence for r in results if not r.repaired.error]),
+        "avg_expanded_answer_confidence": avg([r.expanded.confidence for r in results if not r.expanded.error]),
         "avg_base_retrieval_confidence": avg([r.base.retrieval_confidence for r in results if not r.base.error]),
         "avg_repaired_retrieval_confidence": avg([r.repaired.retrieval_confidence for r in results if not r.repaired.error]),
+        "avg_expanded_retrieval_confidence": avg([r.expanded.retrieval_confidence for r in results if not r.expanded.error]),
     }
 
 
 async def main_async() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--only-expanded",
+        action="store_true",
+        help="Run only the expanded retriever for cases whose base/metadata results are already known.",
+    )
+    parser.add_argument(
+        "--only-metadata-source",
+        action="store_true",
+        help="Run only rule-derived metadata anchors plus linked buchik, without base embedding retrieval.",
+    )
     parser.add_argument(
         "--case-ids",
         type=str,
@@ -259,6 +417,66 @@ async def main_async() -> None:
         if missing:
             raise ValueError(f"Unknown case IDs: {', '.join(sorted(missing))}")
 
+    if args.only_expanded or args.only_metadata_source:
+        mode_name = "metadata_source_only" if args.only_metadata_source else "expanded_only"
+        retriever_cls = MetadataOnlyRetriever if args.only_metadata_source else ExpandedMetadataRepairRetriever
+        results = []
+        for idx, case in enumerate(cases, 1):
+            started = time.monotonic()
+            query = _build_query(case)
+            expected = case.get("expected", {}).get("verdict")
+            expanded = await _run_pipeline_once(query, retriever_cls())
+            match = _match(expected, expanded.verdict, case["case_id"])
+            row = {
+                "case_id": case["case_id"],
+                "title": case.get("title", ""),
+                "expected_verdict": expected,
+                "expanded": asdict(expanded),
+                "expanded_match": match,
+                "elapsed_s": round(time.monotonic() - started, 2),
+            }
+            results.append(row)
+            print(
+                f"[{idx:02d}/{len(cases)}] {case['case_id']}: "
+                f"{expanded.verdict}({expanded.confidence:.2f}, r={expanded.retrieval_confidence:.2f}) "
+                f"expected={expected}"
+            )
+            if expanded.error:
+                print(f"  error expanded={expanded.error}")
+
+        comparable = [r for r in results if r["expanded_match"] is not None]
+        summary = {
+            "total": len(results),
+            "comparable": len(comparable),
+            "errors": sum(1 for r in results if r["expanded"]["error"]),
+            "expanded_accuracy": round(
+                sum(1 for r in comparable if r["expanded_match"] is True) / len(comparable),
+                4,
+            ) if comparable else 0.0,
+            "avg_expanded_answer_confidence": round(
+                sum(r["expanded"]["confidence"] for r in results if not r["expanded"]["error"])
+                / max(1, sum(1 for r in results if not r["expanded"]["error"])),
+                4,
+            ),
+            "avg_expanded_retrieval_confidence": round(
+                sum(r["expanded"]["retrieval_confidence"] for r in results if not r["expanded"]["error"])
+                / max(1, sum(1 for r in results if not r["expanded"]["error"])),
+                4,
+            ),
+        }
+        payload = {
+            "mode": mode_name,
+            "summary": summary,
+            "results": results,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n=== {mode_name} Eval Summary ===")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print(f"\nSaved: {args.output}")
+        return
+
     results: list[VerdictEvalCase] = []
     for idx, case in enumerate(cases, 1):
         result = await _run_case(case)
@@ -266,11 +484,15 @@ async def main_async() -> None:
         print(
             f"[{idx:02d}/{len(cases)}] {result.case_id}: "
             f"{result.base.verdict}({result.base.confidence:.2f}, r={result.base.retrieval_confidence:.2f}) -> "
-            f"{result.repaired.verdict}({result.repaired.confidence:.2f}, r={result.repaired.retrieval_confidence:.2f}) "
+            f"{result.repaired.verdict}({result.repaired.confidence:.2f}, r={result.repaired.retrieval_confidence:.2f}) -> "
+            f"{result.expanded.verdict}({result.expanded.confidence:.2f}, r={result.expanded.retrieval_confidence:.2f}) "
             f"expected={result.expected_verdict}"
         )
-        if result.base.error or result.repaired.error:
-            print(f"  error base={result.base.error} repaired={result.repaired.error}")
+        if result.base.error or result.repaired.error or result.expanded.error:
+            print(
+                f"  error base={result.base.error} "
+                f"repaired={result.repaired.error} expanded={result.expanded.error}"
+            )
 
     payload = {
         "summary": _summarize(results),
