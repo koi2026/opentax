@@ -181,6 +181,11 @@ class LawChunkMetadata:
     # 예: ["transfer"]
     topic_tags: List[TopicTag] = field(default_factory=list)
 
+    # === 출처 표시 (유권해석 청크용) ===
+    source_label: str = ""
+    # 예: "조세심판원 심판청구", "국세청 질의회신"
+    # 법령 청크는 빈 문자열 → llm_fn.py가 law_name으로 fallback
+
     # === 원본 참조 ===
     source_url: Optional[str] = None
     # 예: https://law.go.kr/LSW/lsLawLinkInfo.do?lsiSeq=XXXXX

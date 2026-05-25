@@ -53,6 +53,14 @@ PINECONE_CLOUD = os.getenv("PINECONE_CLOUD", "aws")
 PINECONE_REGION = os.getenv("PINECONE_REGION", "us-east-1")
 PINECONE_HYBRID_ALPHA = _optional_float_env("PINECONE_HYBRID_ALPHA")
 
+# 유권해석 병렬 검색 네임스페이스 (쉼표 구분, 빈 문자열이면 비활성)
+# 기본: tax-ruling-nts (국세청 예규/hotissue), tax-ruling-decisions (심판원/심사청구)
+_ruling_ns_env = os.getenv("RULING_RETRIEVAL_NAMESPACES", "tax-ruling-nts,tax-ruling-decisions")
+RULING_RETRIEVAL_NAMESPACES: list[str] = [ns.strip() for ns in _ruling_ns_env.split(",") if ns.strip()]
+
+# 유권해석 네임스페이스별 top_k (법령 top_k 기준 비율)
+RULING_TOP_K_RATIO = float(os.getenv("RULING_TOP_K_RATIO", "0.5"))
+
 # Retrieval / reranking
 RETRIEVER_TOP_K = _int_env("RETRIEVER_TOP_K", 20)
 RETRIEVER_RERANK_TOP_N = _int_env("RETRIEVER_RERANK_TOP_N", 7)
