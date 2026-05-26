@@ -104,39 +104,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── 분석 모드 ────────────────────────────────────────────────────────────
-    st.subheader("분석 모드")
-    query_mode = st.radio(
-        "모드 선택",
-        ["report", "consulting"],
-        format_func=lambda x: "신고용 판단" if x == "report" else "절세 컨설팅",
-        help="컨설팅 모드: 양도/증여/부담부증여 세금 비교 시뮬레이션 포함",
-    )
-
-    sim_params: dict = {}
-    if query_mode == "consulting":
-        st.caption("시뮬레이션 추가 정보")
-        encumbrance = st.number_input(
-            "채무총액 (담보대출+임대보증금, 원)",
-            min_value=0,
-            value=0,
-            step=10_000_000,
-            format="%d",
-            help="부담부증여 시나리오 계산에 사용됩니다.",
-        )
-        gift_recipient = st.selectbox(
-            "증여 대상자",
-            ["직계존비속", "배우자", "기타"],
-            help="증여세 공제액이 달라집니다.",
-        )
-        recipient_is_adult = st.checkbox("성년 자녀 (직계존비속)", value=True)
-        if encumbrance > 0:
-            sim_params["simulation_encumbrance"] = encumbrance
-        sim_params["simulation_gift_recipient"] = gift_recipient
-        sim_params["simulation_recipient_is_adult"] = recipient_is_adult
-
-    st.divider()
-
     if st.button("⚡ 분석 시작", type="primary", use_container_width=True):
         st.session_state.run_analysis = True
         st.rerun()
@@ -146,7 +113,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    enable_debate = True
 
 
 
@@ -301,87 +267,6 @@ def _render_pipeline_result(result: dict) -> None:
             d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
         st.caption(f"적용 법령 기준일: {d}  |  본 결과는 정보 제공 목적이며 세무 자문이 아닙니다.")
 
-    if result.get("consulting_scenarios"):
-        _render_consulting_scenarios(result["consulting_scenarios"])
-
-
-def _render_consulting_scenarios(scenarios: list) -> None:
-    """컨설팅 시나리오 비교표 렌더링."""
-    # 마지막 항목이 요약(optimal_type 포함)인 경우 분리
-    summary: dict = {}
-    items: list = []
-    for s in scenarios:
-        if "optimal_type" in s:
-            summary = s
-        else:
-            items.append(s)
-
-    if not items:
-        return
-
-    st.divider()
-    st.subheader("절세 시나리오 비교")
-
-    if summary:
-        opt = summary.get("optimal_type", "")
-        saving = summary.get("optimal_saving", 0)
-        st.success(
-            f"최적 방안: **{opt}** — 양도 대비 **{saving:,}원** 절세\n\n"
-            f"{summary.get('recommendation_reason', '')}",
-        )
-        if summary.get("warnings"):
-            for w in summary["warnings"]:
-                st.warning(w)
-
-    cols = st.columns(len(items))
-    _COLOR = {"양도": "#FF6B6B", "증여": "#4ECDC4", "부담부증여": "#45B7D1"}
-    for col, s in zip(cols, items):
-        with col:
-            scenario_type = s.get("scenario_type", "")
-            color = _COLOR.get(scenario_type, "#888")
-            total = s.get("total_tax", 0)
-            rate = s.get("effective_rate", 0.0)
-            is_calc = s.get("is_calculable", True)
-
-            st.markdown(
-                f"<div style='border-left:4px solid {color}; padding-left:8px;'>"
-                f"<strong>{scenario_type}</strong><br/>"
-                f"<span style='font-size:0.85em;'>{s.get('description','')}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            if is_calc:
-                st.metric("총 세금", f"{total:,}원", delta=f"실효세율 {rate:.1%}", delta_color="off")
-                d = s.get("detail") or {}
-                detail_lines = []
-                if s.get("transfer_income_tax"):
-                    detail_lines.append(f"양도소득세: {s['transfer_income_tax']:,}원")
-                if s.get("gift_tax"):
-                    detail_lines.append(f"증여세: {s['gift_tax']:,}원")
-                if s.get("local_income_tax"):
-                    detail_lines.append(f"지방소득세: {s['local_income_tax']:,}원")
-                if s.get("acquisition_tax_estimate"):
-                    detail_lines.append(f"취득세(추산): {s['acquisition_tax_estimate']:,}원")
-                if detail_lines:
-                    with st.expander("세부 내역"):
-                        for line in detail_lines:
-                            st.caption(line)
-                        if d.get("rate_type"):
-                            st.caption(f"세율유형: {d['rate_type']}")
-                        if d.get("ltd_rate"):
-                            st.caption(f"장특공율: {d['ltd_rate']:.0%}")
-            else:
-                st.info("계산 불가 — 전문가 확인 필요")
-
-            if s.get("notes"):
-                with st.expander("유의사항"):
-                    for n in s["notes"]:
-                        st.caption(f"* {n}")
-
-    if summary.get("expert_review_needed"):
-        st.info(
-            "이 시뮬레이션은 참고용입니다. 실제 절세 전략은 세무사와 함께 구체적인 사실관계를 기반으로 수립하세요.",
-        )
 
 
 async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
@@ -408,16 +293,13 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
         reasoning_text = ""
         
         from src.api.chat_api import chat_turn_stream
-        
-        # 컨설팅 파라미터를 fact_json에 병합
-        fact_with_sim = {**(parsed_fact or {}), **sim_params} if parsed_fact else parsed_fact
-        
+
         result = None
         async for item in chat_turn_stream(
-            fact_json=fact_with_sim,
+            fact_json=parsed_fact,
             question=user_text if not parsed_fact else None,
-            enable_debate=enable_debate,
-            query_mode=query_mode,
+            enable_debate=True,
+            query_mode="report",
         ):
             if isinstance(item, str):
                 if item.startswith("PROGRESS:"):
@@ -441,7 +323,6 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
             _render_pipeline_result(result)
             
             extra = {k: result[k] for k in ("verdict", "confidence", "citations", "missing_facts", "warnings", "chunk_ids")}
-            extra["consulting_scenarios"] = result.get("consulting_scenarios")
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": result["answer"],

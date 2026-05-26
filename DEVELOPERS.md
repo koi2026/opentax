@@ -13,7 +13,7 @@
 설계부터 수집기·파이프라인·임베딩·파인튜닝·UI까지 혼자 하다 보니  
 정작 검증하고 개선해야 할 부분이 쌓였습니다.
 
-이 문서는 지시서가 아닙니다.  
+이 문서는 
 **"이런 문제가 있고, 이런 방향으로 풀어가고 싶은데 같이 해줄 수 있어?"** 라는 요청서입니다.
 
 두 분 모두 저보다 특정 영역은 훨씬 잘 알 것입니다.  
@@ -46,7 +46,7 @@ Claude Code CLI(`claude` 명령어)로 코드베이스 질문을 바로 할 수 
 
 그래서 국세청 37,400건, 기재부 2,305건을 수집했더니 — 이번엔 제목만 있고 본문이 비어 있었습니다.  
 `taxlaw.nts.go.kr/action.do` API의 actionId를 역공학으로 분석했고, **USEQTA002P 페이지 인라인 JS에서 정확한 파라미터를 찾아냈습니다.**  
-기재부 2,304건 본문 수집 완료, 국세청 37,400건 수집 진행 중입니다.
+기재부 2,304건·국세청 37,400건 본문 수집 완료. Pinecone 재임베딩까지 완료됐습니다.
 
 ---
 
@@ -143,9 +143,9 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 - `src/ingestion/collect_rulings_nts_interp.py` — 동일 수정
 
 **결과:**
-- 기재부(moef): 2,304/2,305건 본문 수집 완료 (99.9%)
-- 국세청(nts_interp): 37,400건 수집 중 (진행중)
-- 이후: Pinecone 재임베딩 → eval 재실행 → BGE 훈련 데이터 자동 추출
+- 기재부(moef): 2,304/2,305건 본문 수집 완료 (99.9%) → Pinecone `tax-ruling-moef` 2,305건 업로드 완료
+- 국세청(nts_interp): 37,400건 수집 완료 → Pinecone `tax-ruling-nts-interp` 37,400건 업로드 완료
+- `embed_rulings.py`에 `--resume` 플래그 추가 (중단 후 재개 시 중복 업로드 방지)
 
 ### ✅ Reranker 서빙 버그 3종 수정
 
@@ -157,15 +157,17 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 
 ---
 
-## 지금 진행 중인 것
+## 다음 작업
 
-### 🔄 nts_interp 37,400건 본문 수집 중
+### ⏳ eval 142건 재실행
 
-완료 후 자동으로 이어지는 작업:
+유권해석 2개 네임스페이스 임베딩 완료 후 정확도 변화 측정.
+
 ```bash
-python -m src.ingestion.embed_rulings moef       # Pinecone 재임베딩
-python -m src.ingestion.embed_rulings nts_interp
+python -m scripts.run_baseline_eval --workers 3
 ```
+
+이후: 37,400건 answer에서 BGE 훈련 데이터 자동 추출 → 재파인튜닝.
 
 ---
 
@@ -185,9 +187,9 @@ python -m src.ingestion.embed_rulings nts_interp
 | 소스 | 구속력 순위 | 파일 수 | answer 상태 | Pinecone 상태 |
 |------|-----------|---------|-------------|--------------|
 | 법령 조문 (소득세법 등) | 최상위 | — | ✅ | ✅ `tax-law` |
-| 기재부 법령해석 | 유권해석 1위 | 2,305건 | ✅ 2,304건 수집 완료 | ⏳ 재임베딩 대기 |
+| 기재부 법령해석 | 유권해석 1위 | 2,305건 | ✅ 2,304건 수집 완료 | ✅ `tax-ruling-moef` 2,305건 |
 | 국세청 질의회신 | 유권해석 2위 | ~3,000건 | ✅ | ✅ `tax-ruling-nts` |
-| 국세청 법령해석 | 유권해석 2위 | 37,400건 | 🔄 수집 진행 중 | ⏳ 재임베딩 대기 |
+| 국세청 법령해석 | 유권해석 2위 | 37,400건 | ✅ 수집 완료 | ✅ `tax-ruling-nts-interp` 37,400건 |
 | 심판원 결정례 | 준사법적 결정 | ~수천건 | ✅ | ✅ `tax-ruling-decisions` |
 
 BGE Reranker:
@@ -220,11 +222,11 @@ BGE Reranker:
 - `--resume` 로직 수정 완료: `파일 존재 AND answer != ""` 둘 다 충족해야 스킵
 - 실패 건 자동 재시도 큐는 미구현 (현재 조용히 실패)
 
-#### A-3. Pinecone 재임베딩 (국세청 수집 완료 후)
+#### A-3. ✅ Pinecone 재임베딩 완료
 
 ```bash
-python -m src.ingestion.embed_rulings moef
-python -m src.ingestion.embed_rulings nts_interp
+python -m src.ingestion.embed_rulings moef        # 2,305건 완료
+python -m src.ingestion.embed_rulings nts_interp  # 37,400건 완료
 ```
 
 #### A-4. MCP 서버 업그레이드
@@ -322,12 +324,12 @@ python scripts/finetune_reranker.py --epochs 4
 ## 실행 순서 참고
 
 ```
-✅ BLOCKER-1 해결 (A-1) — 완료
+✅ BLOCKER-1 해결 (A-1)
     ↓
 ✅ moef 2,304건 본문 수집 완료
-🔄 nts_interp 37,400건 수집 진행 중
+✅ nts_interp 37,400건 수집 완료
     ↓
-⏳ Pinecone 재임베딩 (A-3) — nts_interp 완료 후
+✅ Pinecone 재임베딩 (A-3) — moef 2,305건 + nts_interp 37,400건
     ↓
 ⏳ eval 재실행 + 훈련 데이터 자동 추출 (B-1, B-2)
     ↓
@@ -335,8 +337,6 @@ python scripts/finetune_reranker.py --epochs 4
     ↓
 ⏳ MCP 업그레이드 / 어드민 개선 (병렬 가능)
 ```
-
-nts_interp 수집 완료되면 `embed_rulings`부터 순서대로 진행합니다.
 
 ---
 

@@ -141,12 +141,24 @@ def _build_chunk(record: dict, source: str) -> dict:
     }
 
 
+def _fetch_existing_ids(index, namespace: str) -> set[str]:
+    """Pinecone 네임스페이스의 기존 벡터 ID 목록 조회."""
+    existing: set[str] = set()
+    try:
+        for page in index.list(namespace=namespace):
+            existing.update(page)
+    except Exception as exc:
+        print(f"  기존 ID 조회 실패 (전체 재업로드): {exc}")
+    return existing
+
+
 def _upload_to_namespace(
     index,
     embed_client,
     embed_model: str,
     chunks: list[dict],
     namespace: str,
+    existing_ids: set[str] | None = None,
 ) -> int:
     """청크 배치를 임베딩 후 지정 네임스페이스에 upsert. 업로드 수 반환."""
     from tqdm import tqdm
@@ -155,6 +167,11 @@ def _upload_to_namespace(
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
 
     for batch in tqdm(batches, desc=f"업로드 → {namespace}"):
+        if existing_ids:
+            batch = [c for c in batch if c["chunk_id"] not in existing_ids]
+            if not batch:
+                continue
+
         texts = [c["full_text"] for c in batch]
         try:
             vectors = _embed_texts(embed_client, embed_model, texts)
@@ -178,12 +195,13 @@ def _upload_to_namespace(
     return total_upserted
 
 
-def embed_and_upload_rulings(source: str = "all") -> int:
+def embed_and_upload_rulings(source: str = "all", resume: bool = False) -> int:
     """
     data/rulings/{source}/*.json 읽기 → 청킹 → 임베딩 → Pinecone 업로드.
 
     Args:
-        source: "ntis" | "tt" | "court" | "all"
+        source: "ntis" | "tt" | "court" | "moef" | "nts_interp" | "all"
+        resume: True이면 이미 업로드된 벡터 ID를 조회해 중복 건너뜀.
 
     Returns:
         업로드된 벡터 수 합계.
@@ -221,7 +239,13 @@ def embed_and_upload_rulings(source: str = "all") -> int:
         print(f"  {len(active)}건 로드 완료")
         chunks = [_build_chunk(rec, src) for rec in active]
 
-        uploaded = _upload_to_namespace(index, embed_client, embed_model, chunks, namespace)
+        existing_ids: set[str] | None = None
+        if resume:
+            print(f"  기존 업로드 ID 조회 중 (--resume)...")
+            existing_ids = _fetch_existing_ids(index, namespace)
+            print(f"  이미 업로드된 벡터: {len(existing_ids)}개 (건너뜀)")
+
+        uploaded = _upload_to_namespace(index, embed_client, embed_model, chunks, namespace, existing_ids)
         total_upserted += uploaded
         print(f"  [{src}] {uploaded}개 벡터 → {namespace}")
 
@@ -231,4 +255,5 @@ def embed_and_upload_rulings(source: str = "all") -> int:
 
 if __name__ == "__main__":
     source_arg = sys.argv[1] if len(sys.argv) > 1 else "all"
-    embed_and_upload_rulings(source_arg)
+    resume_arg = "--resume" in sys.argv
+    embed_and_upload_rulings(source_arg, resume=resume_arg)

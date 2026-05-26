@@ -211,7 +211,7 @@ scripts/detect_law_changes.py
 | 유권해석 수집기 (질의회신·판단사례) | `src/ingestion/collect_rulings_nts.py` | ✅ 완성 |
 | 판례·결정례 JSON API 수집기 | `src/ingestion/collect_rulings_decisions.py` | ✅ 완성 |
 | 세법집행기준 PDF 파서 | `src/ingestion/collect_rulings_pdf.py` | ✅ 완성 |
-| embed_rulings (4개 namespace) | `src/ingestion/embed_rulings.py` | ✅ 완성 |
+| embed_rulings (6개 namespace) | `src/ingestion/embed_rulings.py` | ✅ 완성 + `--resume` 플래그 추가 |
 | verdict_matcher | `src/eval/verdict_matcher.py` | ✅ 완성 |
 | Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
 | Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
@@ -250,8 +250,11 @@ python -m src.ingestion.embed_rulings decisions
 python -m src.ingestion.embed_rulings pdf
 ```
 
-**Pinecone 네임스페이스:**
-- `tax-ruling-nts` — 질의회신·판단사례·세법해석례
+**Pinecone 네임스페이스 (구속력 순):**
+- `tax-law` — 법령 조문 (최상위)
+- `tax-ruling-moef` — 기재부 법령해석 2,305건 ✅ 임베딩 완료
+- `tax-ruling-nts` — 국세청 질의회신·판단사례·세법해석례
+- `tax-ruling-nts-interp` — 국세청 법령해석 37,400건 ✅ 임베딩 완료
 - `tax-ruling-decisions` — 심판청구·이의신청·판례
 - `tax-ruling-pdf` — 세법집행기준
 
