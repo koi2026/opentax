@@ -216,7 +216,23 @@ scripts/detect_law_changes.py
 | Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
 | Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
 | BGE 파인튜닝 파이프라인 수정 | `scripts/extract_reranker_pairs.py`, `scripts/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
-| BGE 파인튜닝 실행 | `scripts/finetune_reranker.py` | ⏳ red_wins 22→50건 대기 중 |
+| BGE 파인튜닝 실행 | `scripts/finetune_reranker.py` | 🔄 1차 실행 중 (2026-05-26, ~2,523쌍) |
+| 유권해석 훈련쌍 추출 | `scripts/extract_ruling_pairs.py` | ✅ 신규 — nts_interp 1,823쌍 + moef 374쌍 추출 완료 |
+
+> **⚠️ BGE 파인튜닝 실행 환경 — 반드시 Colab 사용 (2026-05-26 확정):**
+>
+> 로컬 CPU: 2,500쌍 × 4 epochs = **약 27시간** (스텝당 ~23초).
+> Google Colab T4 GPU: **30분 이내**, 비용 $0.5 미만.
+> 파인튜닝은 누적 전체 데이터 재학습 구조 → 데이터 증가할수록 CPU는 부적합.
+>
+> **Colab 실행 절차:**
+> 1. `data/reranker_pairs.jsonl` + `scripts/finetune_reranker.py` 업로드
+> 2. `!pip install sentence-transformers`
+> 3. `!python finetune_reranker.py --epochs 4`
+> 4. 생성된 `data/models/bge-reranker-tax-rag/` 폴더 로컬 다운로드 → 교체
+> 5. `python -m scripts.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
+>
+> **재파인튜닝 트리거:** `data/red_wins/` 50건 초과 시.
 
 > **Reranker 서빙 버그 수정 (2026-05-26):**
 > - `src/infra/reranker.py` `_MAX_TEXT_CHARS` 400→**900자** — 한국 법령 단서조항·부칙이 400자 이후에 위치하는 경우가 있어 절단 시 핵심 조건 누락 가능
