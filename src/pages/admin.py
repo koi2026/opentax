@@ -41,6 +41,25 @@ _VERDICT_COLOR = {
     "고가주택": "orange", "사실관계부족": "gray",
 }
 
+_VERDICT_OPTIONS = ["비과세", "고가주택", "일반과세", "중과", "단기세율", "감면", "사실관계부족"]
+_CONFIDENCE_OPTIONS = ["높음", "보통", "낮음 (재검토 필요)"]
+
+_FACT_LABELS = {
+    "property_type": "부동산 유형",
+    "acquisition_date": "취득일",
+    "transfer_date": "양도일",
+    "acquisition_price": "취득가액",
+    "transfer_price": "양도가액",
+    "household_house_count": "세대 주택 수",
+    "residence_years": "실거주 기간(년)",
+    "is_adjustment_area_at_transfer": "양도 시 조정대상지역",
+    "is_adjustment_area_at_acquisition": "취득 시 조정대상지역",
+    "acquisition_reason": "취득 원인",
+    "holding_years": "보유 기간(년)",
+}
+
+_LABELS_PATH = _ROOT / "data" / "golden" / "expert_labels.json"
+
 _LAW_CATEGORY_LABEL = {
     "법률": "법률", "시행령": "시행령", "시행규칙": "시행규칙",
     "규정": "규정", "": "—",
@@ -87,6 +106,35 @@ def _fmt_freshness(path: Path) -> tuple[str, str, str]:
         return "⚠️ 갱신 확인 필요", "warn", rel
     rel = f"{int(hours_ago / 24)}일 전"
     return "❌ 오래된 데이터", "error", rel
+
+
+def _fmt_money(v) -> str:
+    if not v:
+        return "—"
+    try:
+        v = int(v)
+        if v >= 100_000_000:
+            return f"{v / 100_000_000:,.1f}억원"
+        if v >= 10_000:
+            return f"{v / 10_000:,.0f}만원"
+        return f"{v:,}원"
+    except Exception:
+        return str(v)
+
+
+def _fmt_fact(key: str, val) -> str:
+    if val is None:
+        return "—"
+    if key in ("acquisition_price", "transfer_price"):
+        return _fmt_money(val)
+    if key in ("acquisition_date", "transfer_date"):
+        s = str(int(val)) if val else ""
+        return f"{s[:4]}년 {s[4:6]}월 {s[6:]}일" if len(s) == 8 else s or "—"
+    if key in ("residence_years", "holding_years"):
+        return f"{float(val):.1f}년"
+    if isinstance(val, bool):
+        return "예" if val else "아니오"
+    return str(val)
 
 
 def _fmt_value(v) -> str:
@@ -230,6 +278,20 @@ def _load_area_summary() -> tuple[int, int, str]:
         return 0, 0, "—"
     active = sum(1 for r in data if not r.get("released_at"))
     return active, len(data), _fmt_mtime(p)
+
+
+def _load_expert_labels() -> dict[str, dict]:
+    if not _LABELS_PATH.exists():
+        return {}
+    try:
+        return json.loads(_LABELS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_expert_labels(labels: dict[str, dict]) -> None:
+    _LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _LABELS_PATH.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load_golden_summary() -> tuple[int, str]:
@@ -611,7 +673,11 @@ with tab_laws:
                 st.dataframe(pd.DataFrame(_nts_rows), use_container_width=True, hide_index=True)
 
         st.markdown("#### ⚖️ 심판청구 결정례")
-        st.warning("⚠️ **서버 사이드 필터 적용됨** — 수집 키워드: `양도`  \n→ 증여·상속·임대 결정례 현재 미수집. 추가 키워드 필요 시 재수집.")
+        st.warning(
+            "⚠️ **서버 사이드 필터 적용됨** — 현재 수집 키워드: `양도`  \n"
+            "→ **미수집 누락 영역**: 신탁/수탁 구조 이전, 재건축조합원 입주권, 이월과세, 증여·상속 결정례  \n"
+            "→ 추가 키워드(`신탁`, `재건축`, `입주권`, `이월`) 필요 시 `--keyword <키워드>` 옵션으로 재수집."
+        )
         _dec_dir = _ROOT / "data" / "rulings" / "decisions"
         _dec_files = sorted(_dec_dir.glob("*.json"), reverse=True) if _dec_dir.exists() else []
         if not _dec_files:
@@ -673,6 +739,7 @@ with tab_laws:
         st.warning(
             "⚠️ **서버 사이드 키워드 필터 적용됨** — 현재 수집 키워드:  \n"
             "`양도` 24,408건 / `증여` 8,819건 / `상속` 7,743건 / `상생임대` 72건 / `임대주택` 1,534건  \n"
+            "→ **미수집 누락 영역**: 신탁 구조(`신탁`), 재건축(`재건축`), 가산세/제척기간(`가산세`, `부과제척기간`)  \n"
             "→ 새 키워드 추가 시 `--keywords <키워드>` 옵션으로 재수집 필요."
         )
         _ni_dir = _ROOT / "data" / "rulings" / "nts_interp"
@@ -703,7 +770,11 @@ with tab_laws:
                 st.dataframe(pd.DataFrame(_ni_rows), use_container_width=True, hide_index=True)
 
         st.markdown("#### ⚖️ 판례")
-        st.error("🚧 **(구현전)** — 대법원 종합법률정보 수집 미구현. 추후 `data/rulings/precedents/` 경로로 추가 예정.")
+        st.error(
+            "🚧 **(구현전)** — 대법원 종합법률정보 수집 미구현.  \n"
+            "→ 수집 대상: 대법원 판례(`law.go.kr` 또는 대법원 종합법률정보 API), 감사원 결정  \n"
+            "→ 추후 `data/rulings/precedents/` 경로로 추가 예정."
+        )
 
     # ══════════════════════════════════════════════════════════════════════════
     # 서브탭 3: 지역
@@ -960,112 +1031,355 @@ with tab_laws:
 
 with tab_scenarios:
     import pandas as pd
+    import hashlib
 
     _GOLDEN_FILE = _ROOT / "data" / "golden" / "qa_pairs.json"
-    st.subheader("📋 시나리오 평가 현황")
 
-    if not _GOLDEN_FILE.exists():
-        st.warning("data/golden/qa_pairs.json 파일이 없습니다.")
-    else:
-        try:
-            sc_pairs = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            st.error("qa_pairs.json 파싱 오류")
-            sc_pairs = []
+    sub_eval, sub_label = st.tabs(["📊 평가 현황", "✏️ 전문가 검토"])
 
-        latest_report_sc = _load_golden_eval_latest()
-        last_run_sc = latest_report_sc.get("run_at", "")
-        last_run_sc_fmt = last_run_sc[:16].replace("T", " ") if last_run_sc else "미실행"
+    # ══════════════════════════════════════════════════════════════════════════
+    # 서브탭 1: 평가 현황 (기존 내용 유지)
+    # ══════════════════════════════════════════════════════════════════════════
+    with sub_eval:
+        st.subheader("📋 시나리오 평가 현황")
 
-        # ── 요약 메트릭 ──────────────────────────────────────────────────────
-        sc_total = len(sc_pairs)
-        sc_passed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is True)
-        sc_failed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is False)
-        sc_needs_review = sum(1 for g in sc_pairs if g.get("invalidated"))
-        sc_not_run = sum(1 for g in sc_pairs if not g.get("last_eval"))
-        sc_has_expected = sum(1 for g in sc_pairs if g.get("expected_verdict") or g.get("verdict"))
-        sc_acc_str = f"{sc_passed}/{sc_has_expected} ({sc_passed/sc_has_expected*100:.0f}%)" if sc_has_expected else "—"
-
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("총 케이스", sc_total)
-        m2.metric("✅ PASS", sc_passed)
-        m3.metric("❌ FAIL", sc_failed)
-        m4.metric("⚠️ 재검토", sc_needs_review)
-        m5.metric("정확도", sc_acc_str)
-        m6.metric("마지막 평가", last_run_sc_fmt)
-
-        st.divider()
-
-        # ── 필터 라디오 ──────────────────────────────────────────────────────
-        filter_choice = st.radio(
-            "보기",
-            ["전체", "미검증", "검증됨", "재검토필요"],
-            horizontal=True,
-            key="sc_filter",
-        )
-
-        if filter_choice == "미검증":
-            filtered_pairs = [g for g in sc_pairs if not g.get("last_eval")]
-        elif filter_choice == "검증됨":
-            filtered_pairs = [g for g in sc_pairs if g.get("last_eval") and not g.get("invalidated")]
-        elif filter_choice == "재검토필요":
-            filtered_pairs = [
-                g for g in sc_pairs
-                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
-            ]
+        if not _GOLDEN_FILE.exists():
+            st.warning("data/golden/qa_pairs.json 파일이 없습니다.")
         else:
-            filtered_pairs = sc_pairs
+            try:
+                sc_pairs = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                st.error("qa_pairs.json 파싱 오류")
+                sc_pairs = []
 
-        # ── 상태 테이블 ──────────────────────────────────────────────────────
-        if not sc_pairs:
-            st.info("골든셋이 비어 있습니다.")
+            latest_report_sc = _load_golden_eval_latest()
+            last_run_sc = latest_report_sc.get("run_at", "")
+            last_run_sc_fmt = last_run_sc[:16].replace("T", " ") if last_run_sc else "미실행"
+
+            sc_total = len(sc_pairs)
+            sc_passed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is True)
+            sc_failed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is False)
+            sc_needs_review = sum(1 for g in sc_pairs if g.get("invalidated"))
+            sc_not_run = sum(1 for g in sc_pairs if not g.get("last_eval"))
+            sc_has_expected = sum(1 for g in sc_pairs if g.get("expected_verdict") or g.get("verdict"))
+            sc_acc_str = f"{sc_passed}/{sc_has_expected} ({sc_passed/sc_has_expected*100:.0f}%)" if sc_has_expected else "—"
+
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("총 케이스", sc_total)
+            m2.metric("✅ PASS", sc_passed)
+            m3.metric("❌ FAIL", sc_failed)
+            m4.metric("⚠️ 재검토", sc_needs_review)
+            m5.metric("정확도", sc_acc_str)
+            m6.metric("마지막 평가", last_run_sc_fmt)
+
+            st.divider()
+
+            filter_choice = st.radio(
+                "보기",
+                ["전체", "미검증", "검증됨", "재검토필요"],
+                horizontal=True,
+                key="sc_filter",
+            )
+
+            if filter_choice == "미검증":
+                filtered_pairs = [g for g in sc_pairs if not g.get("last_eval")]
+            elif filter_choice == "검증됨":
+                filtered_pairs = [g for g in sc_pairs if g.get("last_eval") and not g.get("invalidated")]
+            elif filter_choice == "재검토필요":
+                filtered_pairs = [
+                    g for g in sc_pairs
+                    if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
+                ]
+            else:
+                filtered_pairs = sc_pairs
+
+            if not sc_pairs:
+                st.info("골든셋이 비어 있습니다.")
+            else:
+                sc_rows = []
+                for g in filtered_pairs:
+                    ev = g.get("last_eval") or {}
+                    exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
+                    actual_v = ev.get("verdict", "—")
+                    conf = ev.get("confidence")
+                    run_at = ev.get("run_at", "")
+                    run_at_fmt = f"{run_at[:4]}-{run_at[4:6]}-{run_at[6:8]}" if len(run_at) >= 8 else "—"
+                    sc_rows.append({
+                        "ID": (g.get("id") or g.get("case_id", ""))[:10],
+                        "설명": g.get("description", "")[:45],
+                        "출처": g.get("source", "manual"),
+                        "예상판결": exp_v,
+                        "실제판결": actual_v,
+                        "신뢰도": f"{conf:.2f}" if conf is not None else "—",
+                        "상태": _status_badge(g),
+                        "평가일": run_at_fmt,
+                    })
+
+                st.caption(f"{len(filtered_pairs)}건 표시 중")
+                st.dataframe(pd.DataFrame(sc_rows), use_container_width=True, hide_index=True)
+
+                problem_cases_sc = [
+                    g for g in filtered_pairs
+                    if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
+                ]
+                if problem_cases_sc:
+                    with st.expander(f"⚠️ 조치 필요 케이스 ({len(problem_cases_sc)}건)", expanded=True):
+                        for g in problem_cases_sc:
+                            ev = g.get("last_eval") or {}
+                            badge = _status_badge(g)
+                            exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
+                            gid = (g.get("id") or g.get("case_id", ""))[:10]
+                            st.markdown(
+                                f"**{badge}** `{gid}` — {g.get('description', '')}  \n"
+                                f"예상: **{exp_v}** → 실제: **{ev.get('verdict', '—')}** "
+                                f"(신뢰도 {ev.get('confidence', 0):.2f})"
+                            )
+                            if g.get("invalidated"):
+                                deps = g.get("law_deps", [])
+                                st.caption(f"법령 개정 영향: {', '.join(deps) or '알 수 없음'}")
+                            if ev.get("error"):
+                                st.caption(f"오류: {ev['error']}")
+                            st.divider()
+
+                if sc_not_run > 0:
+                    st.info(f"미평가 케이스 {sc_not_run}건 — `python -m scripts.run_golden_eval` 으로 평가를 실행하세요.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 서브탭 2: 전문가 검토 (labeling.py에서 이전)
+    # ══════════════════════════════════════════════════════════════════════════
+    with sub_label:
+        st.subheader("✏️ 전문가 검토")
+        st.caption("골든셋 케이스에 판단 결과·확신도·메모를 기록합니다. 저장은 expert_labels.json에 분리 보관됩니다.")
+
+        if not _GOLDEN_FILE.exists():
+            st.warning("data/golden/qa_pairs.json 파일이 없습니다.")
         else:
-            sc_rows = []
-            for g in filtered_pairs:
-                ev = g.get("last_eval") or {}
-                exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
-                actual_v = ev.get("verdict", "—")
-                conf = ev.get("confidence")
-                run_at = ev.get("run_at", "")
-                run_at_fmt = f"{run_at[:4]}-{run_at[4:6]}-{run_at[6:8]}" if len(run_at) >= 8 else "—"
-                sc_rows.append({
-                    "ID": (g.get("id") or g.get("case_id", ""))[:10],
-                    "설명": g.get("description", "")[:45],
-                    "출처": g.get("source", "manual"),
-                    "예상판결": exp_v,
-                    "실제판결": actual_v,
-                    "신뢰도": f"{conf:.2f}" if conf is not None else "—",
-                    "상태": _status_badge(g),
-                    "평가일": run_at_fmt,
-                })
+            try:
+                lbl_cases = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                st.error("qa_pairs.json 파싱 오류")
+                lbl_cases = []
 
-            st.caption(f"{len(filtered_pairs)}건 표시 중")
-            sc_df = pd.DataFrame(sc_rows)
-            st.dataframe(sc_df, use_container_width=True, hide_index=True)
+            lbl_labels = _load_expert_labels()
 
-            # ── 실패·재검토 케이스 상세 ──────────────────────────────────────
-            problem_cases_sc = [
-                g for g in filtered_pairs
-                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
-            ]
-            if problem_cases_sc:
-                with st.expander(f"⚠️ 조치 필요 케이스 ({len(problem_cases_sc)}건)", expanded=True):
-                    for g in problem_cases_sc:
-                        ev = g.get("last_eval") or {}
-                        badge = _status_badge(g)
-                        exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
-                        gid = (g.get("id") or g.get("case_id", ""))[:10]
-                        st.markdown(
-                            f"**{badge}** `{gid}` — {g.get('description', '')}  \n"
-                            f"예상: **{exp_v}** → 실제: **{ev.get('verdict', '—')}** "
-                            f"(신뢰도 {ev.get('confidence', 0):.2f})"
+            # ── 진행 현황 + 내보내기 ─────────────────────────────────────────
+            lbl_total = len(lbl_cases)
+            lbl_reviewed = sum(
+                1 for c in lbl_cases
+                if (c.get("id") or c.get("case_id", "")) in lbl_labels
+                and lbl_labels[(c.get("id") or c.get("case_id", ""))].get("reviewed")
+            )
+            lc1, lc2, lc3, lc4 = st.columns([2, 2, 2, 2])
+            lc1.metric("전체 케이스", lbl_total)
+            lc2.metric("검토 완료", lbl_reviewed)
+            lc3.progress(lbl_reviewed / lbl_total if lbl_total else 0,
+                         text=f"{lbl_reviewed/lbl_total*100:.0f}%" if lbl_total else "0%")
+
+            # CSV 내보내기
+            _csv_lines = ["case_id,설명,AI_verdict,전문가_verdict,신뢰도,메모,검토일시"]
+            for _c in lbl_cases:
+                _cid = _c.get("id") or _c.get("case_id", "")
+                _lbl = lbl_labels.get(_cid, {})
+                _row = [
+                    _cid,
+                    (_c.get("description") or "").replace(",", " "),
+                    _c.get("expected_verdict") or _c.get("verdict") or "",
+                    _lbl.get("expert_verdict") or "",
+                    _lbl.get("confidence") or "",
+                    (_lbl.get("notes") or "").replace(",", " ").replace("\n", " "),
+                    _lbl.get("reviewed_at") or "",
+                ]
+                _csv_lines.append(",".join(_row))
+            lc4.download_button(
+                "📥 CSV 내보내기",
+                data="\n".join(_csv_lines).encode("utf-8-sig"),
+                file_name=f"expert_labels_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+            )
+
+            st.divider()
+
+            # ── 필터 ─────────────────────────────────────────────────────────
+            lf1, lf2 = st.columns([2, 3])
+            with lf1:
+                lbl_filter = st.radio(
+                    "검토 상태",
+                    ["전체", "미검토", "검토완료", "재검토 필요"],
+                    horizontal=True,
+                    key="lbl_status_filter",
+                )
+            with lf2:
+                lbl_search = st.text_input("케이스 설명 검색", placeholder="예: 상속주택, 일시적2주택...", key="lbl_search")
+
+            # 필터 적용
+            _lbl_filtered = lbl_cases
+            if lbl_filter == "미검토":
+                _lbl_filtered = [
+                    c for c in lbl_cases
+                    if not lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("reviewed")
+                ]
+            elif lbl_filter == "검토완료":
+                _lbl_filtered = [
+                    c for c in lbl_cases
+                    if lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("reviewed")
+                ]
+            elif lbl_filter == "재검토 필요":
+                _lbl_filtered = [
+                    c for c in lbl_cases
+                    if lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("confidence") == "낮음 (재검토 필요)"
+                ]
+            if lbl_search:
+                _lbl_filtered = [
+                    c for c in _lbl_filtered
+                    if lbl_search.lower() in (c.get("description") or "").lower()
+                ]
+
+            st.caption(f"{len(_lbl_filtered)}건 표시 중")
+
+            # ── 케이스 카드 ───────────────────────────────────────────────────
+            for _idx, _c in enumerate(_lbl_filtered):
+                _cid = _c.get("id") or _c.get("case_id", "")
+                _desc = _c.get("description") or _cid
+                _ai_verdict = _c.get("expected_verdict") or _c.get("verdict") or "없음"
+                _lbl = lbl_labels.get(_cid, {})
+                _reviewed = _lbl.get("reviewed", False)
+
+                _verdict_emoji = {"비과세": "🟢", "감면": "🔵", "중과": "🔴",
+                                   "일반과세": "🟠", "단기세율": "🔴", "고가주택": "🟠",
+                                   "사실관계부족": "⚫"}.get(_ai_verdict, "⚪")
+                _status_icon = "✅" if _reviewed else ("⚠️" if _lbl else "📋")
+                _card_label = f"{_status_icon} [{_idx+1}] {_verdict_emoji} {_ai_verdict}  |  {_desc[:60]}"
+
+                with st.expander(_card_label, expanded=False):
+                    _col_fact, _col_review = st.columns([1, 1], gap="large")
+
+                    with _col_fact:
+                        st.markdown("#### 📋 사실관계")
+                        _fact = _c.get("fact_json") or {}
+                        if _fact:
+                            for _key, _flabel in _FACT_LABELS.items():
+                                _val = _fact.get(_key)
+                                if _val is not None:
+                                    st.markdown(f"- **{_flabel}**: {_fmt_fact(_key, _val)}")
+                        else:
+                            st.caption("사실관계 데이터 없음")
+                        _tags = _c.get("tags") or []
+                        if _tags:
+                            st.markdown(f"- **태그**: `{'` `'.join(_tags)}`")
+
+                        st.markdown("#### 🤖 AI 예상 결과")
+                        _vc = _VERDICT_COLOR.get(_ai_verdict, "gray")
+                        st.markdown(f":{_vc}[**{_ai_verdict}**]")
+
+                    with _col_review:
+                        st.markdown("#### ✏️ 전문가 검토")
+
+                        _default_v = _lbl.get("expert_verdict") or _ai_verdict
+                        _vidx = _VERDICT_OPTIONS.index(_default_v) if _default_v in _VERDICT_OPTIONS else 0
+                        _expert_verdict = st.selectbox(
+                            "판단 결과", _VERDICT_OPTIONS, index=_vidx, key=f"lbl_verdict_{_cid}"
                         )
-                        if g.get("invalidated"):
-                            deps = g.get("law_deps", [])
-                            st.caption(f"법령 개정 영향: {', '.join(deps) or '알 수 없음'}")
-                        if ev.get("error"):
-                            st.caption(f"오류: {ev['error']}")
-                        st.divider()
 
-            if sc_not_run > 0:
-                st.info(f"미평가 케이스 {sc_not_run}건 — `python -m scripts.run_golden_eval` 으로 평가를 실행하세요.")
+                        _cidx = _CONFIDENCE_OPTIONS.index(_lbl["confidence"]) if _lbl.get("confidence") in _CONFIDENCE_OPTIONS else 0
+                        _confidence = st.radio(
+                            "확신도", _CONFIDENCE_OPTIONS, index=_cidx, horizontal=True, key=f"lbl_conf_{_cid}"
+                        )
+
+                        _notes = st.text_area(
+                            "근거 및 메모",
+                            value=_lbl.get("notes") or "",
+                            height=100,
+                            placeholder="예: 소득세법 제89조, 2년 보유 요건 미충족...",
+                            key=f"lbl_notes_{_cid}",
+                        )
+
+                        _is_reviewed = st.checkbox(
+                            "검토 완료",
+                            value=_lbl.get("reviewed") or False,
+                            key=f"lbl_done_{_cid}",
+                        )
+
+                        if _expert_verdict != _ai_verdict and _ai_verdict != "없음":
+                            st.warning(f"AI 예상({_ai_verdict})과 다릅니다. 근거를 메모에 기록해 주세요.")
+
+                        if st.button("💾 저장", key=f"lbl_save_{_cid}", type="primary", use_container_width=True):
+                            _updated = _load_expert_labels()
+                            _updated[_cid] = {
+                                "expert_verdict": _expert_verdict,
+                                "confidence": _confidence,
+                                "notes": _notes,
+                                "reviewed": _is_reviewed,
+                                "ai_verdict": _ai_verdict,
+                                "disagreement": _expert_verdict != _ai_verdict,
+                                "reviewed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            }
+                            _save_expert_labels(_updated)
+                            st.success("저장되었습니다.")
+                            st.rerun()
+
+            # ── 신규 케이스 입력 폼 ───────────────────────────────────────────
+            st.divider()
+            with st.expander("➕ 신규 케이스 직접 입력", expanded=False):
+                st.info("전문가가 직접 케이스를 추가합니다. 추가된 케이스는 골든셋(qa_pairs.json)에 반영됩니다.")
+                _nc1, _nc2 = st.columns(2)
+                with _nc1:
+                    _nc_desc = st.text_input("케이스 설명 *", placeholder="예: 상속주택 + 일시적2주택 중첩", key="nc_desc")
+                    _nc_ptype = st.selectbox("부동산 유형 *", ["아파트", "단독주택", "다세대", "오피스텔", "토지", "상가"], key="nc_ptype")
+                    _nc_acq = st.text_input("취득일 (YYYYMMDD) *", placeholder="20200101", key="nc_acq")
+                    _nc_trans = st.text_input("양도일 (YYYYMMDD) *", placeholder="20240101", key="nc_trans")
+                    _nc_acq_p = st.number_input("취득가액 (원)", min_value=0, step=10_000_000, key="nc_acq_p")
+                    _nc_trans_p = st.number_input("양도가액 (원)", min_value=0, step=10_000_000, key="nc_trans_p")
+                with _nc2:
+                    _nc_hcount = st.number_input("세대 주택 수", min_value=1, max_value=10, value=1, key="nc_hcount")
+                    _nc_res = st.number_input("실거주 기간(년)", min_value=0.0, max_value=50.0, step=0.5, key="nc_res")
+                    _nc_adj_acq = st.checkbox("취득 시 조정대상지역", key="nc_adj_acq")
+                    _nc_adj_trans = st.checkbox("양도 시 조정대상지역", key="nc_adj_trans")
+                    _nc_reason = st.selectbox("취득 원인", ["매매", "상속", "증여", "신축", "기타"], key="nc_reason")
+                    _nc_verdict = st.selectbox("전문가 판단 결과 *", _VERDICT_OPTIONS, key="nc_verdict")
+                    _nc_notes = st.text_area("근거 (조문, 이유)", height=80, key="nc_notes")
+
+                if st.button("케이스 추가", type="primary", key="nc_submit"):
+                    if not _nc_desc or not _nc_acq or not _nc_trans:
+                        st.error("필수 항목(설명, 취득일, 양도일)을 입력해 주세요.")
+                    else:
+                        _new_id = "exp_" + hashlib.md5(f"{_nc_desc}{_nc_acq}{_nc_trans}".encode()).hexdigest()[:8]
+                        _new_case = {
+                            "case_id": _new_id,
+                            "description": _nc_desc,
+                            "fact_json": {
+                                "property_type": _nc_ptype,
+                                "acquisition_date": _nc_acq,
+                                "transfer_date": _nc_trans,
+                                "acquisition_price": int(_nc_acq_p),
+                                "transfer_price": int(_nc_trans_p),
+                                "household_house_count": int(_nc_hcount),
+                                "residence_years": float(_nc_res),
+                                "is_adjustment_area_at_acquisition": _nc_adj_acq,
+                                "is_adjustment_area_at_transfer": _nc_adj_trans,
+                                "acquisition_reason": _nc_reason,
+                            },
+                            "expected_verdict": _nc_verdict,
+                            "boundary_type": "expert_added",
+                            "tags": ["전문가입력"],
+                            "source": "expert",
+                        }
+                        _all_cases = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
+                        if any((c.get("id") or c.get("case_id")) == _new_id for c in _all_cases):
+                            st.warning("이미 유사한 케이스가 존재합니다.")
+                        else:
+                            _all_cases.append(_new_case)
+                            _GOLDEN_FILE.write_text(json.dumps(_all_cases, ensure_ascii=False, indent=2), encoding="utf-8")
+                            _updated = _load_expert_labels()
+                            _updated[_new_id] = {
+                                "expert_verdict": _nc_verdict,
+                                "confidence": "높음",
+                                "notes": _nc_notes,
+                                "reviewed": True,
+                                "ai_verdict": _nc_verdict,
+                                "disagreement": False,
+                                "reviewed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "source": "expert_added",
+                            }
+                            _save_expert_labels(_updated)
+                            st.success(f"케이스 추가 완료: {_new_id}")
+                            st.rerun()

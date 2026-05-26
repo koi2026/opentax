@@ -11,8 +11,8 @@ from src.config import BGE_RERANKER_MODEL
 
 _reranker: Optional[CrossEncoder] = None
 
-_MAX_TEXT_CHARS = 400  # 400자 이후는 tokenizer 부하 대비 rerank 신호 증가 미미
-_MAX_LENGTH = 256      # CrossEncoder 내부 max_length — 기본값 512보다 작아 CPU 추론 2배 빠름
+_MAX_TEXT_CHARS = 900  # 한국 법령 조문 단서조항·부칙이 400자 이후에 위치하는 경우 있음
+_MAX_LENGTH = 512      # fine-tuning(finetune_reranker.py default=512)과 동일하게 유지
 
 
 def get_reranker() -> CrossEncoder:
@@ -38,7 +38,7 @@ def rerank(
         return []
     reranker = get_reranker()
     pairs = [(query, c["metadata"].get("full_text", "")[:_MAX_TEXT_CHARS]) for c in candidates]
-    scores = reranker.predict(pairs, show_progress_bar=False, batch_size=len(pairs))
+    scores = reranker.predict(pairs, show_progress_bar=False, batch_size=min(len(pairs), 16))
     ranked = sorted(
         zip(scores, candidates),
         key=lambda x: x[0],

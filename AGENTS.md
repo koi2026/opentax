@@ -218,6 +218,11 @@ scripts/detect_law_changes.py
 | BGE 파인튜닝 파이프라인 수정 | `scripts/extract_reranker_pairs.py`, `scripts/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
 | BGE 파인튜닝 실행 | `scripts/finetune_reranker.py` | ⏳ red_wins 22→50건 대기 중 |
 
+> **Reranker 서빙 버그 수정 (2026-05-26):**
+> - `src/infra/reranker.py` `_MAX_TEXT_CHARS` 400→**900자** — 한국 법령 단서조항·부칙이 400자 이후에 위치하는 경우가 있어 절단 시 핵심 조건 누락 가능
+> - `src/infra/reranker.py` `_MAX_LENGTH` 256→**512** — 파인튜닝(`finetune_reranker.py` default=512)과 서빙 코드 불일치 수정. 학습 컨텍스트와 서빙 절단 길이가 달라지면 reranking 점수 분포 왜곡
+> - `scripts/run_baseline_eval.py` 모델 프로모션 게이트 추가 — `ACCURACY_TARGET(85%)` 통과 시에만 `.env`의 `BGE_RERANKER_MODEL` 업데이트. 미달 시 `promoted=False` 기록 후 베이스 모델 유지
+
 > **파인튜닝 파이프라인 수정 내역 (2026-05-25):**
 > - `extract_reranker_pairs.py`: LLM 텍스트 인용을 chunk ID로 오인하던 버그 수정 → `debates/*.json`의 `new_chunks_found`(positives) / `blue_answer.chunk_ids`(negatives) 직접 사용
 > - `finetune_reranker.py`: row 단위 split → debate_id 기준 그룹 split (평가 부풀림 방지), max_length 256→512, 소규모 데이터셋 기본값 조정 (epochs=4, batch_size=4, lr=1e-5)

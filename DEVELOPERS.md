@@ -44,9 +44,9 @@ Claude Code CLI(`claude` 명령어)로 코드베이스 질문을 바로 할 수 
 그런데 알고 보니 **유권해석(국세청·기재부 질의회신)이 수집이 안 돼 있었습니다.**  
 세법은 조문보다 유권해석이 더 중요합니다. "법 조문은 이렇지만 해석은 이렇게 해라"는 결정들이 실무를 지배합니다.
 
-그래서 국세청 37,400건, 기재부 2,305건을 수집했더니 — **이번엔 제목만 있고 본문이 비어 있었습니다.**  
-`taxlaw.nts.go.kr/action.do` API가 예상대로 안 됩니다.  
-**이 API를 뚫는 것이 지금 가장 급한 과제입니다.**
+그래서 국세청 37,400건, 기재부 2,305건을 수집했더니 — 이번엔 제목만 있고 본문이 비어 있었습니다.  
+`taxlaw.nts.go.kr/action.do` API의 actionId를 역공학으로 분석했고, **USEQTA002P 페이지 인라인 JS에서 정확한 파라미터를 찾아냈습니다.**  
+기재부 2,304건 본문 수집 완료, 국세청 37,400건 수집 진행 중입니다.
 
 ---
 
@@ -131,23 +131,41 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 
 ---
 
-## 지금 막혀 있는 것 (블로커)
+## 완료된 것 (2026-05-26 기준)
 
-### 🔴 BLOCKER-1: 유권해석 본문 수집 실패
+### ✅ BLOCKER-1 해결: 유권해석 본문 수집
 
-**상황:** 국세청 37,400건 + 기재부 2,305건 수집은 됐는데 **본문(answer)이 전부 비어 있습니다.**  
-웹 브라우저에서 열면 내용이 잘 나옵니다. API가 actionId를 잘못 쓰거나 세션 인증이 필요한 것으로 추정됩니다.
+**원인:** `taxlaw.nts.go.kr/action.do`의 올바른 actionId는 `ASIQTB002PR01`, paramData 구조는 `{"dcmDVO": {"ntstDcmId": "..."}}`  
+기존 코드는 `ASIQTA002MR01` 등을 추정으로 썼는데 모두 실패. USEQTA002P 페이지 인라인 JS 역공학으로 확인.
 
-**수집기 위치:**  
-- `src/ingestion/collect_rulings_moef.py` (기재부)  
-- `src/ingestion/collect_rulings_nts_interp.py` (국세청)
+**수정된 파일:**
+- `src/ingestion/collect_rulings_moef.py` — actionId 수정 + dcmDVO 파라미터 구조 + `--resume` 로직(answer 빈 파일 재수집)
+- `src/ingestion/collect_rulings_nts_interp.py` — 동일 수정
 
-**해결 방향 후보:**
-1. 브라우저 네트워크 탭 → 실제 XHR 파라미터 확인 → actionId 교정
-2. Selenium/Playwright로 세션 취득 후 API 호출
-3. 직접 HTML 스크래핑
+**결과:**
+- 기재부(moef): 2,304/2,305건 본문 수집 완료 (99.9%)
+- 국세청(nts_interp): 37,400건 수집 중 (진행중)
+- 이후: Pinecone 재임베딩 → eval 재실행 → BGE 훈련 데이터 자동 추출
 
-이게 해결돼야 훈련 데이터, Pinecone 재임베딩, BGE 재파인튜닝이 전부 가능합니다.
+### ✅ Reranker 서빙 버그 3종 수정
+
+| 파일 | 수정 | 이유 |
+|------|------|------|
+| `src/infra/reranker.py` | `_MAX_TEXT_CHARS` 400→**900자** | 한국 법령 단서조항·부칙이 400자 이후에 위치하는 경우 있음 |
+| `src/infra/reranker.py` | `_MAX_LENGTH` 256→**512** | 파인튜닝(512)과 서빙(256) 불일치 → 점수 분포 왜곡 수정 |
+| `scripts/run_baseline_eval.py` | 모델 프로모션 게이트 추가 | 정확도 85% 미달 시 `.env` 업데이트 차단 (기존에는 미달해도 프로모션됨) |
+
+---
+
+## 지금 진행 중인 것
+
+### 🔄 nts_interp 37,400건 본문 수집 중
+
+완료 후 자동으로 이어지는 작업:
+```bash
+python -m src.ingestion.embed_rulings moef       # Pinecone 재임베딩
+python -m src.ingestion.embed_rulings nts_interp
+```
 
 ---
 
@@ -156,7 +174,6 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 | 항목 | 위치 | 영향 |
 |------|------|------|
 | UI가 API 서버 우회 | `src/ui.py` → `chat_turn()` 직접 import | BGE가 UI 프로세스 실행, 리소스 분리 불가 |
-| `--resume`이 빈 파일 스킵 | 수집기 공통 | 재수집 시 answer="" 파일 덮어쓰기 안 됨 |
 | MCP 검색 범위 구식 | `src/api/mcp_server.py` | 유권해석 네임스페이스 미포함 |
 | eval set 33건뿐 | BGE 평가 | 1건 차이 = 3% 변동, 통계 신뢰 낮음 |
 | MCP `check_area_designation` stub | `mcp_server.py` | 실제 API 없이 빈 응답 |
@@ -168,9 +185,9 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 | 소스 | 구속력 순위 | 파일 수 | answer 상태 | Pinecone 상태 |
 |------|-----------|---------|-------------|--------------|
 | 법령 조문 (소득세법 등) | 최상위 | — | ✅ | ✅ `tax-law` |
-| 기재부 법령해석 | 유권해석 1위 | 2,305건 | ❌ 제목만 | ⏳ `tax-ruling-moef` |
+| 기재부 법령해석 | 유권해석 1위 | 2,305건 | ✅ 2,304건 수집 완료 | ⏳ 재임베딩 대기 |
 | 국세청 질의회신 | 유권해석 2위 | ~3,000건 | ✅ | ✅ `tax-ruling-nts` |
-| 국세청 법령해석 | 유권해석 2위 | 37,400건 | ❌ 제목만 | ⏳ `tax-ruling-nts-interp` |
+| 국세청 법령해석 | 유권해석 2위 | 37,400건 | 🔄 수집 진행 중 | ⏳ 재임베딩 대기 |
 | 심판원 결정례 | 준사법적 결정 | ~수천건 | ✅ | ✅ `tax-ruling-decisions` |
 
 BGE Reranker:
@@ -193,26 +210,18 @@ BGE Reranker:
 **핵심 질문:** "37,400건 해석 데이터를 어떻게 안정적으로 쌓고,  
 그 데이터가 에이전트 파이프라인 위에서 자동으로 흐르게 할 수 있을까?"
 
-#### A-1. 유권해석 본문 수집 해결 (최우선, BLOCKER-1)
+#### A-1. ✅ 유권해석 본문 수집 해결 (BLOCKER-1 완료)
 
-```
-브라우저 네트워크 탭 → 실제 XHR 분석 → actionId/파라미터 교정
-또는 Playwright 세션 기반 수집
+`ASIQTB002PR01` actionId + `{"dcmDVO": {"ntstDcmId": "..."}}` 구조로 수정 완료.  
+기재부 2,304건 수집 완료. 국세청 37,400건 수집 진행 중.
 
-목표: moef 2,305건 + nts_interp 37,400건 answer 필드 90% 이상 채우기
-```
+#### A-2. ✅ 수집 파이프라인 신뢰성
 
-이게 해결되면 나머지 훈련·임베딩·eval이 전부 언블록됩니다.
+- `--resume` 로직 수정 완료: `파일 존재 AND answer != ""` 둘 다 충족해야 스킵
+- 실패 건 자동 재시도 큐는 미구현 (현재 조용히 실패)
 
-#### A-2. 수집 파이프라인 신뢰성
+#### A-3. Pinecone 재임베딩 (국세청 수집 완료 후)
 
-- `--resume` 로직 수정: `파일 존재 AND answer != ""` 둘 다 충족해야 스킵
-- 실패 건 자동 재시도 큐 (현재 조용히 실패함)
-- 수집 완료 → Pinecone 임베딩 자동 트리거 체인
-
-#### A-3. Pinecone 재임베딩
-
-answer 본문 수집 완료 후:
 ```bash
 python -m src.ingestion.embed_rulings moef
 python -m src.ingestion.embed_rulings nts_interp
@@ -283,10 +292,14 @@ python scripts/finetune_reranker.py --epochs 4
 
 #### B-4. 레이블링 UI 개선
 
-`src/pages/labeling.py` — 이미 구현됐는데 파이프라인과 연결이 안 됩니다.
+`src/pages/admin.py` 어드민 "✏️ 전문가 검토" 서브탭으로 통합됨 (기존 `labeling.py` 삭제).
 
+- 사실관계 표시 + 전문가 verdict·확신도·메모 입력 → `expert_labels.json` 저장
+- 신규 케이스 직접 입력 폼 (골든셋 추가)
+- CSV 내보내기
+
+추가로 연결이 필요한 것:
 - "현재 파이프라인으로 재판정" 버튼 → 실시간 결과 비교
-- chunk_id 수동 입력 (gold_chunk_ids 없는 83건 처리)
 - 레이블 완료 → BGE 훈련 데이터 자동 변환
 
 #### B-5. 어드민 화면 — 시스템 건강도 대시보드
@@ -309,18 +322,21 @@ python scripts/finetune_reranker.py --epochs 4
 ## 실행 순서 참고
 
 ```
-BLOCKER-1 해결 (A-1)
+✅ BLOCKER-1 해결 (A-1) — 완료
     ↓
-Pinecone 재임베딩 (A-3)
+✅ moef 2,304건 본문 수집 완료
+🔄 nts_interp 37,400건 수집 진행 중
     ↓
-eval 재실행 + 훈련 데이터 자동 추출 (B-1, B-2)
+⏳ Pinecone 재임베딩 (A-3) — nts_interp 완료 후
     ↓
-BGE 재파인튜닝 (B-3)
+⏳ eval 재실행 + 훈련 데이터 자동 추출 (B-1, B-2)
     ↓
-MCP 업그레이드 / 레이블링 UI / 어드민 (병렬 가능)
+⏳ BGE 재파인튜닝 (B-3)
+    ↓
+⏳ MCP 업그레이드 / 어드민 개선 (병렬 가능)
 ```
 
-A-1이 모든 것의 전제입니다. 여기서 막히면 다른 건 병렬로 진행하면 됩니다.
+nts_interp 수집 완료되면 `embed_rulings`부터 순서대로 진행합니다.
 
 ---
 

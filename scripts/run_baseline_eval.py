@@ -287,28 +287,46 @@ def _maybe_trigger_finetune() -> None:
         model_path = "data/models/bge-reranker-tax-rag"
         accuracy = _read_finetune_accuracy(Path(model_path))
 
-        _save_training_state({
-            "debate_count": current,
-            "trained_at": datetime.now().isoformat(),
-            "model_path": model_path,
-            "accuracy": accuracy,
-        })
-        _update_env_model_path(model_path)
-
-        print(f"\n=== [3/3] 완료 ===")
-        print(f"  BGE_RERANKER_MODEL={model_path} (.env 반영)")
+        print(f"\n=== [3/3] 품질 게이트 확인 ===")
 
         if accuracy is not None:
             acc_pct = accuracy * 100
             if accuracy >= ACCURACY_TARGET:
+                # 품질 통과 → 모델 프로모션
+                _save_training_state({
+                    "debate_count": current,
+                    "trained_at": datetime.now().isoformat(),
+                    "model_path": model_path,
+                    "accuracy": accuracy,
+                    "promoted": True,
+                })
+                _update_env_model_path(model_path)
                 print(f"  정확도: {acc_pct:.1f}% ✓ (목표 {ACCURACY_TARGET*100:.0f}% 달성)")
+                print(f"  BGE_RERANKER_MODEL={model_path} (.env 반영)")
                 print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
             else:
+                # 품질 미달 → 프로모션 보류 (base model 유지)
+                _save_training_state({
+                    "debate_count": current,
+                    "trained_at": datetime.now().isoformat(),
+                    "model_path": model_path,
+                    "accuracy": accuracy,
+                    "promoted": False,
+                })
                 print(f"  정확도: {acc_pct:.1f}% ✗ (목표 {ACCURACY_TARGET*100:.0f}% 미달)")
+                print(f"  ⚠️  모델 프로모션 보류 — base model 유지 (.env 미변경)")
                 print(f"  → 다음 eval 사이클을 실행해 debate를 더 수집하세요.")
                 print(f"  → 권장 명령: python -m scripts.run_baseline_eval --debate --auto-finetune --workers 3")
         else:
-            print(f"  정확도 CSV 없음 — 수동 확인 필요")
+            _save_training_state({
+                "debate_count": current,
+                "trained_at": datetime.now().isoformat(),
+                "model_path": model_path,
+                "accuracy": None,
+                "promoted": False,
+            })
+            print(f"  정확도 CSV 없음 — 프로모션 보류 (수동 확인 필요)")
+            print(f"  → python -m scripts.finetune_reranker --eval-only 로 재평가하세요.")
             print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
 
     except subprocess.CalledProcessError as e:
