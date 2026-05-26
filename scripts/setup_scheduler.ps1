@@ -67,11 +67,50 @@ Register-ScheduledTask `
     -Description "Tax-RAG: 법령 개정 + 규제지역 변경 감지 + Pinecone reindex (하루 2회)" `
     -RunLevel Highest
 
+# ── [2] 유권해석·예규·결정례 증분 수집 (매일 02:00) ──────────────────────────
+# collect_and_embed_rulings.py:
+#   - 수집: --resume으로 기존 파일 스킵 (무료 HTTP)
+#   - 임베딩: 신규 파일이 있을 때만 실행 (Upstage API 비용 절감)
+$RulingsTaskName = "TaxRAG-RulingsCollect"
+
+$RulingsAction = New-ScheduledTaskAction `
+    -Execute $PythonExe `
+    -Argument "scripts\collect_and_embed_rulings.py" `
+    -WorkingDirectory $ProjectRoot
+
+$RulesTrigger = New-ScheduledTaskTrigger -Daily -At "02:00"
+
+$RulingsSettings = New-ScheduledTaskSettingsSet `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 3) `
+    -RestartCount 1 `
+    -RestartInterval (New-TimeSpan -Minutes 30) `
+    -MultipleInstances IgnoreNew
+
+$existingRulings = Get-ScheduledTask -TaskName $RulingsTaskName -ErrorAction SilentlyContinue
+if ($existingRulings) {
+    Unregister-ScheduledTask -TaskName $RulingsTaskName -Confirm:$false
+    Write-Host "기존 유권해석 태스크 제거 완료"
+}
+
+Register-ScheduledTask `
+    -TaskName $RulingsTaskName `
+    -Action $RulingsAction `
+    -Trigger $RulesTrigger `
+    -Settings $RulingsSettings `
+    -Description "Tax-RAG: 유권해석·예규·결정례 증분 수집 + 신규 있을 때만 임베딩 (매일 02:00)" `
+    -RunLevel Highest
+
 Write-Host ""
 Write-Host "=== 등록 완료 ==="
-Write-Host "Task     : $TaskName"
-Write-Host "Python   : $PythonExe"
-Write-Host "Schedule : 09:00 / 18:00 (하루 2회)"
+Write-Host ""
+Write-Host "[$TaskName]"
+Write-Host "  Python   : $PythonExe"
+Write-Host "  Schedule : 09:00 / 18:00 (하루 2회) — 법령 개정 감지"
+Write-Host ""
+Write-Host "[$RulingsTaskName]"
+Write-Host "  Python   : $PythonExe"
+Write-Host "  Schedule : 02:00 (매일) — 유권해석·예규 증분 수집 (신규 있을 때만 임베딩)"
 Write-Host ""
 Write-Host "수동 실행:"
 Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
+Write-Host "  Start-ScheduledTask -TaskName '$RulingsTaskName'"

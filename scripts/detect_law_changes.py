@@ -404,8 +404,16 @@ def main() -> None:
         # 4. 변경 이력 기록
         append_change_log(new_versions)
 
-        # 5. 골든케이스 stale 탐지
+        # 5. 골든케이스 stale 탐지 + invalidated 플래그
         flag_stale_golden_cases(new_versions)
+        try:
+            from src.eval.golden_injector import flag_for_review as _flag_golden
+            _n = _flag_golden(list(new_versions.keys()))
+            if _n:
+                print(f"\n  ⚠ 골든셋 재검토 플래그: {_n}건 → data/golden/qa_pairs.json")
+                print(f"     python -m scripts.run_golden_eval  # 재평가 실행")
+        except Exception as _e:
+            print(f"  ⚠ 골든셋 플래그 오류: {_e}")
 
     # 6. 스냅샷 갱신 (신규 버전이 없어도 현행 목록으로 업데이트)
     try:

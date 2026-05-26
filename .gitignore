@@ -12,6 +12,23 @@ build/
 data/raw/
 data/processed/
 
+# Collected rulings data (large, managed separately)
+data/rulings/
+
+# ML model weights (use shared storage / DVC)
+data/models/
+checkpoints/
+
+# Generated training data (runtime)
+data/reranker_pairs.jsonl
+data/reranker_training/
+
+# Area designation source state
+data/area_designations/source_state/
+
+# Expert escalation runtime data
+data/expert_escalations/
+
 # Feedback & eval results — runtime data, not source
 data/feedback/*.jsonl
 data/eval_results/*.json
@@ -20,6 +37,15 @@ data/eval_results/*.json
 data/debates/
 data/red_wins/
 data/blue_wins/
+
+# OMC query artifacts
+.omc/artifacts/
+
+# Claude Code settings (user-specific)
+.claude/
+
+# Runtime logs
+logs/
 
 # Environment
 .env
@@ -36,3 +62,4 @@ Thumbs.db
 # Pinecone / API keys
 *.key
 secrets.json
+node_modules

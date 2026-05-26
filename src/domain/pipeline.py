@@ -107,7 +107,7 @@ def _confirmation_blocked_result(unconfirmed_questions: List[str]) -> PipelineRe
 def _l2_blocked_result(fact_check: FactCheckResult) -> PipelineResult:
     answer = TaxAnswer(
         answer="판단에 필요한 사실관계가 불충분합니다. 아래 항목을 추가로 확인해 주세요.",
-        verdict="needs_verification",
+        verdict=TaxVerdict.NEEDS_VERIFICATION,
         confidence=0.0,
         missing_facts=fact_check.missing_fact_texts(),
         warnings=[f"크리티컬 정보 {len(fact_check.critical_missing)}건 누락으로 추론 중단"],
@@ -170,7 +170,7 @@ async def run_rag_pipeline(
     raw_answer = raw_answer.with_update(missing_facts=combined_missing)
 
     # ── L5: Output Validation ────────────────────────────────────────────
-    validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags)
+    validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags, query=query)
 
     result = PipelineResult(
         answer=validated,
@@ -198,19 +198,15 @@ async def run_rag_pipeline(
                     "debate_id": debate.debate_id,
                     "outcome": debate.outcome,
                     "challenge_type": debate.red_challenge.get("challenge_type"),
+                    "challenge_text": debate.red_challenge.get("challenge_text", ""),
+                    "defense_text": debate.blue_defense.get("defense_text", ""),
+                    "new_citations": debate.blue_defense.get("new_citations", []),
                     "revised_verdict": debate.blue_defense.get("revised_verdict"),
                     "promoted_to_golden": debate.promoted_to_golden,
                 }
-                # Red가 이겼으면 파이프라인 최종 verdict 업데이트
                 if debate.outcome == "red_won":
                     revised = debate.blue_defense.get("revised_verdict", validated.verdict)
-                    result.answer = validated.with_update(
-                        verdict=revised,
-                        warnings=validated.warnings + [
-                            f"[Red Team 수정] {debate.red_challenge.get('challenge_type')}: "
-                            f"{debate.blue_defense.get('defense_text', '')[:100]}"
-                        ],
-                    )
+                    result.answer = validated.with_update(verdict=revised)
         except Exception as e:
             # 논쟁 실패가 주 파이프라인을 막으면 안 됨
             result.debate_record = {"error": str(e)}
@@ -268,7 +264,7 @@ async def run_rag_pipeline_stream(
     if raw_answer is None:
         raw_answer = TaxAnswer(
             answer="AI 추론 중 오류가 발생했습니다.",
-            verdict="needs_verification",
+            verdict=TaxVerdict.NEEDS_VERIFICATION,
             confidence=0.0,
             chunk_ids=list(retrieved_ids),
             warnings=["스트리밍 오류"],
@@ -281,7 +277,7 @@ async def run_rag_pipeline_stream(
     raw_answer = raw_answer.with_update(missing_facts=combined_missing)
 
     # ── L5 Output Validation ────────────────────────────────────────────────
-    validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags)
+    validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags, query=query)
 
     result = PipelineResult(
         answer=validated,
@@ -310,18 +306,15 @@ async def run_rag_pipeline_stream(
                     "debate_id": debate.debate_id,
                     "outcome": debate.outcome,
                     "challenge_type": debate.red_challenge.get("challenge_type"),
+                    "challenge_text": debate.red_challenge.get("challenge_text", ""),
+                    "defense_text": debate.blue_defense.get("defense_text", ""),
+                    "new_citations": debate.blue_defense.get("new_citations", []),
                     "revised_verdict": debate.blue_defense.get("revised_verdict"),
                     "promoted_to_golden": debate.promoted_to_golden,
                 }
                 if debate.outcome == "red_won":
                     revised = debate.blue_defense.get("revised_verdict", validated.verdict)
-                    result.answer = validated.with_update(
-                        verdict=revised,
-                        warnings=validated.warnings + [
-                            f"[Red Team 수정] {debate.red_challenge.get('challenge_type')}: "
-                            f"{debate.blue_defense.get('defense_text', '')[:100]}"
-                        ],
-                    )
+                    result.answer = validated.with_update(verdict=revised)
         except Exception as e:
             result.debate_record = {"error": str(e)}
 

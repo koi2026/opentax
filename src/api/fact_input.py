@@ -290,6 +290,7 @@ def fact_input_to_rag_query(fact: FactInput) -> RAGQueryInput:
         if rc.completion_date:
             fact_ledger["completion_date"] = _yyyymmdd_to_iso(rc.completion_date)
     if sc.expropriation:
+        fact_ledger["is_expropriation"] = True
         fact_ledger["compensation_type"] = sc.expropriation.compensation_type
         fact_ledger["is_main_residence_for_expropriation"] = sc.expropriation.is_main_residence
     if sc.residence_exemption_reason:

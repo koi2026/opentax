@@ -46,15 +46,15 @@ class TaxLawRetriever(ABC):
     """업스트림 계약 — 양도소득세 법령 검색기."""
 
     @abstractmethod
-    def retrieve(self, query: RAGQueryInput) -> List[RetrievedChunk]:
-        """기본 검색 — 본칙 청크 우선 반환."""
+    def retrieve(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
+        """기본 검색 — 본칙 청크 우선 반환. query_text 제공 시 fact_vector.to_text() 대신 사용."""
 
-    def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
+    def retrieve_with_buchik(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
         """
         본칙 검색 후 query.include_buchik=True 면 연결된 부칙 청크를 보강해서 반환.
         부칙(경과조치/적용례)은 적용 법령 결정에 필수.
         """
-        results = self.retrieve(query)
+        results = self.retrieve(query, query_text=query_text)
         if not query.include_buchik:
             return results
 

@@ -1,249 +1,164 @@
-# RAW agent — 양도소득세 AI
+# RAW Agent — 양도소득세 법령 RAG 시스템
 
-양도소득세 관련 세금 판단을 **소득세법·조세특례제한법 조문에 근거**해 수행하는 RAG 기반 AI 에이전트입니다.
-공식 법령 데이터(law.go.kr)를 벡터 DB에 인덱싱하고, 사용자 질문에 대해 근거 조문을 검색·제시·판단합니다.
-
-> KAIST SW교육센터 4주 해커톤 트랙C 출품작
+> **한국 양도소득세 비과세·감면·중과 판단을 위한 법령 기반 AI 추론 엔진**  
+> 단순한 계산기가 아닙니다. 법령을 읽고, 유권해석을 참조하고, 근거를 제시하면서 판단합니다.
 
 ---
 
-## 아키텍처
+## 핵심 철학
 
-```
-사용자 입력 (양도 정보)
-    │
-    ▼
-┌─────────────────┐
-│  Streamlit UI   │  ← 디버그 UI: top-5 조문, 유사도 점수, 에이전트 추론 과정
-└────────┬────────┘
-         │
-    ▼
-┌─────────────────┐
-│   MCP Server    │  ← FastAPI 기반 Model Context Protocol
-│   (FastAPI)     │    tools: search_tax_law, retrieve_article,
-└────────┬────────┘           analyze_exemption, verify_citations
-         │
-    ▼
-┌─────────────────────────────────────────┐
-│           CrewAI Orchestration          │
-│                                         │
-│  Tax Researcher ──► Tax Advisor         │
-│  (사실관계 정리 +   (조문 적용 →        │
-│   RAG 검색)         비과세 판단)        │
-└────────┬────────────────────────────────┘
-         │
-    ▼
-┌─────────────────┐     ┌──────────────────┐
-│  LlamaIndex RAG │────►│ Pinecone 벡터 DB │
-│  + BGE Reranker │     │ (2,238 법령 청크) │
-└─────────────────┘     └──────────────────┘
-         │
-    ▼
-┌─────────────────┐
-│  Claude Opus    │  ← 최종 판단 및 한국어 응답 생성
-│  4.7 (Anthropic)│
-└─────────────────┘
-         │
-    ▼
-법령 데이터 원천: law.go.kr DRF API
-(소득세법, 시행령, 시행규칙 + 조세특례제한법, 시행령, 시행규칙)
-```
+세금 판단의 오류는 납세자에게 실제 피해가 됩니다.  
+그렇기 때문에 이 시스템은 두 가지 원칙을 동시에 지킵니다.
+
+### 완전 자동화
+법령 수집 → 임베딩 → 검색 → 추론 → 출력까지 전 과정이 에이전트 파이프라인으로 자동화됩니다.  
+법령이 개정되면 자동 감지 → 재인덱스 → 시스템 전체 반영.  
+사람이 개입하는 지점은 예외 처리와 최종 승인에 한정됩니다.
+
+### 인간 즉각 개입 가능
+모든 판단의 근거(fact_json, 검색 조문, 인용 chunk_id, debate 기록)가 항상 노출됩니다.  
+세무사·전문가가 어느 단계에서든 판단 과정을 확인하고 즉시 개입할 수 있습니다.  
+블랙박스 판단은 허용하지 않습니다.
 
 ---
 
-## 빠른 시작
+## 지금 이 시스템이 하는 것
 
-### 사전 요건
-
-- Docker Desktop 또는 Docker Engine + Docker Compose
-- Python 3.12+ (Docker를 쓰지 않는 경우)
-- Pinecone 계정 (Serverless 인덱스)
-- Anthropic API 키
-- OpenAI 또는 Upstage API 키 (임베딩용)
-
-### 설치 및 환경변수
-
-```bash
-git clone https://github.com/Raw-Agent/korean-tax-rag.git
-cd korean-tax-rag
-cp .env.example .env
+```
+[사건 사실관계 입력]
+     ↓
+[L1.5] 확인서 체크 — 세대구성·취득일·특수관계 등 미확인 시 차단
+     ↓
+[L2]  팩트체크 — 판단에 필요한 결정적 정보 누락 검출
+     ↓
+[L3]  쿼리 보강 — 세법 특화 검색 키워드 생성
+     ↓
+[L4]  법령·유권해석 멀티소스 검색 + LLM 추론
+     │  ┌──────────────────────────────────────────────────────┐
+     │  │ Pinecone 5개 네임스페이스             │
+     │  │  · tax-law              (법령 조문 — 소득세법 등)     │
+     │  │  · tax-ruling-moef      (기재부 법령해석 — 최고 권위) │
+     │  │  · tax-ruling-nts       (국세청 질의회신)            │
+     │  │  · tax-ruling-nts-interp (국세청 법령해석)           │
+     │  │  · tax-ruling-decisions  (심판원 결정례)             │
+     │  └──────────────────────────────────────────────────────┘
+     │  BGE Reranker (세법 도메인 파인튜닝) 적용
+     ↓
+[L5]  출력 검증 — phantom citation 검출, confidence 계산
+     ↓
+[판단 결과]  verdict + 근거 조문 + debate 기록 + 감사 추적
 ```
 
-`.env` 파일을 열어 아래 키를 입력합니다:
-
-| 변수명 | 설명 |
-|--------|------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude API 키 |
-| `PINECONE_API_KEY` | Pinecone 벡터 DB 키 |
-| `PINECONE_INDEX_NAME` | Pinecone 인덱스 이름 (예: `tax-rag`) |
-| `OPENAI_API_KEY` | OpenAI 임베딩 키 (text-embedding-3-large) |
-| `UPSTAGE_API_KEY` | Upstage Solar 임베딩 키 (선택, 우선 적용) |
-| `LAW_API_OC` | law.go.kr DRF OC 파라미터 (`jctax`) |
-
-### Docker 개발 환경 실행
-
-```bash
-# UI + FastAPI chat API + MCP SSE 서버 실행
-docker compose up --build
-```
-
-접속 URL:
-
-- Streamlit UI: `http://localhost:8501`
-- FastAPI docs: `http://localhost:8000/docs`
-- MCP SSE: `http://localhost:8001`
-
-개발 명령은 `api` 서비스를 일회성 컨테이너로 사용합니다:
-
-```bash
-# 테스트
-docker compose run --rm api python -m pytest -q
-
-# 법령 데이터 수집
-docker compose run --rm api python -m src.ingestion.collect
-
-# 법령 임베딩 생성 및 Pinecone 업로드
-docker compose run --rm api python -m src.ingestion.embed
-
-# 유권해석/PDF 등 추가 수집 예시
-docker compose run --rm api python -m src.ingestion.collect_rulings_pdf
-docker compose run --rm api python -m src.ingestion.embed_rulings nts
-```
-
-### 로컬 Python 실행
-
-```bash
-# 1. 의존성 설치
-pip install -r requirements.txt
-
-# 2. 법령 데이터 수집 (최초 1회, 이후 캐시 사용)
-python -m src.ingestion.collect
-
-# 3. 임베딩 생성 및 Pinecone 업로드
-python -m src.ingestion.embed
-
-# 4. FastAPI chat API 실행
-uvicorn src.api.chat_api:app --host 0.0.0.0 --port 8000 --reload
-
-# 5. MCP SSE 서버 실행 (별도 터미널)
-python -m src.api.mcp_server --sse
-
-# 6. Streamlit UI 실행
-streamlit run src/ui.py --server.port 8501
-```
-
-브라우저에서 `http://localhost:8501` 접속
+**판단 유형:** 비과세 / 고가주택 / 일반과세 / 단기세율 / 중과 / 감면 / 사실관계부족
 
 ---
 
-## 프로젝트 구조
+## 달성 현황
 
-```
-tax-rag/
-├── src/
-│   ├── api/
-│   │   ├── chat_api.py   # FastAPI chat API + chat_turn()
-│   │   └── mcp_server.py # FastMCP 도구 서버
-│   ├── domain/           # L2~L5 도메인 로직, 타입, 검증
-│   ├── ingestion/        # law.go.kr/유권해석 수집 + Pinecone 업로드
-│   ├── retrieval/        # Pinecone 검색 + LLM 호출
-│   ├── rag.py            # 레거시 자연어 RAG shim
-│   ├── ui.py             # Streamlit UI
-│   └── agents/
-│       ├── crew.py       # CrewAI Crew 정의
-│       ├── tools.py      # RAG/MCP 도구 래퍼
-│       ├── roles.py      # Agent 역할 정의
-│       └── prompts.py    # 프롬프트 버전 관리
-├── data/
-│   ├── raw/              # XML 원본 (.gitignore)
-│   └── processed/        # JSON 청크 (.gitignore)
-├── tests/                # 단위 테스트
-├── .env.example          # 환경변수 템플릿
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── CLAUDE.md             # AI 코딩 어시스턴트 가이드
-└── README.md
-```
+| 단계 | 내용 | 상태 |
+|------|------|------|
+| Phase 1 | 법령 수집 파이프라인 (law.go.kr DRF) | ✅ |
+| Phase 2 | Pinecone 임베딩 + Solar 4096차원 | ✅ |
+| Phase 3 | L2~L5 판단 파이프라인 | ✅ |
+| Phase 4 | 유권해석 5개 네임스페이스 통합 | ✅ |
+| Phase 5 | BGE Reranker 세법 파인튜닝 (acc 0.9545) | ✅ |
+| Phase 6 | 확인서(L1.5) + 책임소재 관리 | ✅ |
+| 진행 중 | 유권해석 본문 수집 (37,400건 + 2,305건) | 🔄 |
+| 예정 | BGE 재파인튜닝 (본문 데이터 기반) | ⏳ |
+| 예정 | 조정대상지역 자동조회 API | ⏳ |
 
----
-
-## 수집 법령 목록
-
-| 법령명 | MST | 분류 |
-|--------|-----|------|
-| 소득세법 | 285523 | 법률 |
-| 소득세법 시행령 | 285631 | 대통령령 |
-| 소득세법 시행규칙 | 284987 | 부령 |
-| 조세특례제한법 | 285525 | 법률 |
-| 조세특례제한법 시행령 | 283625 | 대통령령 |
-| 조세특례제한법 시행규칙 | 284611 | 부령 |
-
-총 **2,238개 청크** (조문단위 기준, 조/항/호/목 구조 보존)
-
----
-
-## 개발 로드맵 (4주 해커톤)
-
-| 주차 | 목표 | 완료 기준 |
-|------|------|----------|
-| **Week 1** | 데이터 파이프라인 | `collect.py` + `embed.py` 완성, Pinecone 인덱스 구축 |
-| **Week 2** | RAG + 에이전트 | `rag.py` BGE reranker 적용, CrewAI 2-agent 워크플로우 |
-| **Week 3** | MCP 서버 + UI | FastAPI MCP 도구, Streamlit 디버그 UI (top-5 조문 표시) |
-| **Week 4** | 통합 + 데모 | End-to-end 테스트, 해커톤 발표 시나리오 준비 |
-
----
-
-## 팀원 기여 가이드
-
-### 브랜치 전략
-
-```bash
-main          # 발표용 안정 버전
-dev           # 통합 개발 브랜치
-feature/*     # 기능 개발 (예: feature/rag-reranker)
-fix/*         # 버그 수정
-```
-
-### 새 법령 추가 방법
-
-[src/collect.py](src/collect.py)의 `TARGET_LAWS` 리스트에 항목 추가:
-
-```python
-{"name": "법령명", "mst": "MST번호", "category": "법률|대통령령|부령"}
-```
-
-MST 번호는 [law.go.kr](https://www.law.go.kr) 에서 해당 법령 검색 후 URL에서 확인.
-
-### 에이전트 확장 방법
-
-1. `src/agents/roles.py`에 새 역할 정의
-2. `src/agents/tools.py`에 필요한 도구 추가
-3. `src/agents/prompts.py`에 프롬프트 버전 관리
-4. `src/agents/crew.py`에 Crew에 에이전트/태스크 등록
-
-### 커밋 전 체크리스트
-
-- [ ] `.env`가 커밋에 포함되지 않았는지 확인
-- [ ] `data/raw/`, `data/processed/` 제외 확인
-- [ ] 새 API 키가 코드에 하드코딩되지 않았는지 확인
-- [ ] 관련 테스트 추가 또는 업데이트
-
----
-
-## 법률 고지
-
-본 시스템은 **정보 제공** 목적으로 개발되었으며, 법률 자문이 아닙니다.
-양도소득세 신고·납부에 관한 최종 판단은 반드시 공인 세무사와 상담하시기 바랍니다.
+> 85개 커밋, 5일 연속 활성 개발 (2026-05-21 ~ 현재)
 
 ---
 
 ## 기술 스택
 
-![Python](https://img.shields.io/badge/Python-3.12-blue)
-![CrewAI](https://img.shields.io/badge/CrewAI-0.95+-green)
-![LlamaIndex](https://img.shields.io/badge/LlamaIndex-0.12+-orange)
-![Pinecone](https://img.shields.io/badge/Pinecone-Serverless-purple)
-![Claude](https://img.shields.io/badge/Claude-Opus%204.7-red)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-teal)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.40+-pink)
+| 영역 | 기술 |
+|------|------|
+| LLM | Claude Sonnet 4.6 / Opus 4.7 |
+| 임베딩 | Upstage Solar `solar-embedding-1-large-passage` (dim=4096) |
+| 벡터 DB | Pinecone Serverless (5 namespace) |
+| Reranker | BGE `bge-reranker-v2-m3` (세법 파인튜닝, CrossEncoder) |
+| 파이프라인 | Python / FastAPI / Streamlit |
+| MCP | FastMCP (Claude Desktop 연동, 7개 도구) |
+| 법령 소스 | law.go.kr DRF API / taxlaw.nts.go.kr |
+
+---
+
+## 핵심 설계 계약 (변경 불가)
+
+| 원칙 | 구현 |
+|------|------|
+| 근거 없는 답변 금지 | 검색된 chunk_id가 있는 조문만 인용 |
+| 수치 리터럴 코드 삽입 금지 | 세율·기간·금액 → `TaxConstantsRegistry` 전용 |
+| BGE Reranker 생략 금지 | 최종 조문 선택 전 반드시 reranking |
+| 판단 전 확인서 차단 | L1.5 미확인 항목 있으면 답변 출력 불가 |
+| 전 과정 감사 추적 | verdict + chunk_id + debate 기록 항상 보존 |
+
+---
+
+## 빠른 시작
+
+```bash
+git clone https://github.com/Raw-Agent/korean-tax-rag.git
+cd korean-tax-rag
+pip install -r requirements.txt
+cp .env.example .env   # API 키 입력
+
+streamlit run src/ui.py          # UI  → http://localhost:8501
+uvicorn src.api.chat_api:app     # API → http://localhost:8000
+python src/api/mcp_server.py     # MCP (Claude Desktop용)
+```
+
+---
+
+## 디렉터리 구조
+
+```
+src/
+├── api/
+│   ├── chat_api.py        # FastAPI — 외부 연동 REST
+│   └── mcp_server.py      # FastMCP — Claude Desktop 7개 도구
+├── domain/
+│   ├── pipeline.py        # L1.5 ~ L5 메인 파이프라인
+│   ├── confirmation.py    # 확인서 체크 (L1.5)
+│   ├── tax_calculator.py  # 세액 계산
+│   └── constants.py       # TaxConstantsRegistry
+├── retrieval/
+│   └── retriever_impl.py  # 멀티 네임스페이스 + BGE reranking
+├── ingestion/             # 법령·유권해석 수집기
+├── eval/                  # RVRL debate, golden set 관리
+├── agents/prompts.py      # 프롬프트 버전 관리
+├── pages/
+│   ├── admin.py           # 어드민 — 수집 현황·파이프라인 상태
+│   └── labeling.py        # 전문가 레이블링 UI
+└── ui.py                  # Streamlit 메인
+
+data/
+├── golden/                # 골든셋 (142건 종합 케이스)
+├── tax_tables/            # 세율표 JSON (TaxConstantsRegistry 소스)
+└── models/                # BGE 파인튜닝 모델 (별도 관리)
+
+scripts/
+├── collect_and_embed_rulings.py  # 증분 수집 + 임베딩 스케줄러
+├── finetune_reranker.py          # BGE 파인튜닝
+├── run_baseline_eval.py          # 골든셋 eval 실행
+└── detect_law_changes.py         # 법령 개정 자동 감지
+```
+
+---
+
+## 개발 기여
+
+- 코드 기여 전 [CLAUDE.md](CLAUDE.md) 필독 (설계 계약 명시)
+- 업무 요청서 및 태스크 번들: [DEVELOPERS.md](DEVELOPERS.md)
+- 세부 아키텍처·법령 도메인 규칙: [AGENTS.md](AGENTS.md)
+
+커밋 메시지: 한국어, `feat/fix/docs/refactor/test/chore: 요약`
+
+---
+
+## 법률 고지
+
+본 시스템은 정보 제공 목적으로 개발되었으며 법률 자문이 아닙니다.  
+양도소득세 신고·납부에 관한 최종 판단은 반드시 공인 세무사와 상담하시기 바랍니다.

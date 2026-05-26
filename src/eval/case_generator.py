@@ -29,6 +29,17 @@ def _get_heavy_tax_suspension_end(as_of: Optional[date] = None) -> date:
         return date(2026, 5, 9)  # fallback
 
 
+def _capture_snapshot(deps: List[str], as_of: date) -> dict:
+    """registry_deps 키들의 현재값을 문자열로 스냅샷 — stale 감지용."""
+    if not deps:
+        return {}
+    try:
+        from src.domain.tax_constants import TaxConstantsRegistry
+        return {key: str(TaxConstantsRegistry.get(key, as_of)) for key in deps}
+    except Exception:
+        return {}
+
+
 @dataclass
 class SyntheticCase:
     case_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -40,6 +51,11 @@ class SyntheticCase:
     registry_deps: List[str] = field(default_factory=list)
     # 이 케이스의 expected_verdict가 의존하는 TaxConstantsRegistry 키 목록.
     # 개정 감지 시 해당 키가 바뀌면 이 케이스를 자동 stale 처리.
+    registry_snapshot: dict = field(default_factory=dict)
+    # 케이스 생성 시점의 registry_deps 값 스냅샷 (str 직렬화).
+    # eval.py _is_stale()이 현재값과 비교해 stale 여부를 판단한다.
+    gold_chunk_ids: List[str] = field(default_factory=list)
+    # bootstrap_gold_chunks.py가 채운다. eval.py Recall@K 산출에 사용.
 
 
 def generate_date_boundary_cases(
@@ -105,6 +121,8 @@ def generate_price_boundary_cases(
         (threshold + margin, f"{threshold_label} 초과 고가주택"),
         (threshold + 300_000_000, f"{threshold_label} +3억 고가주택"),
     ]
+    _deps = ["HIGH_VALUE_THRESHOLD"]
+    _snapshot = _capture_snapshot(_deps, transfer_date)
     for price, description in prices:
         yield SyntheticCase(
             description=description,
@@ -122,7 +140,8 @@ def generate_price_boundary_cases(
             expected_verdict="고가주택" if price > threshold else "비과세",
             boundary_type="price_boundary",
             tags=[f"{threshold_label}경계", "고가주택"],
-            registry_deps=["HIGH_VALUE_THRESHOLD"],
+            registry_deps=_deps,
+            registry_snapshot=_snapshot,
         )
 
 
@@ -153,6 +172,8 @@ def generate_temp_two_house_cases(
     transfer_date: date = date(2026, 4, 1),
 ) -> Iterator[SyntheticCase]:
     """일시적2주택 특례 — 소득세법 §155①."""
+    _suspension_end = _get_heavy_tax_suspension_end(transfer_date)
+    _after_suspension = transfer_date > _suspension_end
     scenarios = [
         {
             "desc": "일시적2주택 — 3년 내 종전주택 양도 (비과세)",
@@ -161,9 +182,9 @@ def generate_temp_two_house_cases(
             "tags": ["일시적2주택", "3년이내"],
         },
         {
-            "desc": "일시적2주택 — 3년 초과 후 양도 (일반과세)",
+            "desc": "일시적2주택 — 3년 초과 후 양도 (일반과세)" if not _after_suspension else "일시적2주택 — 3년 초과 후 양도 (중과)",
             "new_acq": "20221201",
-            "expected": "일반과세",
+            "expected": "중과" if _after_suspension else "일반과세",
             "tags": ["일시적2주택", "3년초과"],
         },
         {
@@ -332,18 +353,24 @@ def generate_sangsaeng_rental_cases(
         {
             "desc": "상생임대 — 거주요건 2년 대신 1년6개월로 비과세",
             "contract_date": "20230101",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_040_000,   # 4% 인상 (5% 이내 충족)
             "expected": "비과세",
             "tags": ["상생임대", "거주요건완화"],
         },
         {
             "desc": "상생임대 — 2021-12-20 이전 계약 (특례 미적용)",
             "contract_date": "20211201",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_040_000,
             "expected": None,
             "tags": ["상생임대", "기간외계약"],
         },
         {
             "desc": "상생임대 — 임대료 5% 초과 인상 (특례 박탈)",
             "contract_date": "20220601",
+            "prev_rent": 1_000_000,
+            "new_rent": 1_060_000,   # 6% 인상 → 특례 박탈
             "expected": None,
             "tags": ["상생임대", "임대료초과"],
         },
@@ -362,9 +389,15 @@ def generate_sangsaeng_rental_cases(
                 "residence_years": 1.5,
                 "is_adjustment_area_at_transfer": True,
                 "is_adjustment_area_at_acquisition": True,
-                "sangsaeng_rental_contract_date": s["contract_date"],
-                "sangsaeng_rental_period_months": 24,
-                "sangsaeng_rental_5pct_satisfied": s["contract_date"] != "20220601",
+                "special_cases": {
+                    "sangsaeng_rental": {
+                        "contract_date": s["contract_date"],
+                        "contract_period_months": 24,
+                        "previous_monthly_rent": s["prev_rent"],
+                        "new_monthly_rent": s["new_rent"],
+                        "has_prior_contract": True,
+                    }
+                },
             },
             expected_verdict=s["expected"],
             boundary_type="special_case",
@@ -670,6 +703,8 @@ def generate_heavy_tax_cases(
             "tags": ["중과", "장기보유공제배제"],
         },
     ]
+    _deps = ["HEAVY_TAX_SUSPENSION_END"]
+    _snapshot = _capture_snapshot(_deps, transfer_date)
     for s in scenarios:
         yield SyntheticCase(
             description=s["desc"],
@@ -688,7 +723,8 @@ def generate_heavy_tax_cases(
             expected_verdict=s["expected"],
             boundary_type="heavy_tax",
             tags=s["tags"],
-            registry_deps=["HEAVY_TAX_SUSPENSION_END"],
+            registry_deps=_deps,
+            registry_snapshot=_snapshot,
         )
 
 
@@ -858,6 +894,7 @@ def generate_high_value_exempt_cases(
         },
     ]
     for s in scenarios:
+        is_multi_house = "다주택" in s["desc"]
         yield SyntheticCase(
             description=s["desc"],
             fact_json={
@@ -865,11 +902,12 @@ def generate_high_value_exempt_cases(
                 "acquisition_date": "20150101",
                 "property_type": "아파트",
                 "acquisition_reason": "매매",
-                "household_house_count": 1 if "다주택" not in s["desc"] else 2,
+                "household_house_count": 2 if is_multi_house else 1,
                 "transfer_price": s["price"],
                 "acquisition_price": 600_000_000,
                 "residence_years": 3.0,
-                "is_adjustment_area_at_transfer": False,
+                # 다주택 중과는 조정대상지역이어야 +20% 적용
+                "is_adjustment_area_at_transfer": is_multi_house,
             },
             expected_verdict=s["expected"],
             boundary_type="price_boundary",
@@ -1159,7 +1197,7 @@ def generate_combination_cases(
         tags=["비거주자", "중과", "조정대상지역"],
     )
 
-    # 분양권 보유 중 기존주택 양도 — 일시적2주택 특례
+    # 분양권 보유 중 기존주택 양도 — 일시적2주택 특례 (기한 내)
     yield SyntheticCase(
         description="분양권 보유 + 기존주택 양도 (일시적2주택 특례 적용 여부)",
         fact_json={
@@ -1175,7 +1213,7 @@ def generate_combination_cases(
             "special_cases": {
                 "temp_two_house": {
                     "new_acquisition_date": "20230101",
-                    "old_house_must_sell_by": "20260101",
+                    "old_house_must_sell_by": "20261201",  # transfer_date(20260401) 이후 → 기한 내
                     "new_is_adjustment_area": False,
                 }
             },
@@ -1466,7 +1504,7 @@ def generate_all_boundary_cases(n_per_type: int = 10) -> List[SyntheticCase]:
 
 def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[SyntheticCase]:
     """
-    현행법 기준 종합 케이스 생성 (~130건).
+    현행법 기준 종합 케이스 생성 (~180건).
 
     카테고리:
     - 기본 보유기간 경계 (6)
@@ -1490,7 +1528,9 @@ def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[Synth
     - 복합 특례 (5)
     - 특수관계자 거래 (3)
     - 조정대상지역 경계 (4)
-    합계: ~약 90-130건
+    - 예규/해석 심화 케이스 (~49): 상생임대·동거봉양·농어촌·비거주자·분양권·
+      재건축·장기임대·공익수용·상속·혼인합가 세무사급 경계 케이스
+    합계: ~약 180건
     """
     today = as_of or date.today()
     cases: List[SyntheticCase] = []
@@ -1519,6 +1559,13 @@ def generate_all_comprehensive_cases(as_of: Optional[date] = None) -> List[Synth
     cases.extend(generate_one_house_exempt_variations(today))
     cases.extend(generate_general_tax_baseline_cases(today))
     cases.extend(generate_additional_l2_block_cases())
+
+    # 예규/해석 심화 케이스 — ruling_case_generator.py
+    try:
+        from src.eval.ruling_case_generator import generate_all_ruling_cases
+        cases.extend(generate_all_ruling_cases(today))
+    except ImportError:
+        pass
 
     return cases
 

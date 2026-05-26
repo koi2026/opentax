@@ -15,6 +15,8 @@ from src.config import (
     RETRIEVER_PREFILTER_K,
     RETRIEVER_RERANK_TOP_N,
     RETRIEVER_TOP_K,
+    RULING_RETRIEVAL_NAMESPACES,
+    RULING_TOP_K_RATIO,
 )
 from src.domain.chunk_metadata import (
     AmendmentType,
@@ -131,6 +133,42 @@ def _int_to_date(val: int) -> date:
         return date(2000, 1, 1)
 
 
+def _pinecone_meta_to_ruling_chunk_metadata(match_id: str, meta: dict) -> LawChunkMetadata:
+    """유권해석 Pinecone match.metadata → LawChunkMetadata 변환.
+
+    법령 청크와 달리 effective_date/expiration_date 없음.
+    issued_at(YYYYMMDD int) → effective_from, effective_to=None.
+    source_label 필드 보존 (citation 표시용).
+    """
+    issued_int = int(float(meta.get("issued_at", 0) or 0))
+    issued_date = _int_to_date(issued_int) if issued_int else date(2000, 1, 1)
+    source_label = meta.get("source_label", "") or meta.get("source", "")
+    doc_number = str(meta.get("doc_number", "") or meta.get("id", match_id))
+
+    return LawChunkMetadata(
+        chunk_id=match_id,
+        law_id=LawId.INCOME_TAX_ACT,
+        law_name=source_label or "유권해석",
+        law_level=LawLevel.ACT,
+        article_number=doc_number,
+        paragraph=None,
+        item=None,
+        lsi_seq="",
+        promulgation_date=issued_date,
+        effective_from=issued_date,
+        effective_to=None,
+        amendment_type=AmendmentType.PARTIAL,
+        article_lineage_root=doc_number,
+        appendix_type=AppendixType.MAIN_BODY,
+        applicability=ApplicabilitySpec(
+            rule_type=ApplicabilityRuleType.NONE,
+            anchors=["issued_at"],
+        ),
+        tax_types=["transfer"],
+        source_label=source_label,
+    )
+
+
 def _pinecone_meta_to_chunk_metadata(match_id: str, meta: dict) -> LawChunkMetadata:
     """Pinecone match.metadata → LawChunkMetadata 로 변환."""
     eff_int = int(float(meta.get("effective_date", 0) or 0))
@@ -190,8 +228,8 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         self.rerank_top_n = rerank_top_n
         self.namespace = namespace
 
-    def retrieve(self, query: RAGQueryInput) -> List[RetrievedChunk]:
-        query_text = query.fact_vector.to_text()
+    def retrieve(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
+        query_text = query_text or query.fact_vector.to_text()
         vector = embed_query(query_text)
 
         # query.top_k 우선, 없으면 인스턴스 기본값
@@ -234,13 +272,10 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
                 alpha=hybrid_alpha,
             )
 
-        if not matches:
-            return []
-
         # Stage 1 보강 — entity_scope 후필터 (Pinecone entity_scopes 메타데이터 기반)
         # EntityScope.value = "주택"/"분양권" 등 — embed.py의 _tag_chunk()와 동일한 값 사용
         scope_val = query.entity_scope.value
-        if scope_val:
+        if scope_val and matches:
             filtered = [
                 m for m in matches
                 if not m.get("metadata", {}).get("entity_scopes")  # 태그 없으면 통과
@@ -248,16 +283,44 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
             ]
             matches = filtered if filtered else matches  # 필터 결과 비면 전체 유지
 
-        # Stage 1.5 — Cheap Pre-filter: 결정론 신호로 후보 축소 후 BGE Reranker 투입
-        prefiltered = _cheap_prefilter(matches, query_text)
+        # ── 유권해석 병렬 검색 ────────────────────────────────────────────────────
+        # RULING_RETRIEVAL_NAMESPACES 네임스페이스를 날짜 필터 없이 병렬 쿼리.
+        # 예규/심판원 결정은 deprecated 필터가 embed 단계에서 처리됨 (re-date 불필요).
+        ruling_matches: list[dict] = []
+        ruling_top_k = max(1, int(top_k * RULING_TOP_K_RATIO))
+        for ns in RULING_RETRIEVAL_NAMESPACES:
+            ns_matches = query_pinecone(
+                vector=vector,
+                top_k=ruling_top_k,
+                namespace=ns,
+                sparse_vector=sparse_vec,
+                alpha=hybrid_alpha,
+            )
+            for m in ns_matches:
+                m["_ruling_namespace"] = ns  # 출처 네임스페이스 태깅
+            ruling_matches.extend(ns_matches)
 
-        # Stage 2 — Vector Rerank
+        # 법령 + 유권해석 통합 풀 — BGE가 단일 pass로 최종 순위 결정
+        all_matches = matches + ruling_matches
+        if not all_matches:
+            return []
+
+        # Stage 1.5 — Cheap Pre-filter: 통합 풀에서 결정론 신호로 후보 축소
+        # 유권해석 후보가 추가됐으므로 prefilter limit을 비례 확대
+        prefilter_limit = _PREFILTER_LIMIT + len(RULING_RETRIEVAL_NAMESPACES) * (ruling_top_k // 2)
+        prefiltered = _cheap_prefilter(all_matches, query_text, limit=prefilter_limit)
+
+        # Stage 2 — BGE Rerank (법령 + 유권해석 통합)
         ranked = rerank(query_text, prefiltered, self.rerank_top_n)
 
         results: List[RetrievedChunk] = []
         for score, match in ranked:
             meta = match["metadata"]
-            chunk_meta = _pinecone_meta_to_chunk_metadata(match["id"], meta)
+            is_ruling = "_ruling_namespace" in match
+            if is_ruling:
+                chunk_meta = _pinecone_meta_to_ruling_chunk_metadata(match["id"], meta)
+            else:
+                chunk_meta = _pinecone_meta_to_chunk_metadata(match["id"], meta)
             results.append(
                 RetrievedChunk(
                     metadata=chunk_meta,
@@ -374,8 +437,8 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         # 앵커 날짜가 이 부칙의 시행일 이후여야 적용 대상
         return anchor_date >= effective_from
 
-    def retrieve_with_buchik(self, query: RAGQueryInput) -> List[RetrievedChunk]:
-        """본칙 검색 후 linked_buchik_ids와 누락 핵심 조항을 보강한다.
+    def retrieve_with_buchik(self, query: RAGQueryInput, query_text: Optional[str] = None) -> List[RetrievedChunk]:
+        """본칙 검색 후 linked_buchik_ids로 부칙 보강, applicability_anchor 하드필터 적용.
 
         부칙 적용례 예:
           "이 법 시행 후 양도분부터 적용" → anchor=transfer_date
@@ -386,7 +449,7 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
         anchor 조항을 Pinecone metadata exact filter로 보강하고 그 anchor의
         linked_buchik_ids도 동일한 applicability 기준으로 확장한다.
         """
-        results = self.retrieve(query)
+        results = self.retrieve(query, query_text=query_text)
         if not query.include_buchik:
             return results
 

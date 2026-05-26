@@ -12,9 +12,12 @@ LLM 출력이 나온 후 실행. 두 종류의 오류를 방어:
 
 from __future__ import annotations
 
-from typing import List, Optional, Set
+from typing import TYPE_CHECKING, List, Optional, Set
 
-from .tax_answer import ExpertReviewSignal, TaxAnswer
+from .tax_answer import ExpertReviewSignal, TaxAnswer, TaxVerdict
+
+if TYPE_CHECKING:
+    from .query_input import RAGQueryInput
 
 # 신뢰도 상한 — missing_facts 있을 때
 CONFIDENCE_CAP_WITH_MISSING = 0.75
@@ -78,6 +81,7 @@ def validate_output(
     answer: TaxAnswer,
     retrieved_chunk_ids: Set[str],
     danger_flags: Optional[List[str]] = None,
+    query: Optional["RAGQueryInput"] = None,
 ) -> TaxAnswer:
     """
     TaxAnswer를 검증하고 필요 시 confidence를 하향 조정.
@@ -92,6 +96,8 @@ def validate_output(
     """
     warnings = list(answer.warnings)
     confidence = answer.confidence
+    verdict = answer.verdict
+    active_flags = set(danger_flags or [])
 
     # ── 1. Phantom Citation 검사 ─────────────────────────────────────────
     # LLM이 인용한 chunk가 실제 검색 결과에 없으면 hallucination 의심
@@ -141,7 +147,6 @@ def validate_output(
     # ── 5. 예규/판례 의존 영역 → 세무사 전문 검토 기회 신호 ─────────────
     # 에러 신호가 아니라 아이템 발굴 신호 — confidence 조정 없음
     expert_signals: List[ExpertReviewSignal] = list(answer.expert_review_signals)
-    active_flags = set(danger_flags or [])
     already_categories = {s.category + s.related_article for s in expert_signals}
 
     for flag in active_flags:
@@ -159,14 +164,56 @@ def validate_output(
         ))
         already_categories.add(key)
 
-    # ── 6. 최종 반환 ─────────────────────────────────────────────────────
+    # ── 6. 결정론적 Verdict 오버라이드 ──────────────────────────────────
+    # LLM이 틀린 경우를 후처리로 교정. 사실관계 기반이라 회귀 위험 낮음.
+
+    # 6-1. 12억 경계값: 고가주택 판정인데 transfer_price ≤ 비과세 한도 → 비과세
+    if verdict == TaxVerdict.PARTIALLY_EXEMPT and query is not None:
+        _tp = query.fact_vector.transfer_price
+        if _tp is not None:
+            from .tax_constants import TaxConstantsRegistry
+            _threshold_int = int(TaxConstantsRegistry.get(
+                "HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date
+            ))
+            if _tp <= _threshold_int:
+                verdict = TaxVerdict.EXEMPT
+                warnings.append(
+                    f"[L5 수정] 양도가액 {_tp:,}원 ≤ 비과세 한도 {_threshold_int:,}원 "
+                    "→ 고가주택 판정 오류 수정, 비과세로 변경"
+                )
+
+    # 6-2. 중과 한시면세: danger_flag 존재 + 중과 판정 → 일반과세
+    if verdict == TaxVerdict.HEAVY_TAX and "중과한시면세" in active_flags:
+        verdict = TaxVerdict.GENERAL
+        warnings.append(
+            "[L5 수정] 중과 한시적 배제 기간(2022.5.10~2026.5.9) 내 양도 "
+            "→ 중과 판정 오류 수정, 일반과세로 변경"
+        )
+
+    # 6-3. 조정지역 거주요건 미충족 + 비과세 판정 → 일반과세
+    #      단, 상생임대·공익수용 등 거주요건 면제 특례가 있으면 유지
+    _residence_waiver_flags = {"상생임대", "수용_compulsory_거주요건면제", "수용_negotiated_거주요건면제"}
+    if (
+        verdict == TaxVerdict.EXEMPT
+        and "조정지역_거주요건" in active_flags
+        and not (active_flags & _residence_waiver_flags)
+    ):
+        verdict = TaxVerdict.GENERAL
+        warnings.append(
+            "[L5 수정] 조정대상지역 취득 주택: 거주기간 2년 미충족 (소령 §154①) "
+            "→ 비과세 요건 불충족, 일반과세로 변경"
+        )
+
+    # ── 7. 최종 반환 ─────────────────────────────────────────────────────
     changed = (
-        confidence != answer.confidence
+        verdict != answer.verdict
+        or confidence != answer.confidence
         or warnings != answer.warnings
         or expert_signals != answer.expert_review_signals
     )
     if changed:
         return answer.with_update(
+            verdict=verdict,
             confidence=confidence,
             warnings=warnings,
             expert_review_signals=expert_signals,

@@ -47,6 +47,8 @@ SOURCE_LABELS: dict[str, str | dict] = {
         "_default":     "판례·결정례",
     },
     "pdf":       "세법집행기준",
+    "moef":      "기획재정부 법령해석",
+    "nts_interp": "국세청 법령해석",   # law.go.kr DRF ntsCgmExpc (양도·증여·상속·상생임대·임대주택)
 }
 
 
@@ -64,7 +66,7 @@ def get_source_label(source: str, record: dict) -> str:
     return entry.get(sub_type, entry.get("_default", source))
 
 
-SourceType = Literal["ntis", "tt", "court", "nts", "decisions", "pdf"]
+SourceType = Literal["ntis", "tt", "court", "nts", "decisions", "pdf", "moef", "nts_interp"]
 
 _NAMESPACE_MAP: dict[str, str] = {
     "ntis": "tax-ruling-ntis",
@@ -73,6 +75,8 @@ _NAMESPACE_MAP: dict[str, str] = {
     "nts": "tax-ruling-nts",        # 국세법령정보시스템 (질의회신·판단사례·세법해석례)
     "decisions": "tax-ruling-decisions",  # 판례·결정례 (심판청구·심사청구·이의신청·판례)
     "pdf": "tax-ruling-pdf",        # 세법집행기준 PDF 파싱본
+    "moef": "tax-ruling-moef",      # 기획재정부 법령해석 (law.go.kr DRF API)
+    "nts_interp": "tax-ruling-nts-interp",  # 국세청 법령해석 (law.go.kr DRF ntsCgmExpc)
 }
 
 
@@ -137,12 +141,24 @@ def _build_chunk(record: dict, source: str) -> dict:
     }
 
 
+def _fetch_existing_ids(index, namespace: str) -> set[str]:
+    """Pinecone 네임스페이스의 기존 벡터 ID 목록 조회."""
+    existing: set[str] = set()
+    try:
+        for page in index.list(namespace=namespace):
+            existing.update(page)
+    except Exception as exc:
+        print(f"  기존 ID 조회 실패 (전체 재업로드): {exc}")
+    return existing
+
+
 def _upload_to_namespace(
     index,
     embed_client,
     embed_model: str,
     chunks: list[dict],
     namespace: str,
+    existing_ids: set[str] | None = None,
 ) -> int:
     """청크 배치를 임베딩 후 지정 네임스페이스에 upsert. 업로드 수 반환."""
     from tqdm import tqdm
@@ -151,6 +167,11 @@ def _upload_to_namespace(
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
 
     for batch in tqdm(batches, desc=f"업로드 → {namespace}"):
+        if existing_ids:
+            batch = [c for c in batch if c["chunk_id"] not in existing_ids]
+            if not batch:
+                continue
+
         texts = [c["full_text"] for c in batch]
         try:
             vectors = _embed_texts(embed_client, embed_model, texts)
@@ -174,12 +195,13 @@ def _upload_to_namespace(
     return total_upserted
 
 
-def embed_and_upload_rulings(source: str = "all") -> int:
+def embed_and_upload_rulings(source: str = "all", resume: bool = False) -> int:
     """
     data/rulings/{source}/*.json 읽기 → 청킹 → 임베딩 → Pinecone 업로드.
 
     Args:
-        source: "ntis" | "tt" | "court" | "all"
+        source: "ntis" | "tt" | "court" | "moef" | "nts_interp" | "all"
+        resume: True이면 이미 업로드된 벡터 ID를 조회해 중복 건너뜀.
 
     Returns:
         업로드된 벡터 수 합계.
@@ -190,7 +212,7 @@ def embed_and_upload_rulings(source: str = "all") -> int:
     sources: list[str] = list(_NAMESPACE_MAP.keys()) if source == "all" else [source]
     invalid = [s for s in sources if s not in _NAMESPACE_MAP]
     if invalid:
-        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: ntis, tt, court, nts, decisions, pdf, all")
+        raise ValueError(f"지원하지 않는 source: {invalid}. 가능한 값: {', '.join(_NAMESPACE_MAP.keys())}, all")
 
     embed_client, embed_model, dimension = _build_embed_client()
     print(f"임베딩 모델: {embed_model} (dim={dimension})")
@@ -217,7 +239,13 @@ def embed_and_upload_rulings(source: str = "all") -> int:
         print(f"  {len(active)}건 로드 완료")
         chunks = [_build_chunk(rec, src) for rec in active]
 
-        uploaded = _upload_to_namespace(index, embed_client, embed_model, chunks, namespace)
+        existing_ids: set[str] | None = None
+        if resume:
+            print(f"  기존 업로드 ID 조회 중 (--resume)...")
+            existing_ids = _fetch_existing_ids(index, namespace)
+            print(f"  이미 업로드된 벡터: {len(existing_ids)}개 (건너뜀)")
+
+        uploaded = _upload_to_namespace(index, embed_client, embed_model, chunks, namespace, existing_ids)
         total_upserted += uploaded
         print(f"  [{src}] {uploaded}개 벡터 → {namespace}")
 
@@ -227,4 +255,5 @@ def embed_and_upload_rulings(source: str = "all") -> int:
 
 if __name__ == "__main__":
     source_arg = sys.argv[1] if len(sys.argv) > 1 else "all"
-    embed_and_upload_rulings(source_arg)
+    resume_arg = "--resume" in sys.argv
+    embed_and_upload_rulings(source_arg, resume=resume_arg)

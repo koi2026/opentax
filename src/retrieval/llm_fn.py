@@ -113,6 +113,42 @@ def _extract_json(text: str) -> str:
     return candidate.strip()
 
 
+_VALID_VERDICTS = {
+    "비과세", "고가주택", "감면", "중과", "일반과세", "단기세율",
+    "사실관계부족", "needs_verification",
+}
+_VERDICT_ALIAS = {
+    "needs_verification": "사실관계부족",
+    "exempt": "비과세",
+    "reduced": "감면",
+    "heavy_tax": "중과",
+    "general": "일반과세",
+    "short_term": "단기세율",
+    "partially_exempt": "고가주택",
+    "uncertain": "사실관계부족",
+}
+
+
+def _normalize_verdict(verdict: str) -> str:
+    """LLM 출력 verdict를 유효한 TaxVerdict 한글 값으로 정규화."""
+    v = verdict.strip()
+    if v in _VALID_VERDICTS:
+        return _VERDICT_ALIAS.get(v, v)
+    if v in _VERDICT_ALIAS:
+        return _VERDICT_ALIAS[v]
+    # 부분 문자열 또는 앞글자 prefix 매칭 (한글 오타 대응)
+    canonicals = ("비과세", "고가주택", "감면", "중과", "일반과세", "단기세율", "사실관계부족")
+    for canonical in canonicals:
+        if canonical in v or v in canonical:
+            return canonical
+    # prefix 2글자 이상 일치 (예: '고가주축' → '고가주택')
+    for canonical in canonicals:
+        prefix = min(len(v), len(canonical), 3)
+        if prefix >= 2 and v[:prefix] == canonical[:prefix]:
+            return canonical
+    return "사실관계부족"
+
+
 def _build_user_prompt(
     enriched_query: str,
     chunks: List[RetrievedChunk],
@@ -251,7 +287,7 @@ async def llm_fn(
 
     return TaxAnswer(
         answer=data.get("answer", ""),
-        verdict=data.get("verdict", "needs_verification"),
+        verdict=_normalize_verdict(data.get("verdict", "사실관계부족")),
         confidence=float(data.get("confidence", 0.0)),
         citations=citations,
         chunk_ids=[c.metadata.chunk_id for c in chunks],
@@ -338,7 +374,7 @@ async def llm_fn_stream(
         ]
         yield TaxAnswer(
             answer=data.get("answer", ""),
-            verdict=data.get("verdict", "needs_verification"),
+            verdict=_normalize_verdict(data.get("verdict", "사실관계부족")),
             confidence=float(data.get("confidence", 0.0)),
             citations=citations,
             chunk_ids=[c.metadata.chunk_id for c in chunks],

@@ -104,39 +104,6 @@ with st.sidebar:
 
     st.divider()
 
-    # ── 분석 모드 ────────────────────────────────────────────────────────────
-    st.subheader("분석 모드")
-    query_mode = st.radio(
-        "모드 선택",
-        ["report", "consulting"],
-        format_func=lambda x: "신고용 판단" if x == "report" else "절세 컨설팅",
-        help="컨설팅 모드: 양도/증여/부담부증여 세금 비교 시뮬레이션 포함",
-    )
-
-    sim_params: dict = {}
-    if query_mode == "consulting":
-        st.caption("시뮬레이션 추가 정보")
-        encumbrance = st.number_input(
-            "채무총액 (담보대출+임대보증금, 원)",
-            min_value=0,
-            value=0,
-            step=10_000_000,
-            format="%d",
-            help="부담부증여 시나리오 계산에 사용됩니다.",
-        )
-        gift_recipient = st.selectbox(
-            "증여 대상자",
-            ["직계존비속", "배우자", "기타"],
-            help="증여세 공제액이 달라집니다.",
-        )
-        recipient_is_adult = st.checkbox("성년 자녀 (직계존비속)", value=True)
-        if encumbrance > 0:
-            sim_params["simulation_encumbrance"] = encumbrance
-        sim_params["simulation_gift_recipient"] = gift_recipient
-        sim_params["simulation_recipient_is_adult"] = recipient_is_adult
-
-    st.divider()
-
     if st.button("⚡ 분석 시작", type="primary", use_container_width=True):
         st.session_state.run_analysis = True
         st.rerun()
@@ -146,7 +113,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    enable_debate = True
 
 
 
@@ -164,169 +130,143 @@ for msg in st.session_state.messages:
         else:
             st.markdown(msg["content"])
         if "extra" in msg:
-            extra = msg["extra"]
-            _verdict = extra.get("verdict", "")
-            _conf = extra.get("confidence", 0.0)
-            _citations = extra.get("citations", [])
-            _missing = extra.get("missing_facts", [])
-            _warnings = extra.get("warnings", [])
-            _chunks = extra.get("chunk_ids", [])
-
-            c1, c2 = st.columns(2)
-            with c1:
-                verdict_color = {
-                    "비과세": "green", "감면": "blue", "중과": "red",
-                    "일반과세": "orange", "단기세율": "red",
-                    "고가주택": "orange", "사실관계부족": "gray",
-                }.get(_verdict, "gray")
-                st.markdown(f"**판단: :{verdict_color}[{_verdict}]**")
-            with c2:
-                st.metric("신뢰도", f"{_conf:.0%}")
-
-            if _citations:
-                with st.expander("근거 법령"):
-                    for c in _citations:
-                        st.markdown(f"- {c}")
-            if _missing:
-                with st.expander("추가 확인 필요"):
-                    for m in _missing:
-                        st.warning(m, icon="⚠️")
-            if _warnings:
-                with st.expander("유의사항"):
-                    for w in _warnings:
-                        st.info(w)
-            if _chunks:
-                with st.expander("검색된 조문 ID"):
-                    st.write(_chunks)
-            if extra.get("consulting_scenarios"):
-                _render_consulting_scenarios(extra["consulting_scenarios"])
+            _render_pipeline_result(msg["extra"])
 
 
 # ── 분석 실행 함수 ────────────────────────────────────────────────────────────
 
-def _render_pipeline_result(result: dict) -> None:
-    """파이프라인 결과를 채팅 말풍선 안에 렌더링."""
-    verdict = result["verdict"]
-    answer_text = result["answer"]
-    st.markdown(answer_text)
+_VERDICT_COLOR = {
+    "비과세": "green", "감면": "blue", "중과": "red",
+    "일반과세": "orange", "단기세율": "red",
+    "고가주택": "orange", "사실관계부족": "gray", "전문가검토": "gray",
+}
 
-    verdict_color = {
-        "비과세": "green", "감면": "blue", "중과": "red",
-        "일반과세": "orange", "단기세율": "red",
-        "고가주택": "orange", "사실관계부족": "gray",
-    }.get(verdict, "gray")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**판단: :{verdict_color}[{verdict}]**")
-    with c2:
-        st.metric("신뢰도", f"{result['confidence']:.0%}")
+_VERDICT_RATE = {
+    "비과세":       "세금 없음",
+    "감면":         "감면 세율 적용",
+    "중과":         "기본세율 + 20~30%p 중과",
+    "일반과세":     "기본세율 6~45%",
+    "단기세율":     "단기세율 60~70%",
+    "고가주택":     "12억 초과분 기본세율",
+    "사실관계부족": "추가 확인 필요",
+    "전문가검토":   "전문가 검토 필요",
+}
 
-    if result.get("citations"):
-        with st.expander("근거 법령"):
-            for c in result["citations"]:
-                st.markdown(f"- {c}")
-    if result.get("missing_facts"):
-        with st.expander("추가 확인 필요"):
-            for m in result["missing_facts"]:
-                st.warning(m, icon="⚠️")
-    if result.get("warnings"):
-        with st.expander("유의사항"):
-            for w in result["warnings"]:
-                st.info(w)
-    if result.get("chunk_ids"):
-        with st.expander("검색된 조문 ID"):
-            st.write(result["chunk_ids"])
-    if result.get("debate_record"):
-        dr = result["debate_record"]
-        outcome_label = {
-            "blue_won": "🔵 Blue 방어 성공",
-            "red_won": "🔴 Red 지적 수용 — 판단 수정됨",
-            "no_contest": "✅ Red 이의 없음",
-            "draw": "⚖️ 논쟁 무승부",
-        }.get(dr.get("outcome", ""), "논쟁 실행됨")
-        with st.expander(f"Red Team 검증 결과: {outcome_label}"):
-            st.write(dr)
-    if result.get("consulting_scenarios"):
-        _render_consulting_scenarios(result["consulting_scenarios"])
+_CONFIDENCE_LABEL = {
+    (0.0, 0.5): ("⚠️ 검토 권장", "orange"),
+    (0.5, 0.75): ("◑ 보통", "gray"),
+    (0.75, 1.01): ("● 높음", "green"),
+}
 
 
-def _render_consulting_scenarios(scenarios: list) -> None:
-    """컨설팅 시나리오 비교표 렌더링."""
-    # 마지막 항목이 요약(optimal_type 포함)인 경우 분리
-    summary: dict = {}
-    items: list = []
-    for s in scenarios:
-        if "optimal_type" in s:
-            summary = s
-        else:
-            items.append(s)
+def _confidence_label(score: float) -> tuple[str, str]:
+    for (lo, hi), (label, color) in _CONFIDENCE_LABEL.items():
+        if lo <= score < hi:
+            return label, color
+    return "—", "gray"
 
-    if not items:
+
+def _render_debate_section(dr: dict) -> None:
+    """2단계: Red Team 검증 결과 구조화 렌더링."""
+    outcome = dr.get("outcome", "")
+    if not outcome or dr.get("error"):
         return
 
-    st.divider()
-    st.subheader("절세 시나리오 비교")
+    outcome_cfg = {
+        "blue_won":   ("🔵", "Blue 방어 성공",      "Blue의 원판단이 유지됐습니다."),
+        "red_won":    ("🔴", "Red 지적 수용",        "판단이 수정됐습니다."),
+        "no_contest": ("✅", "Red 이의 없음",        "Red Team이 이의를 제기하지 않았습니다."),
+        "draw":       ("⚖️", "판단 보류 — 전문가 검토 권장", ""),
+    }
+    icon, title, subtitle = outcome_cfg.get(outcome, ("❓", outcome, ""))
 
-    if summary:
-        opt = summary.get("optimal_type", "")
-        saving = summary.get("optimal_saving", 0)
-        st.success(
-            f"최적 방안: **{opt}** — 양도 대비 **{saving:,}원** 절세\n\n"
-            f"{summary.get('recommendation_reason', '')}",
-        )
-        if summary.get("warnings"):
-            for w in summary["warnings"]:
-                st.warning(w)
+    st.markdown(f"#### {icon} 2단계: Red Team 검증 — {title}")
+    if subtitle:
+        st.caption(subtitle)
 
-    cols = st.columns(len(items))
-    _COLOR = {"양도": "#FF6B6B", "증여": "#4ECDC4", "부담부증여": "#45B7D1"}
-    for col, s in zip(cols, items):
-        with col:
-            scenario_type = s.get("scenario_type", "")
-            color = _COLOR.get(scenario_type, "#888")
-            total = s.get("total_tax", 0)
-            rate = s.get("effective_rate", 0.0)
-            is_calc = s.get("is_calculable", True)
+    challenge_type = dr.get("challenge_type", "")
+    challenge_text = dr.get("challenge_text", "")
+    defense_text = dr.get("defense_text", "")
+    new_citations = dr.get("new_citations") or []
 
-            st.markdown(
-                f"<div style='border-left:4px solid {color}; padding-left:8px;'>"
-                f"<strong>{scenario_type}</strong><br/>"
-                f"<span style='font-size:0.85em;'>{s.get('description','')}</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            if is_calc:
-                st.metric("총 세금", f"{total:,}원", delta=f"실효세율 {rate:.1%}", delta_color="off")
-                d = s.get("detail") or {}
-                detail_lines = []
-                if s.get("transfer_income_tax"):
-                    detail_lines.append(f"양도소득세: {s['transfer_income_tax']:,}원")
-                if s.get("gift_tax"):
-                    detail_lines.append(f"증여세: {s['gift_tax']:,}원")
-                if s.get("local_income_tax"):
-                    detail_lines.append(f"지방소득세: {s['local_income_tax']:,}원")
-                if s.get("acquisition_tax_estimate"):
-                    detail_lines.append(f"취득세(추산): {s['acquisition_tax_estimate']:,}원")
-                if detail_lines:
-                    with st.expander("세부 내역"):
-                        for line in detail_lines:
-                            st.caption(line)
-                        if d.get("rate_type"):
-                            st.caption(f"세율유형: {d['rate_type']}")
-                        if d.get("ltd_rate"):
-                            st.caption(f"장특공율: {d['ltd_rate']:.0%}")
-            else:
-                st.info("계산 불가 — 전문가 확인 필요")
+    if outcome == "no_contest":
+        st.success("1차 판단이 법령 근거 검토를 통과했습니다.")
+        return
 
-            if s.get("notes"):
-                with st.expander("유의사항"):
-                    for n in s["notes"]:
-                        st.caption(f"* {n}")
+    col_r, col_b = st.columns(2)
+    with col_r:
+        st.markdown("**🔴 Red Team 반박**")
+        if challenge_type:
+            st.caption(f"반박 유형: `{challenge_type}`")
+        st.markdown(challenge_text or "_(반박 내용 없음)_")
 
-    if summary.get("expert_review_needed"):
-        st.info(
-            "이 시뮬레이션은 참고용입니다. 실제 절세 전략은 세무사와 함께 구체적인 사실관계를 기반으로 수립하세요.",
-        )
+    with col_b:
+        st.markdown("**🔵 Blue Team 방어**")
+        st.markdown(defense_text or "_(방어 내용 없음)_")
+        if new_citations:
+            st.caption("추가 인용 법령:")
+            for c in new_citations:
+                st.markdown(f"  - {c}")
+
+    if outcome == "red_won" and dr.get("revised_verdict"):
+        st.info(f"판단 수정: **{dr['revised_verdict']}** 으로 변경됐습니다.")
+
+
+def _render_pipeline_result(result: dict) -> None:
+    """3단계 결과 렌더링: 사고과정 → Red Team → 최종 판단."""
+    verdict = result["verdict"]
+    answer_text = result["answer"]
+    confidence = result.get("confidence", 0.0)
+    conf_label, conf_color = _confidence_label(confidence)
+
+    # ── 1단계: AI 사고 과정 ───────────────────────────────────────────────────
+    with st.expander("💭 1단계: AI 사고 과정 및 1차 판단", expanded=False):
+        st.markdown(answer_text)
+        if result.get("missing_facts"):
+            st.divider()
+            for m in result["missing_facts"]:
+                st.warning(m, icon="⚠️")
+
+    # ── 2단계: Red Team ───────────────────────────────────────────────────────
+    if result.get("debate_record") and not result["debate_record"].get("error"):
+        st.markdown("")
+        _render_debate_section(result["debate_record"])
+
+    # ── 3단계: 최종 판단 ──────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### ⚖️ 3단계: 최종 판단")
+
+    verdict_color = _VERDICT_COLOR.get(verdict, "gray")
+    rate_text = _VERDICT_RATE.get(verdict, "")
+
+    col_v, col_r, col_c = st.columns([2, 3, 2])
+    with col_v:
+        st.markdown(f"**판단**")
+        st.markdown(f"## :{verdict_color}[{verdict}]")
+    with col_r:
+        st.markdown(f"**적용 세율**")
+        st.markdown(f"**{rate_text}**")
+    with col_c:
+        st.markdown(f"**신뢰도**")
+        st.markdown(f":{conf_color}[{conf_label}]")
+
+    if result.get("citations"):
+        with st.expander("📋 근거 법령", expanded=True):
+            for c in result["citations"]:
+                st.markdown(f"- {c}")
+
+    warnings = [w for w in (result.get("warnings") or []) if not w.startswith("[Red Team")]
+    if warnings:
+        with st.expander("⚠️ 유의사항"):
+            for w in warnings:
+                st.info(w)
+
+    if result.get("as_of_date"):
+        d = str(result["as_of_date"])
+        if len(d) == 8:
+            d = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        st.caption(f"적용 법령 기준일: {d}  |  본 결과는 정보 제공 목적이며 세무 자문이 아닙니다.")
+
 
 
 async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
@@ -353,16 +293,13 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
         reasoning_text = ""
         
         from src.api.chat_api import chat_turn_stream
-        
-        # 컨설팅 파라미터를 fact_json에 병합
-        fact_with_sim = {**(parsed_fact or {}), **sim_params} if parsed_fact else parsed_fact
-        
+
         result = None
         async for item in chat_turn_stream(
-            fact_json=fact_with_sim,
+            fact_json=parsed_fact,
             question=user_text if not parsed_fact else None,
-            enable_debate=enable_debate,
-            query_mode=query_mode,
+            enable_debate=True,
+            query_mode="report",
         ):
             if isinstance(item, str):
                 if item.startswith("PROGRESS:"):
@@ -386,7 +323,6 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
             _render_pipeline_result(result)
             
             extra = {k: result[k] for k in ("verdict", "confidence", "citations", "missing_facts", "warnings", "chunk_ids")}
-            extra["consulting_scenarios"] = result.get("consulting_scenarios")
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": result["answer"],
