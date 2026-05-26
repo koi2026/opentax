@@ -157,17 +157,50 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 
 ---
 
-## 다음 작업
+## 현재 진행 중 (2026-05-26 기준)
 
-### ⏳ eval 142건 재실행
+### 🔄 BGE 재파인튜닝 — 로컬 CPU 실행 중 (완료까지 ~27시간)
 
-유권해석 2개 네임스페이스 임베딩 완료 후 정확도 변화 측정.
+```
+훈련 데이터: data/reranker_pairs.jsonl
+  - debate 기반 pairs: ~326쌍
+  - nts_interp answer 추출: 1,823쌍  ← scripts/extract_ruling_pairs.py 신규 작성
+  - moef answer 추출: 374쌍
+  - 합계: ~2,523쌍 (complete=2,190+, pos_only 소수)
 
-```bash
-python -m scripts.run_baseline_eval --workers 3
+실행 중: python scripts/finetune_reranker.py --epochs 4
+진행: 100/4,348 스텝 (2%), 스텝당 ~23초 → 완료 ~2026-05-27 오전
 ```
 
-이후: 37,400건 answer에서 BGE 훈련 데이터 자동 추출 → 재파인튜닝.
+**완료 후 할 일:**
+1. `data/models/bge-reranker-tax-rag/` 새 모델 확인
+2. `python -m scripts.run_baseline_eval --workers 3` → 정확도 측정 (현재 80.4%)
+3. 85% 이상이면 `.env` 자동 업데이트, 미달 시 수동 검토
+
+---
+
+## ⚠️ 확정된 인프라 결정: BGE 파인튜닝은 Colab에서 실행
+
+**배경:** 로컬 CPU로 2,500쌍 × 4 epochs = **~27시간 소요** (스텝당 23초).  
+동일 작업을 Google Colab T4 GPU에서 실행하면 **30분 이내**, 비용 $0.5 미만.
+
+**파인튜닝은 누적 전체 데이터로 재학습** (새 50건만 학습하면 catastrophic forgetting 발생).  
+→ 데이터가 쌓일수록 매번 전체 재학습 필요 → CPU는 구조적으로 부적합.
+
+**앞으로 파인튜닝 실행 방법 (Colab):**
+
+```
+1. data/reranker_pairs.jsonl 다운로드
+2. scripts/finetune_reranker.py 다운로드
+3. Colab에서:
+   !pip install sentence-transformers
+   !python finetune_reranker.py --epochs 4
+4. 생성된 data/models/bge-reranker-tax-rag/ 폴더 로컬로 다운로드
+5. 기존 data/models/bge-reranker-tax-rag/ 교체
+6. eval 재실행 → 정확도 확인
+```
+
+**파인튜닝 트리거 기준:** `data/red_wins/` 50건 초과 시 재실행 권장.
 
 ---
 
