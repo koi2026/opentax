@@ -216,7 +216,7 @@ scripts/detect_law_changes.py
 | Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
 | Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
 | BGE 파인튜닝 파이프라인 수정 | `scripts/extract_reranker_pairs.py`, `scripts/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
-| BGE 파인튜닝 실행 | `scripts/finetune_reranker.py` | 🔄 1차 실행 중 (2026-05-26, ~2,523쌍) |
+| BGE 파인튜닝 실행 | `notebooks/bge_finetune_colab.ipynb` | 🔄 Colab 노트북 준비 완료 (2026-05-27) — 사무실 CPU 실행 중단 예정 |
 | 유권해석 훈련쌍 추출 | `scripts/extract_ruling_pairs.py` | ✅ 신규 — nts_interp 1,823쌍 + moef 374쌍 추출 완료 |
 
 > **⚠️ BGE 파인튜닝 실행 환경 — 반드시 Colab 사용 (2026-05-26 확정):**
@@ -225,12 +225,14 @@ scripts/detect_law_changes.py
 > Google Colab T4 GPU: **30분 이내**, 비용 $0.5 미만.
 > 파인튜닝은 누적 전체 데이터 재학습 구조 → 데이터 증가할수록 CPU는 부적합.
 >
-> **Colab 실행 절차:**
-> 1. `data/reranker_pairs.jsonl` + `scripts/finetune_reranker.py` 업로드
-> 2. `!pip install sentence-transformers`
-> 3. `!python finetune_reranker.py --epochs 4`
-> 4. 생성된 `data/models/bge-reranker-tax-rag/` 폴더 로컬 다운로드 → 교체
-> 5. `python -m scripts.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
+> **Colab 실행 절차 (`notebooks/bge_finetune_colab.ipynb`):**
+>
+> 1. Colab Secrets에 `GITHUB_TOKEN` 등록 (read 권한)
+> 2. 노트북 셀 순서대로 실행 (GPU T4 런타임 필수) — clone 시 `data/reranker_pairs.jsonl` 자동 포함
+> 3. 완료된 모델은 Drive `tax-rag/bge-reranker-tax-rag/` 에 자동 저장
+> 4. Drive → 로컬 `data/models/bge-reranker-tax-rag/` 교체
+> 5. `.env`: `BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag`
+> 6. `python -m scripts.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
 >
 > **재파인튜닝 트리거:** `data/red_wins/` 50건 초과 시.
 
