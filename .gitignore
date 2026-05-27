@@ -28,9 +28,6 @@ data/area_designations/source_state/
 # Expert escalation runtime data
 data/expert_escalations/
 
-# Golden set — 도메인 노하우 집약, public 레포 전환 시 노출 방지
-data/golden/
-
 # Feedback & eval results — runtime data, not source
 data/feedback/*.jsonl
 data/eval_results/*.json

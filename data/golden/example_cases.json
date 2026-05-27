@@ -1,0 +1,152 @@
+[
+  {
+    "_comment": "케이스 1 — 기본 1세대 1주택 비과세",
+    "dates": {
+      "transfer_date": "20230615",
+      "acquisition_date": "20200501",
+      "contract_date": null,
+      "balance_payment_date": null
+    },
+    "property_type": "apartment",
+    "transfer_price": 950000000,
+    "acquisition_price": 450000000,
+    "property_count_raw": 1,
+    "property_count_for_tax": 1,
+    "is_adjustment_area_at_acquisition": false,
+    "is_adjustment_area_at_transfer": false,
+    "residence_periods": [
+      { "start_date": "20200601", "end_date": "20220601" }
+    ],
+    "has_spouse": true,
+    "household_members": [
+      { "relation": "spouse", "age": 42 }
+    ],
+    "is_resident": true,
+    "acquisition_reason": "purchase",
+    "special_situations": [],
+    "additional_context": ""
+  },
+
+  {
+    "_comment": "케이스 2 — 이월과세 (배우자 증여 후 7년 내 양도)",
+    "dates": {
+      "transfer_date": "20241001",
+      "acquisition_date": "20170301",
+      "contract_date": null,
+      "balance_payment_date": null
+    },
+    "property_type": "apartment",
+    "transfer_price": 1500000000,
+    "acquisition_price": null,
+    "property_count_raw": 1,
+    "is_adjustment_area_at_acquisition": false,
+    "is_adjustment_area_at_transfer": false,
+    "residence_periods": [],
+    "has_spouse": true,
+    "household_members": [],
+    "is_resident": true,
+    "acquisition_reason": "gift",
+    "gift_detail": {
+      "gift_date": "20170301",
+      "is_gift_from_spouse_or_lineal": true,
+      "donor_acquisition_date": "20100615",
+      "donor_acquisition_price": 300000000
+    },
+    "special_situations": [],
+    "additional_context": "배우자로부터 증여받은 아파트, 증여 후 7년 경과"
+  },
+
+  {
+    "_comment": "케이스 3 — 상생임대 + 조정대상지역 거주요건 면제",
+    "dates": {
+      "transfer_date": "20241201",
+      "acquisition_date": "20210301",
+      "contract_date": "20221015",
+      "balance_payment_date": null
+    },
+    "property_type": "apartment",
+    "transfer_price": 800000000,
+    "acquisition_price": 600000000,
+    "property_count_raw": 1,
+    "is_adjustment_area_at_acquisition": true,
+    "is_adjustment_area_at_transfer": false,
+    "residence_periods": [],
+    "has_spouse": false,
+    "household_members": [],
+    "is_resident": true,
+    "acquisition_reason": "purchase",
+    "special_situations": ["sangsaeng_rental"],
+    "sangsaeng_rental": {
+      "contract_date": "20221015",
+      "contract_period_months": 26,
+      "previous_monthly_rent": 2000000,
+      "new_monthly_rent": 2080000
+    },
+    "additional_context": "조정대상지역 취득, 임차인에게 상생임대 계약 제공, 거주 없이 임대만"
+  },
+
+  {
+    "_comment": "케이스 4 — 일시적 2주택 + 고가주택",
+    "dates": {
+      "transfer_date": "20231115",
+      "acquisition_date": "20180301",
+      "contract_date": null,
+      "balance_payment_date": null
+    },
+    "property_type": "apartment",
+    "transfer_price": 1800000000,
+    "acquisition_price": 700000000,
+    "property_count_raw": 2,
+    "property_count_for_tax": 2,
+    "is_adjustment_area_at_acquisition": false,
+    "is_adjustment_area_at_transfer": false,
+    "residence_periods": [
+      { "start_date": "20180401", "end_date": "20210901" }
+    ],
+    "has_spouse": true,
+    "household_members": [
+      { "relation": "spouse" },
+      { "relation": "child", "age": 10 }
+    ],
+    "is_resident": true,
+    "acquisition_reason": "purchase",
+    "special_situations": ["temp_two_house"],
+    "temp_two_house": {
+      "new_house_acquisition_date": "20210901",
+      "new_house_is_adjustment_area": false
+    },
+    "additional_context": "신규 아파트 입주 후 종전 주택 3년 이내 양도. 양도가액 18억으로 고가주택"
+  },
+
+  {
+    "_comment": "케이스 5 — 상속주택 + 공동상속",
+    "dates": {
+      "transfer_date": "20240601",
+      "acquisition_date": "20231001",
+      "contract_date": null,
+      "balance_payment_date": null
+    },
+    "property_type": "apartment",
+    "transfer_price": 600000000,
+    "acquisition_price": null,
+    "property_count_raw": 2,
+    "is_adjustment_area_at_acquisition": false,
+    "is_adjustment_area_at_transfer": false,
+    "residence_periods": [],
+    "has_spouse": true,
+    "household_members": [],
+    "is_resident": true,
+    "acquisition_reason": "inheritance",
+    "inheritance_detail": {
+      "death_date": "20231001",
+      "donor_acquisition_date": "19980601",
+      "is_same_household_before_death": false,
+      "is_joint_inheritance": true,
+      "inheritance_share_pct": 50.0,
+      "is_largest_share": false,
+      "selling_inherited_house": false
+    },
+    "special_situations": [],
+    "additional_context": "형제와 공동상속 50:50. 본인 보유 일반주택 1채 따로 있음. 일반주택 양도 예정"
+  }
+]
