@@ -1035,6 +1035,45 @@ with tab_scenarios:
 
     _GOLDEN_FILE = _ROOT / "data" / "golden" / "qa_pairs.json"
 
+    # 골든셋 갱신 실행 버튼 (탭 위)
+    _ref_col1, _ref_col2, _ref_col3 = st.columns([2, 2, 4])
+    with _ref_col1:
+        if st.button("🔄 골든셋 갱신 실행", type="secondary", help="합성 케이스 생성 + 유권해석 교차탐지"):
+            with st.spinner("갱신 중..."):
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "-m", "scripts.refresh_golden_set"],
+                        capture_output=True, text=True, encoding="utf-8",
+                        cwd=str(_ROOT), timeout=300,
+                    )
+                    if result.returncode == 0:
+                        st.success("갱신 완료")
+                        st.caption(result.stdout[-500:] if result.stdout else "")
+                    else:
+                        st.error(f"갱신 실패: {result.stderr[-300:]}")
+                except Exception as _re:
+                    st.error(f"실행 오류: {_re}")
+            st.rerun()
+    with _ref_col2:
+        if st.button("🔍 교차탐지만", type="secondary", help="유권해석 교차탐지만 실행 (케이스 생성 없음)"):
+            with st.spinner("교차탐지 중..."):
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["python", "-m", "scripts.refresh_golden_set", "--cross-check-only"],
+                        capture_output=True, text=True, encoding="utf-8",
+                        cwd=str(_ROOT), timeout=300,
+                    )
+                    if result.returncode == 0:
+                        st.success("교차탐지 완료")
+                        st.caption(result.stdout[-500:] if result.stdout else "")
+                    else:
+                        st.error(f"실패: {result.stderr[-300:]}")
+                except Exception as _re:
+                    st.error(f"실행 오류: {_re}")
+            st.rerun()
+
     sub_eval, sub_label = st.tabs(["📊 평가 현황", "✏️ 전문가 검토"])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1216,7 +1255,10 @@ with tab_scenarios:
             if lbl_filter == "미검토":
                 _lbl_filtered = [
                     c for c in lbl_cases
-                    if not lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("reviewed")
+                    if (
+                        not lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("reviewed")
+                        and c.get("source") not in ("synthetic", "ruling_synthetic")
+                    )
                 ]
             elif lbl_filter == "검토완료":
                 _lbl_filtered = [
@@ -1227,6 +1269,7 @@ with tab_scenarios:
                 _lbl_filtered = [
                     c for c in lbl_cases
                     if lbl_labels.get(c.get("id") or c.get("case_id", ""), {}).get("confidence") == "낮음 (재검토 필요)"
+                    or c.get("invalidated")
                 ]
             if lbl_search:
                 _lbl_filtered = [
@@ -1266,6 +1309,16 @@ with tab_scenarios:
                         _tags = _c.get("tags") or []
                         if _tags:
                             st.markdown(f"- **태그**: `{'` `'.join(_tags)}`")
+
+                        # 유권해석 교차탐지 신호
+                        _signals = _c.get("ruling_signals") or []
+                        if _signals:
+                            st.caption(f"🔔 유권해석 교차탐지 {len(_signals)}건 — 재검토 필요")
+                            for _s in _signals:
+                                st.caption(
+                                    f"  [{_s.get('source_dir','')}] {_s.get('ruling_doc','')} "
+                                    f"{_s.get('ruling_title','')[:50]}"
+                                )
 
                         st.markdown("#### 🤖 AI 예상 결과")
                         _vc = _VERDICT_COLOR.get(_ai_verdict, "gray")
@@ -1316,6 +1369,7 @@ with tab_scenarios:
                             _save_expert_labels(_updated)
                             st.success("저장되었습니다.")
                             st.rerun()
+
 
             # ── 신규 케이스 입력 폼 ───────────────────────────────────────────
             st.divider()
