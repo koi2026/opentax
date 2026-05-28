@@ -224,17 +224,39 @@ def validate_output(
             "[L5 수정] 장기임대 의무기간·증액 요건 모두 충족 → §97의3 감면 적용"
         )
 
-    # ── 6-6. 공익수용 감면 → 일반과세 차단 ──────────────────────────────────
-    # 공익사업 수용(§77)은 감면이 기본 — 일반과세 판정은 오류
-    # 수용 사실 자체가 §77 감면 트리거; LLM이 일반과세로 오판 시 보정
+    # ── 6-6. 공익수용 감면/비과세 → 일반과세 차단 ────────────────────────────
+    # 공익사업 수용(§77)은 감면이 기본 — 일반과세 판정은 오류.
+    # 단, 실거주 주택(is_main_residence=True) + 1주택 + §89 요건 충족 시 §77 감면보다 §89 비과세 우선.
     if (
         ("공익수용감면" in active_flags or "수용_조특77감면" in active_flags)
         and verdict == TaxVerdict.GENERAL
     ):
-        verdict = TaxVerdict.REDUCED
-        warnings.append(
-            "[L5 수정] 공익사업 수용(조특§77) — 일반과세 판정 오류 수정, 감면 적용"
-        )
+        _exempt_applies6 = False
+        if query is not None:
+            from .tax_constants import TaxConstantsRegistry as _TCR6
+            _exp6 = query.fact_vector.special_cases.expropriation
+            _tp6 = query.fact_vector.transfer_price
+            _hp6 = query.fact_vector.holding_period_years or 0.0
+            _hc6 = query.fact_vector.household_house_count
+            _threshold6 = int(_TCR6.get("HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date))
+            _exempt_applies6 = (
+                _exp6 is not None
+                and getattr(_exp6, "residence_exemption_applies", False)
+                and _hc6 == 1
+                and _hp6 >= 2.0
+                and _tp6 is not None
+                and _tp6 <= _threshold6
+            )
+        if _exempt_applies6:
+            verdict = TaxVerdict.EXEMPT
+            warnings.append(
+                "[L5 수정] 공익수용 실거주 1주택(§154①단서 거주요건면제) — §89 비과세 우선 적용, 일반과세 수정"
+            )
+        else:
+            verdict = TaxVerdict.REDUCED
+            warnings.append(
+                "[L5 수정] 공익사업 수용(조특§77) — 일반과세 판정 오류 수정, 감면 적용"
+            )
 
     # ── 6-8. 다주택 중과세율 적용 → 일반/고가/사실관계부족 판정 보정 ────────────────
     # 조정대상지역 다주택 + 한시면세 종료 → 중과세율 필수 (소득세법 §104)
@@ -277,7 +299,7 @@ def validate_output(
         and (query.fact_vector.holding_period_years or 0.0) >= 2.0
     ):
         from .tax_constants import TaxConstantsRegistry as _TCR10
-        _threshold10 = int(_TCR10.get("EXEMPT_THRESHOLD", query.date_bundle.transfer_date))
+        _threshold10 = int(_TCR10.get("HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date))
         _tp10 = query.fact_vector.transfer_price
         if _tp10 is not None and _tp10 <= _threshold10:
             verdict = TaxVerdict.EXEMPT
@@ -300,7 +322,7 @@ def validate_output(
             _mm_limit11 = int(_TCR11.get("MARRIAGE_MERGE_EXEMPT_YEARS", query.date_bundle.transfer_date))
             _elapsed11 = (query.date_bundle.transfer_date - _mm11.marriage_date).days / 365.25
             if _elapsed11 <= _mm_limit11:
-                _threshold11 = int(_TCR11.get("EXEMPT_THRESHOLD", query.date_bundle.transfer_date))
+                _threshold11 = int(_TCR11.get("HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date))
                 _tp11 = query.fact_vector.transfer_price
                 if _tp11 is not None and _tp11 > _threshold11:
                     verdict = TaxVerdict.PARTIALLY_EXEMPT
@@ -328,6 +350,20 @@ def validate_output(
             warnings.append(
                 "[L5 수정] 해외이주 1주택자 — §154①2호 거주요건 면제 → §89 비과세 적용"
             )
+
+    # ── 6-8b. 비거주자 단기보유 → 단기세율 확정 ────────────────────────────────
+    # 비거주자는 §89 비과세 불가. 보유 2년 미만이면 §104 단기세율(60%/70%) 확정.
+    # LLM이 §121 조문 부재를 이유로 NEEDS_VERIFICATION 반환 시 보정.
+    if (
+        query is not None
+        and verdict == TaxVerdict.NEEDS_VERIFICATION
+        and (query.fact_vector.overseas_residence_yn or query.fact_vector.special_cases.is_non_resident)
+        and 0 < (query.fact_vector.holding_period_years or 0.0) < 2.0
+    ):
+        verdict = TaxVerdict.SHORT_TERM
+        warnings.append(
+            "[L5 수정] 비거주자 단기보유(§89 비과세 불가) — §104 단기세율 적용"
+        )
 
     # ── 7. 최종 반환 ─────────────────────────────────────────────────────
     changed = (
