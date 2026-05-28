@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, List, Optional, Set
 from .tax_answer import ExpertReviewSignal, TaxAnswer, TaxVerdict
 
 if TYPE_CHECKING:
-    from .query_input import RAGQueryInput
+    from .query_input import RAGQueryInput, ResidenceExemptionType
 
 # 신뢰도 상한 — missing_facts 있을 때
 CONFIDENCE_CAP_WITH_MISSING = 0.75
@@ -203,6 +203,131 @@ def validate_output(
             "[L5 수정] 조정대상지역 취득 주택: 거주기간 2년 미충족 (소령 §154①) "
             "→ 비과세 요건 불충족, 일반과세로 변경"
         )
+
+    # ── 6-4. 장기임대 감면 취소 → 비과세 차단 ──────────────────────────────
+    # 의무기간 미충족 또는 증액제한 위반 → 감면 취소 → 일반과세
+    # 등록 임대주택은 임대기간 중 거주주택 아님 → §89 비과세 불가
+    if "장기임대감면취소" in active_flags and verdict == TaxVerdict.EXEMPT:
+        verdict = TaxVerdict.GENERAL
+        warnings.append(
+            "[L5 수정] 장기임대 감면 취소(의무기간 미충족 또는 증액제한 위반) "
+            "→ 등록 임대주택은 §89 비과세 불가, 일반과세"
+        )
+
+    # ── 6-5. 장기임대 감면 요건 충족 + 사실관계부족/일반과세 오판 → 감면 오버라이드 ──
+    # danger_flag '장기임대감면' = fulfilled AND complied 모두 True → verdict='감면'
+    if "장기임대감면" in active_flags and verdict in (
+        TaxVerdict.NEEDS_VERIFICATION, TaxVerdict.GENERAL
+    ):
+        verdict = TaxVerdict.REDUCED
+        warnings.append(
+            "[L5 수정] 장기임대 의무기간·증액 요건 모두 충족 → §97의3 감면 적용"
+        )
+
+    # ── 6-6. 공익수용 감면 → 일반과세 차단 ──────────────────────────────────
+    # 공익사업 수용(§77)은 감면이 기본 — 일반과세 판정은 오류
+    # 수용 사실 자체가 §77 감면 트리거; LLM이 일반과세로 오판 시 보정
+    if (
+        ("공익수용감면" in active_flags or "수용_조특77감면" in active_flags)
+        and verdict == TaxVerdict.GENERAL
+    ):
+        verdict = TaxVerdict.REDUCED
+        warnings.append(
+            "[L5 수정] 공익사업 수용(조특§77) — 일반과세 판정 오류 수정, 감면 적용"
+        )
+
+    # ── 6-8. 다주택 중과세율 적용 → 일반/고가/사실관계부족 판정 보정 ────────────────
+    # 조정대상지역 다주택 + 한시면세 종료 → 중과세율 필수 (소득세법 §104)
+    # fact_checker가 "다주택중과" 플래그를 세운 경우 LLM 오판(일반·고가·사실관계부족) 보정
+    # Note: "중과한시면세" 기간 중에는 이 플래그가 설정되지 않으므로 안전
+    if "다주택중과" in active_flags and verdict in (
+        TaxVerdict.GENERAL,
+        TaxVerdict.PARTIALLY_EXEMPT,
+        TaxVerdict.NEEDS_VERIFICATION,
+    ):
+        verdict = TaxVerdict.HEAVY_TAX
+        warnings.append(
+            "[L5 수정] 조정대상지역 다주택 + 한시면세 기간 종료 — 일반/고가주택/사실관계부족 판정 오류, 중과세율 적용"
+        )
+
+    # ── 6-9. 공동상속 비지정보유자 → 비과세 차단 ─────────────────────────────────
+    # 소령 §155②: 공동상속 시 지정보유자가 아닌 경우(동등지분·최연장자 아님) 상속주택 주택수 산입
+    # → 1세대1주택 비과세(§89) 적용 불가, LLM이 보유기간·거주기간만 보고 비과세 오판 시 보정
+    if (
+        "상속주택" in active_flags
+        and verdict == TaxVerdict.EXEMPT
+        and query is not None
+    ):
+        inh = query.fact_vector.special_cases.inheritance
+        if inh is not None and not inh.inherited_as_only_house:
+            verdict = TaxVerdict.GENERAL
+            warnings.append(
+                "[L5 수정] 공동상속 비지정보유자 — 상속주택 주택수 산입(소령§155②), §89 비과세 불가 → 일반과세"
+            )
+
+    # ── 6-10. 비조정지역 취득 + 거주요건 없음 → NEEDS_VERIFICATION 해제 ─────────────
+    # 소령§154①: 취득 당시 비조정지역이면 거주2년 불요 → 보유2년+1주택+12억이하 → §89 비과세
+    # fact_checker가 "조정지역_거주요건" 미설정인 상태에서 LLM이 거주기간 누락 이유로 오판 시 보정
+    if (
+        verdict == TaxVerdict.NEEDS_VERIFICATION
+        and "조정지역_거주요건" not in active_flags
+        and query is not None
+        and not query.fact_vector.adjustment_area_at_acquisition
+        and query.fact_vector.household_house_count == 1
+        and (query.fact_vector.holding_period_years or 0.0) >= 2.0
+    ):
+        from .tax_constants import TaxConstantsRegistry as _TCR10
+        _threshold10 = int(_TCR10.get("EXEMPT_THRESHOLD", query.date_bundle.transfer_date))
+        _tp10 = query.fact_vector.transfer_price
+        if _tp10 is not None and _tp10 <= _threshold10:
+            verdict = TaxVerdict.EXEMPT
+            warnings.append(
+                "[L5 수정] 취득시 비조정지역 — 소령§154① 거주요건 불적용, NEEDS_VERIFICATION → §89 비과세"
+            )
+
+    # ── 6-11. 혼인합가 5년이내 → 1주택 간주 (비과세/고가주택 보정) ──────────────────
+    # 소령§155③: 혼인 전 각자 1주택 + 혼인신고일부터 5년이내 양도 → 1세대1주택 간주
+    # LLM이 세대 합산 2주택만 보고 일반과세/사실관계부족 반환 시 보정
+    if (
+        verdict in (TaxVerdict.GENERAL, TaxVerdict.NEEDS_VERIFICATION)
+        and "조정지역_거주요건" not in active_flags
+        and query is not None
+        and query.fact_vector.special_cases.is_marriage_merge
+    ):
+        _mm11 = query.fact_vector.special_cases.marriage_merge
+        if _mm11 is not None:
+            from .tax_constants import TaxConstantsRegistry as _TCR11
+            _mm_limit11 = int(_TCR11.get("MARRIAGE_MERGE_EXEMPT_YEARS", query.date_bundle.transfer_date))
+            _elapsed11 = (query.date_bundle.transfer_date - _mm11.marriage_date).days / 365.25
+            if _elapsed11 <= _mm_limit11:
+                _threshold11 = int(_TCR11.get("EXEMPT_THRESHOLD", query.date_bundle.transfer_date))
+                _tp11 = query.fact_vector.transfer_price
+                if _tp11 is not None and _tp11 > _threshold11:
+                    verdict = TaxVerdict.PARTIALLY_EXEMPT
+                    warnings.append(
+                        f"[L5 수정] 혼인합가 {_elapsed11:.1f}년이내(§155③) — 1주택 간주, 고가주택(12억 초과분 과세)"
+                    )
+                elif _tp11 is not None:
+                    verdict = TaxVerdict.EXEMPT
+                    warnings.append(
+                        f"[L5 수정] 혼인합가 {_elapsed11:.1f}년이내(§155③) — 1주택 간주, §89 비과세"
+                    )
+
+    # ── 6-7. 해외이주 1주택 비거주자 → 비과세 보정 ───────────────────────────────
+    # §154①2호: 해외이주자는 비거주자이더라도 1주택 출국일로부터 2년 이내 양도 시 §89 비과세 적용
+    # LLM이 "비거주자 = 일반과세" 기본 원칙에 빠져 특례를 놓칠 때 보정
+    if (
+        query is not None
+        and verdict == TaxVerdict.GENERAL
+        and query.fact_vector.household_house_count == 1
+        and query.fact_vector.special_cases.residence_requirement_exempted
+    ):
+        from .query_input import ResidenceExemptionType as _RET
+        if query.fact_vector.special_cases.residence_exemption_type == _RET.OVERSEAS_EMIGRATION:
+            verdict = TaxVerdict.EXEMPT
+            warnings.append(
+                "[L5 수정] 해외이주 1주택자 — §154①2호 거주요건 면제 → §89 비과세 적용"
+            )
 
     # ── 7. 최종 반환 ─────────────────────────────────────────────────────
     changed = (

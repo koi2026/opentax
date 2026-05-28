@@ -266,13 +266,14 @@ class SangsaengRentalDetail:
 
     @property
     def requirements_met(self) -> bool:
-        """① 계약일 범위 ② 직전계약 존재 ③ 5% 이내 ④ 2년 이상"""
+        """① 계약일 범위 ② 직전계약 존재 ③ 증액제한 이내 ④ 최소 임대기간 충족"""
         max_rate: float = _TCR.get("SANGSAENG_MAX_INCREASE_RATE", self.contract_date)
+        min_months: int = _TCR.get("SANGSAENG_MIN_PERIOD_MONTHS", self.contract_date)
         return (
             self.contract_in_window
             and self.has_prior_contract
             and self.increase_rate <= max_rate
-            and self.contract_period_months >= 24
+            and self.contract_period_months >= min_months
         )
 
     @property
@@ -660,6 +661,36 @@ class FactVector:
             f"조정대상지역_양도시: {'해당' if self.adjustment_area_at_transfer else '비해당'}"
         )
 
+        # 다주택 중과세율 적용 여부 — 특례에 의한 1주택 간주 여부 먼저 확인
+        if (
+            self.household_house_count >= 2
+            and self.adjustment_area_at_transfer
+            and self.transfer_date_val
+        ):
+            # 일시적2주택 기한이내: §155① 1주택 간주 → 중과 미적용
+            _td_sc = self.special_cases.temp_two_house
+            _temp2_exempt = (
+                _td_sc is not None
+                and self.transfer_date_val <= _td_sc.old_house_must_sell_by
+            )
+            if _temp2_exempt:
+                lines.append(
+                    f"다주택중과상태: 2주택이나_일시적2주택_기한이내(§155①)"
+                    f" → 1주택간주_중과세율미적용_§89비과세대상"
+                )
+            else:
+                _susp_start: date = _TCR.get("HEAVY_TAX_SUSPENSION_START", self.transfer_date_val)
+                _susp_end: date = _TCR.get("HEAVY_TAX_SUSPENSION_END", self.transfer_date_val)
+                if _susp_start <= self.transfer_date_val <= _susp_end:
+                    _htx_status = (
+                        f"한시면세기간내({_susp_start}~{_susp_end})_중과배제_일반세율적용"
+                    )
+                else:
+                    _htx_status = f"한시면세종료({_susp_end}이후)_중과적용_소득세법제104조"
+                lines.append(
+                    f"다주택중과상태: {self.household_house_count}주택_조정지역양도 {_htx_status}"
+                )
+
         # 보유/거주
         lines.append(f"보유기간: {self.holding_period_years:.1f}년")
         if self.residence_periods:
@@ -678,6 +709,26 @@ class FactVector:
             article_kw = self.special_cases.residence_exemption_article()
             if article_kw:
                 lines.append(f"거주요건면제근거: {article_kw}")
+            # 상생임대 거주요건 단축 — 단축 기준과 실거주기간 명시 (LLM 판단 명확화)
+            if (
+                self.special_cases.residence_exemption_type
+                and self.special_cases.residence_exemption_type.value == "상생임대"
+            ):
+                sg_req: float = _TCR.get("SANGSAENG_RESIDENCE_YEARS", self.transfer_date_val or date.today())
+                actual: float = self.residence_period_years or 0.0
+                ok = "충족" if actual >= sg_req else "미충족"
+                lines.append(
+                    f"상생임대_거주단축조건: 단축기준{sg_req}년 실거주{actual}년 → {ok}_비과세판단"
+                )
+            # 해외이주 — 비거주자이더라도 §89 비과세 가능 (일반 비거주자 불가 원칙 예외)
+            if (
+                self.special_cases.residence_exemption_type
+                and self.special_cases.residence_exemption_type
+                    == ResidenceExemptionType.OVERSEAS_EMIGRATION
+            ):
+                lines.append(
+                    "해외이주_거주요건면제: 비거주자이더라도_소령§154①2호_출국전후2년이내양도→거주요건없이§89비과세가능"
+                )
 
         # 이월과세 — 조문 키워드 없으면 §97의2 검색 안 됨
         rt = self.special_cases.rollover_taxation
@@ -698,6 +749,22 @@ class FactVector:
                 f"종전주택취득일{rc.original_house_acquisition_date} "
                 f"소득세법시행령제156조의2"
             )
+            # 원조합원 입주권 비과세 가능 여부 명시 (§89①3호나목)
+            if rc.is_original_member and self.household_house_count == 1:
+                adj_acq = getattr(self, 'adjustment_area_at_acquisition', False)
+                holding = self.holding_period_years or 0
+                if not adj_acq and holding >= 2:
+                    lines.append(
+                        "원조합원입주권_비과세가능: 비조정지역취득_1세대1주택_2년이상보유 "
+                        "→ §89①3호나목_소령§156의2_비과세적용"
+                    )
+                elif adj_acq and holding >= 2:
+                    res = self.residence_period_years or 0
+                    if res >= 2:
+                        lines.append(
+                            "원조합원입주권_비과세가능: 조정지역취득_거주2년충족 "
+                            "→ §89①3호나목_소령§156의2_비과세적용"
+                        )
 
         # 일시적2주택 — 종전주택 양도기한 + 기한 초과 여부 명시
         td = self.special_cases.temp_two_house
@@ -714,13 +781,24 @@ class FactVector:
                 + " 소득세법시행령제155조제1항"
             )
 
-        # 상속주택 — 사망일 및 5년 경과 여부
+        # 상속주택 — 사망일 및 경과 여부 (INHERITANCE_EXEMPT_YEARS 기준)
         inh = self.special_cases.inheritance
         if inh:
             path = "상속주택자체양도" if inh.selling_inherited_house else "일반주택양도"
-            if self.transfer_date_val:
+            # 공동상속 지정보유자 아님 → 주택수 제외 불가 (경과 기간과 무관)
+            if not inh.inherited_as_only_house:
+                lines.append(
+                    f"상속주택: 사망일{inh.death_date} {path} "
+                    "공동상속_지정보유자아님(동등지분또는최연장자아님) "
+                    "상속주택주택수제외불가_다주택취급 소득세법시행령제155조제2항"
+                )
+            elif self.transfer_date_val:
                 yrs = (self.transfer_date_val - inh.death_date).days / 365.25
-                window = "5년이내_주택수제외" if yrs < 5 else "5년초과_주택수산입"
+                _inh_limit: int = _TCR.get("INHERITANCE_EXEMPT_YEARS", self.transfer_date_val)
+                window = (
+                    f"{_inh_limit}년이내_주택수제외" if yrs < _inh_limit
+                    else f"{_inh_limit}년초과_주택수산입"
+                )
                 lines.append(
                     f"상속주택: 사망일{inh.death_date} {path} 경과{yrs:.1f}년 {window} "
                     "소득세법시행령제155조제2항"
@@ -728,12 +806,16 @@ class FactVector:
             else:
                 lines.append(f"상속주택: 사망일{inh.death_date} {path} 소득세법시행령제155조제2항")
 
-        # 동거봉양합가 — 10년 경과 여부
+        # 동거봉양합가 — 경과 여부 (COHABITATION_EXEMPT_YEARS 기준)
         cc = self.special_cases.cohabitation_care
         if cc:
             if self.transfer_date_val:
                 yrs = (self.transfer_date_val - cc.cohabitation_start_date).days / 365.25
-                window = "10년이내_특례적용" if yrs < 10 else "10년초과_특례미적용"
+                _cohab_limit: int = _TCR.get("COHABITATION_EXEMPT_YEARS", self.transfer_date_val)
+                window = (
+                    f"{_cohab_limit}년이내_특례적용" if yrs < _cohab_limit
+                    else f"{_cohab_limit}년초과_특례미적용"
+                )
                 lines.append(
                     f"동거봉양합가: 합가일{cc.cohabitation_start_date} 경과{yrs:.1f}년 {window} "
                     "소득세법시행령제155조제4항"
@@ -742,6 +824,20 @@ class FactVector:
                 lines.append(
                     f"동거봉양합가: 합가일{cc.cohabitation_start_date} 소득세법시행령제155조제4항"
                 )
+
+        # 혼인합가 — 경과 여부 (MARRIAGE_MERGE_EXEMPT_YEARS 기준)
+        mm = self.special_cases.marriage_merge
+        if mm and self.transfer_date_val:
+            yrs = (self.transfer_date_val - mm.marriage_date).days / 365.25
+            _marriage_limit: int = _TCR.get("MARRIAGE_MERGE_EXEMPT_YEARS", self.transfer_date_val)
+            m_window = (
+                f"{_marriage_limit}년이내_1주택간주_특례적용" if yrs < _marriage_limit
+                else f"{_marriage_limit}년초과_다주택취급_특례미적용"
+            )
+            lines.append(
+                f"혼인합가: 혼인일{mm.marriage_date} 경과{yrs:.1f}년 {m_window} "
+                "소득세법시행령제155조제5항"
+            )
 
         # 수용/공익사업
         exp = self.special_cases.expropriation
@@ -774,6 +870,21 @@ class FactVector:
         # 비거주자
         if self.overseas_residence_yn or self.special_cases.is_non_resident:
             lines.append("비거주자: 해당")
+
+        # 장기임대 — 의무충족 여부 명시 (누락 시 LLM이 감면/취소 판단 불가)
+        ltr = self.special_cases.long_term_rental
+        if ltr:
+            fulfilled_str = "충족" if ltr.mandatory_period_fulfilled else "미충족"
+            increase_str = "준수" if ltr.rent_increase_limit_complied else "위반"
+            if ltr.mandatory_period_fulfilled and ltr.rent_increase_limit_complied:
+                status = "감면요건충족"
+            else:
+                status = "감면취소_일반과세"
+            lines.append(
+                f"장기임대: 등록일{ltr.registration_date} 의무기간{ltr.mandatory_period_years}년 "
+                f"의무충족{fulfilled_str} 증액제한{increase_str} {status} "
+                "조세특례제한법제97조의3"
+            )
 
         # 프로퍼티 타입별 키워드 보강
         if self.property_type == PropertyType.SUBSCRIPTION_RIGHT:
@@ -892,9 +1003,10 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
                 same_household_at_death=bool(
                     fl.get("deceased_same_household") or up.get("deceased_same_household")
                 ),
-                inherited_as_only_house=bool(
-                    fl.get("inherited_as_only_house") or up.get("inherited_as_only_house")
-                ),
+                inherited_as_only_house=(
+                    lambda v: True if v is None else bool(v)
+                )(fl.get("inherited_as_only_house") if fl.get("inherited_as_only_house") is not None
+                  else up.get("inherited_as_only_house")),
                 selling_inherited_house=bool(
                     fl.get("selling_inherited_house", is_inheritance_acquisition)
                 ),
@@ -984,7 +1096,7 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
 
     # 재건축/재개발
     if up.get("asset_kind") in ("입주권",) or fl.get("is_reconstruction"):
-        if odat2 := _pd(up.get("original_house_acquisition_date")):
+        if odat2 := _pd(up.get("original_house_acquisition_date") or up.get("acquisition_date")):
             sc.is_reconstruction = True
             sc.reconstruction = ReconstructionDetail(
                 is_original_member=bool(fl.get("is_original_member", True)),

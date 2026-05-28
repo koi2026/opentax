@@ -690,7 +690,8 @@ def generate_expropriation_deep(
             "desc": "공익수용 — 2년 이상 거주 주택 + 채권보상 (추가 감면)",
             "comp": "채권",
             "main_res": True,
-            "expected": "감면",
+            "residence": 3.0,  # 2년 이상 실거주 주택 → is_main_residence=True와 일관성
+            "expected": "비과세",  # §89 비과세 요건 충족: 조정지역+거주3년+보유8년+1주택+8억≤12억
             "tags": ["공익수용", "거주주택", "추가감면"],
         },
         {
@@ -698,6 +699,7 @@ def generate_expropriation_deep(
             "comp": "현금",
             "main_res": False,
             "residence": 0.0,   # 거주 0년, §89 비과세 불가 → §77 감면
+            "adj_acq": False,   # 비조정지역 취득
             "expected": "감면",
             "tags": ["공익수용", "거주미달", "§77감면"],
         },
@@ -715,7 +717,7 @@ def generate_expropriation_deep(
                 "transfer_price": 800_000_000,
                 "acquisition_price": 400_000_000,
                 "residence_years": s.get("residence", 0.0),
-                "is_adjustment_area_at_acquisition": True,
+                "is_adjustment_area_at_acquisition": s.get("adj_acq", True),
                 "is_adjustment_area_at_transfer": False,
                 "special_cases": {
                     "expropriation": {
