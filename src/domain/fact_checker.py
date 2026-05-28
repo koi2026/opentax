@@ -254,8 +254,12 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
 
     # ── 15. 장기임대주택 감면 — 조특법 §97의3 ───────────────────────────
     if sc.is_long_term_rental_registered and sc.long_term_rental:
-        if sc.long_term_rental.mandatory_period_fulfilled:
+        ltr = sc.long_term_rental
+        if ltr.mandatory_period_fulfilled and ltr.rent_increase_limit_complied:
             danger.append("장기임대감면")
+        else:
+            # 의무기간 미충족 또는 5% 증액제한 위반 → 감면 취소 → 일반과세
+            danger.append("장기임대감면취소")
 
     # ── 결정 ─────────────────────────────────────────────────────────────
     critical_count = sum(1 for m in missing if m.is_critical)

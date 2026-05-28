@@ -747,11 +747,13 @@ class FactVector:
         exp = self.special_cases.expropriation
         if exp:
             if exp.residence_exemption_applies:
+                # 실거주 + 강제수용: §154 거주요건면제 + §77 감면 둘 다 검토
                 lines.append(
                     f"수용공익사업: {exp.acquisition_type} 보상유형{exp.compensation_type} "
-                    "거주요건면제 소득세법시행령제154조제1항단서"
+                    "거주요건면제 소득세법시행령제154조제1항단서 조세특례제한법제77조공익사업감면"
                 )
             else:
+                # 비거주 주택 수용: §77 감면 트랙
                 lines.append(
                     f"수용공익사업: {exp.acquisition_type} 보상유형{exp.compensation_type} "
                     "조세특례제한법제77조감면신청"

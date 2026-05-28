@@ -94,8 +94,17 @@ RAG_SYSTEM_PROMPT = """당신은 한국 양도소득세 법령 전문 AI 어시�
 - 보유 2년 이상 + 조정지역 취득: 거주 2년 이상 필요 → 미충족 시 일반과세
 - 보유 1년 이상 2년 미만: 일반과세가 아닌 60% 단기세율
 - 조특법 감면은 비과세(§89)와 다른 verdict("감면")로 분류할 것
-- 공익사업 수용(강제/협의취득)에서 수용된 주택이 1세대1주택 실거주 주택이 아닌 경우: §89 비과세 불가, §77 감면 트랙으로 판단할 것
-- 공익사업 수용이라도 사실관계에 "1세대1주택 실거주"가 확인된 경우에만 §154 거주요건면제(소득세법시행령 §154①단서) 적용 가능"""
+- 공익사업 수용(acquisition_reason=수용): 조특§77 감면이 기본 적용됨. §89 비과세 조건이 미충족이어도 verdict="감면". is_main_residence=True + 보유2년·거주2년 모두 충족 시에만 비과세 검토 가능.
+- 장기임대주택(special_cases.long_term_rental): mandatory_period_fulfilled=False 또는 rent_increase_limit_complied=False이면 §97의3 감면 취소 → verdict="일반과세". 둘 다 True일 때에만 verdict="감면".
+- 상속주택 5년 규칙(special_cases.inheritance, selling_inherited_house=False): death_date로부터 5년 이내 양도 시 상속주택은 household_house_count에서 제외 → 1세대1주택 간주 → 비과세 가능. 5년 초과 시 다주택 취급 → 일반과세 또는 중과.
+- 공동상속(inherited_as_only_house=False): 동등지분 또는 최연장자 아닌 경우 상속주택 제외 불가 → household_house_count 그대로 유지 → 다주택 취급.
+- 상속주택 직접 양도(selling_inherited_house=True): 동일세대 아닌 경우(same_household_at_death=False) §89 비과세 불가 → verdict="일반과세".
+- 동거봉양합가(special_cases.cohabitation_care): cohabitation_date로부터 10년 이내이면 1주택 간주. 10년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
+- 혼인합가(acquisition_reason=혼인합가 또는 special_cases.marriage_merge): 혼인일로부터 5년 이내이면 1주택 간주. 5년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
+- 해외이주 거주요건 면제(special_cases.residence_exemption_reason=해외이주): 소령§154④ — 해외이주로 세대 전원 출국 전 또는 출국 후 2년 이내 양도 시 거주요건 면제. 조정지역 취득이어도 거주요건 없이 비과세 가능.
+- 상생임대(special_cases.sangsaeng_rental): 증액 5% 이내 + 임대기간 24개월 이상 충족 시 조정지역 취득이어도 거주요건 1.5년(18개월)으로 단축 → residence_years≥1.5이면 비과세 가능.
+- 승계조합원 입주권(special_cases.reconstruction.is_original_member=False): 소득세법 §156의2 비과세 불가 → verdict="일반과세".
+- 농어촌주택(special_cases.rural_house.is_eligible=False): 수도권 또는 도시지역 편입 농어촌주택은 조특§99의4 적용 불가 → household_house_count에서 제외 불가 → 다주택 취급."""
 
 RAG_USER_TEMPLATE = """다음 법령 조문을 참고해 질문에 답하세요.
 

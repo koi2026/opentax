@@ -164,6 +164,7 @@ def generate_cohabitation_deep(
         {
             "desc": "동거봉양합가 — 합가 후 10년 1개월 양도 (10년 초과, 다주택 취급)",
             "merge": "20160201",   # 합가 후 ~10년 3개월 → 10년 초과
+            "is_adj": True,        # 중과 적용을 위한 조정지역 필요
             "expected": "중과" if _after_suspension else "일반과세",
             "tags": ["동거봉양", "10년초과", "다주택"],
         },
@@ -216,7 +217,8 @@ def generate_cohabitation_deep(
                 "transfer_price": 900_000_000,
                 "acquisition_price": 500_000_000,
                 "residence_years": 3.0,
-                "is_adjustment_area_at_transfer": False,
+                "is_adjustment_area_at_transfer": s.get("is_adj", False),
+                "is_adjustment_area_at_acquisition": s.get("is_adj", False),
                 "special_cases": sc_inner,
             },
             expected_verdict=s["expected"],
@@ -242,6 +244,8 @@ def generate_rural_house_deep(
         {
             "desc": "농어촌주택이 도시지역으로 편입 — 비과세 특례 소멸, 일반과세",
             "expected": "일반과세",
+            "rural_eligible": False,  # 도시편입 → 더 이상 농어촌주택 요건 미충족
+            "house_count": 2,          # 특례 소멸 → 농어촌주택도 주택 수 포함
             "tags": ["농어촌주택", "도시편입", "특례소멸"],
         },
         {
@@ -254,6 +258,7 @@ def generate_rural_house_deep(
             "desc": "수도권 소재 농어촌주택 — 조특§99의4 적용 제외 지역",
             "expected": "일반과세",   # 수도권 소재는 특례 적용 불가
             "rural_eligible": False,
+            "house_count": 2,          # 수도권 농어촌주택은 특례 불가 → 주택 수 포함
             "tags": ["농어촌주택", "수도권제외"],
         },
     ]
@@ -266,7 +271,7 @@ def generate_rural_house_deep(
                 "acquisition_date": "20180101",
                 "property_type": "아파트",
                 "acquisition_reason": "매매",
-                "household_house_count": 1,
+                "household_house_count": s.get("house_count", 1),
                 "transfer_price": s.get("transfer_price", 900_000_000),
                 "acquisition_price": 500_000_000,
                 "residence_years": 3.0,
@@ -749,6 +754,7 @@ def generate_inheritance_deep(
             "selling_inherited": True,
             "same_hh": False,
             "only_house": False,
+            "donor_acq": "20100101",  # 피상속인 원취득일 — L2 차단 방지
             "expected": "일반과세",
             "tags": ["상속주택", "직접양도", "취득가액"],
         },
@@ -848,6 +854,7 @@ def generate_marriage_merge_deep(
         {
             "desc": "혼인합가 — 합가 후 5년 초과 양도 (다주택 취급)",
             "marriage": "20180601",
+            "is_adj": True,        # 중과 적용을 위한 조정지역 필요
             "expected": "중과" if _after_suspension else "일반과세",
             "tags": ["혼인합가", "5년초과", "다주택"],
         },
@@ -891,7 +898,8 @@ def generate_marriage_merge_deep(
             "transfer_price": s.get("transfer_price", 900_000_000),
             "acquisition_price": 500_000_000,
             "residence_years": 3.0,
-            "is_adjustment_area_at_transfer": False,
+            "is_adjustment_area_at_transfer": s.get("is_adj", False),
+            "is_adjustment_area_at_acquisition": s.get("is_adj", False),
             "special_cases": sc_inner,
         }
         yield SyntheticCase(
