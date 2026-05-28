@@ -404,11 +404,12 @@ class ExpropiationDetail:
     """
     acquisition_type: str   # "compulsory"(강제수용) | "negotiated"(협의취득) | "voluntary"(자진매각)
     compensation_type: str  # "cash"(현금) | "bond"(채권) | "land"(대토)
+    is_main_residence: bool = False  # 수용된 주택이 1세대1주택 실거주 주택인지 (§154 거주요건면제 조건)
 
     @property
     def residence_exemption_applies(self) -> bool:
-        """자진매각은 거주요건 면제 불가, 수용/협의취득만 적용"""
-        return self.acquisition_type in ("compulsory", "negotiated")
+        """§154①단서: 강제/협의 수용 + 실거주 주택이어야 거주요건 면제. 비거주 주택은 §77 감면 트랙."""
+        return self.acquisition_type in ("compulsory", "negotiated") and self.is_main_residence
 
 
 @dataclass
@@ -546,6 +547,8 @@ class SpecialCaseFlags:
         if self.expropriation:
             if self.expropriation.residence_exemption_applies:
                 result.append(f"수용_{self.expropriation.acquisition_type}_거주요건면제")
+            else:
+                result.append("수용_조특77감면")  # 비거주 주택 수용 → §77 감면 트랙
         return result
 
     def residence_exemption_article(self) -> Optional[str]:
@@ -743,10 +746,16 @@ class FactVector:
         # 수용/공익사업
         exp = self.special_cases.expropriation
         if exp:
-            lines.append(
-                f"수용공익사업: {exp.acquisition_type} 보상유형{exp.compensation_type} "
-                + ("거주요건면제 소득세법시행령제154조제1항단서" if exp.residence_exemption_applies else "자진매각거주요건적용")
-            )
+            if exp.residence_exemption_applies:
+                lines.append(
+                    f"수용공익사업: {exp.acquisition_type} 보상유형{exp.compensation_type} "
+                    "거주요건면제 소득세법시행령제154조제1항단서"
+                )
+            else:
+                lines.append(
+                    f"수용공익사업: {exp.acquisition_type} 보상유형{exp.compensation_type} "
+                    "조세특례제한법제77조감면신청"
+                )
 
         # 특수관계자간 거래 — §101 부당행위계산부인 조문 키워드 명시
         if self.is_related_party_transaction:
@@ -1013,6 +1022,7 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
         sc.expropriation = ExpropiationDetail(
             acquisition_type=fl.get("expropriation_type", "compulsory"),
             compensation_type=fl.get("compensation_type", "cash"),
+            is_main_residence=bool(fl.get("is_main_residence_for_expropriation", False)),
         )
         if sc.expropriation.residence_exemption_applies and not sc.residence_requirement_exempted:
             sc.residence_requirement_exempted = True
