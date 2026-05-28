@@ -30,7 +30,7 @@ def _optional_float_env(name: str) -> float | None:
 
 
 # law.go.kr DRF API
-LAW_API_OC = os.getenv("LAW_API_OC", "jctax")
+LAW_API_OC = os.getenv("LAW_API_OC", "")
 LAW_API_BASE_URL = os.getenv("LAW_API_BASE_URL", "https://www.law.go.kr/DRF")
 
 # LLM

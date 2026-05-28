@@ -62,3 +62,10 @@ Thumbs.db
 *.key
 secrets.json
 node_modules
+
+# 핵심 IP — 비공개 (public 전환 시 히스토리 정리 필요)
+data/golden/
+data/reranker_pairs.jsonl
+
+# 도메인 키워드 맵 (template은 공개, 실제 맵은 비공개)
+data/config/danger_keyword_map.json
