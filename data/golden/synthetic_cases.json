@@ -1,6 +1,6 @@
 [
   {
-    "case_id": "25466584",
+    "case_id": "3f1dfc2f",
     "description": "보유기간 364일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -19,10 +19,12 @@
       "보유기간경계",
       "364일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "49f43efc",
+    "case_id": "a32a8ef0",
     "description": "보유기간 365일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -41,10 +43,12 @@
       "보유기간경계",
       "365일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "748ab60d",
+    "case_id": "f578cc3b",
     "description": "보유기간 366일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -63,10 +67,12 @@
       "보유기간경계",
       "366일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "a4e894ab",
+    "case_id": "88a70eb9",
     "description": "보유기간 729일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -85,10 +91,12 @@
       "보유기간경계",
       "729일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "444b4bb4",
+    "case_id": "6c525891",
     "description": "보유기간 730일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -107,10 +115,12 @@
       "보유기간경계",
       "730일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "f3634260",
+    "case_id": "2ccc5d2c",
     "description": "보유기간 1095일 경계 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -129,10 +139,12 @@
       "보유기간경계",
       "1095일"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "65c62152",
+    "case_id": "ee4b36ea",
     "description": "12억 미달 비과세",
     "fact_json": {
       "transfer_date": "20250601",
@@ -154,19 +166,11 @@
     "registry_deps": [
       "HIGH_VALUE_THRESHOLD"
     ],
-    "gold_chunk_ids": [
-      "285631_itd_a154_20260423",
-      "285631_0154001",
-      "285631_itd_a167_20260423_c10",
-      "285631_0167111",
-      "285631_itd_a167_20260423_c9",
-      "285631_0167101",
-      "285631_itd_a155_20260423"
-    ],
-    "gold_confidence": 0.98
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "3f256b22",
+    "case_id": "9b77299b",
     "description": "12억 정확히 비과세한도",
     "fact_json": {
       "transfer_date": "20250601",
@@ -188,19 +192,11 @@
     "registry_deps": [
       "HIGH_VALUE_THRESHOLD"
     ],
-    "gold_chunk_ids": [
-      "285631_itd_a154_20260423",
-      "285631_0154001",
-      "285631_itd_a167_20260423_c10",
-      "285631_0167111",
-      "285631_itd_a167_20260423_c9",
-      "285631_0167101",
-      "285631_itd_a155_20260423"
-    ],
-    "gold_confidence": 0.98
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "585ed54a",
+    "case_id": "75cdfe5e",
     "description": "12억 초과 고가주택",
     "fact_json": {
       "transfer_date": "20250601",
@@ -222,19 +218,11 @@
     "registry_deps": [
       "HIGH_VALUE_THRESHOLD"
     ],
-    "gold_chunk_ids": [
-      "285631_itd_a154_20260423",
-      "285631_0154001",
-      "285631_itd_a160_20260423",
-      "285631_itd_a167_20260423_c10",
-      "285631_0167111",
-      "285631_itd_a167_20260423_c9",
-      "285631_0167101"
-    ],
-    "gold_confidence": 0.75
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "92369ff0",
+    "case_id": "21d2d285",
     "description": "12억 +3억 고가주택",
     "fact_json": {
       "transfer_date": "20250601",
@@ -256,19 +244,11 @@
     "registry_deps": [
       "HIGH_VALUE_THRESHOLD"
     ],
-    "gold_chunk_ids": [
-      "285631_itd_a154_20260423",
-      "285631_0154001",
-      "285631_itd_a167_20260423_c9",
-      "285631_0167101",
-      "285631_itd_a167_20260423_c10",
-      "285631_0167111",
-      "285631_itd_a161_20260423"
-    ],
-    "gold_confidence": 0.75
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "12bdf3dd",
+    "case_id": "6c187867",
     "description": "세대 내 1주택 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -287,10 +267,12 @@
       "주택수경계",
       "1주택"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "7b589489",
+    "case_id": "feaa4643",
     "description": "세대 내 2주택 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -309,10 +291,12 @@
       "주택수경계",
       "2주택"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   },
   {
-    "case_id": "eae13efb",
+    "case_id": "856c5fdd",
     "description": "세대 내 3주택 케이스",
     "fact_json": {
       "transfer_date": "20250601",
@@ -331,6 +315,8 @@
       "주택수경계",
       "3주택"
     ],
-    "registry_deps": []
+    "registry_deps": [],
+    "registry_snapshot": {},
+    "gold_chunk_ids": []
   }
 ]

@@ -1,6 +1,16 @@
 """
-모든 프롬프트를 여기서 버전 관리
+모든 프롬프트를 여기서 버전 관리.
+
+수치·기준값은 TaxConstantsRegistry에서 동적으로 주입한다.
+모듈 로드 시 build_*_prompt()를 호출해 모듈 수준 상수로 노출한다 (하위 호환).
+세법 개정 시 TaxConstantsRegistry만 수정하면 프롬프트가 자동 갱신된다.
 """
+from __future__ import annotations
+
+from datetime import date as _date
+from typing import Optional
+
+from src.domain.tax_constants import TaxConstantsRegistry as _TCR
 
 # ── Tax Researcher (TaxIssueAnalyzer + LawRetriever 합친 MVP 역할) ──────────
 RESEARCHER_ROLE = "한국 양도소득세 법령 조사관"
@@ -73,7 +83,36 @@ ADVISOR_TASK = """\
 """
 
 # ── rag.py에서 사용하는 단일 LLM 프롬프트 ──────────────────────────────────
-RAG_SYSTEM_PROMPT = """당신은 한국 양도소득세 법령 전문 AI 어시스턴트입니다.
+
+
+def build_rag_system_prompt(as_of: Optional[_date] = None) -> str:
+    """
+    TaxConstantsRegistry에서 현행 수치를 읽어 RAG 시스템 프롬프트를 생성한다.
+
+    as_of: 기준일 (None이면 오늘). 역사적 케이스 재판단 시 해당 양도일 지정 가능.
+    세법 개정 시 TaxConstantsRegistry만 수정하면 이 프롬프트가 자동으로 갱신된다.
+    """
+    as_of = as_of or _date.today()
+
+    # 핵심 수치 — 모두 레지스트리에서 조회
+    threshold_eok: int = _TCR.get("HIGH_VALUE_THRESHOLD", as_of) // 100_000_000
+    short_rates: dict = _TCR.get("SHORT_TERM_RATES", as_of)
+    short_1y: int = int(short_rates["under_1_year"] * 100)
+    short_2y: int = int(short_rates["1_to_2_years"] * 100)
+    heavy: dict = _TCR.get("HEAVY_TAX_ADDITIONAL", as_of)
+    heavy_2: int = int(heavy[2] * 100)
+    heavy_3: int = int(heavy[3] * 100)
+    res_req: float = _TCR.get("RESIDENCE_REQUIRED_YEARS_ADJUSTMENT", as_of)
+    inh_yrs: int = _TCR.get("INHERITANCE_EXEMPT_YEARS", as_of)
+    cohab_yrs: int = _TCR.get("COHABITATION_EXEMPT_YEARS", as_of)
+    marriage_yrs: int = _TCR.get("MARRIAGE_MERGE_EXEMPT_YEARS", as_of)
+    sg_months: int = _TCR.get("SANGSAENG_MIN_PERIOD_MONTHS", as_of)
+    sg_res: float = _TCR.get("SANGSAENG_RESIDENCE_YEARS", as_of)
+    sg_res_months: int = int(sg_res * 12)
+    sg_rate: int = int(_TCR.get("SANGSAENG_MAX_INCREASE_RATE", as_of) * 100)
+    iota_yrs: int = _TCR.get("IOTA_PERIOD_YEARS", as_of, anchor_key="gift_date")
+
+    return f"""당신은 한국 양도소득세 법령 전문 AI 어시스턴트입니다.
 반드시 아래 규칙을 따르세요:
 1. 제공된 법령 조문에만 근거해 답변합니다. 조문에 없는 내용은 추측하지 않습니다.
 2. 불확실한 사실관계가 있으면 '추가 확인 필요' 항목에 명시합니다.
@@ -81,30 +120,35 @@ RAG_SYSTEM_PROMPT = """당신은 한국 양도소득세 법령 전문 AI 어시�
 
 [verdict 선택 기준 — 반드시 아래 7가지 중 하나만 선택]
 
-- "비과세": 소득세법 §89 1세대1주택 완전 비과세. 양도가액 12억 이하이고 보유·거주요건 충족.
-- "고가주택": 1세대1주택이지만 양도가액 12억 초과. 12억 초과분에만 세금.
+- "비과세": 소득세법 §89 1세대1주택 완전 비과세. 양도가액 {threshold_eok}억 이하이고 보유·거주요건 충족.
+- "고가주택": 1세대1주택이지만 양도가액 {threshold_eok}억 초과. {threshold_eok}억 초과분에만 세금.
 - "감면": 조세특례제한법상 세액감면. 자경농지(§69), 장기임대주택(§97의3), 공익사업수용(§77), 신축·미분양주택 등. ※ 비과세와 구별: 세액 일부 또는 전부를 「감면」받는 것이며, 소득세법 §89 비과세와 다름. ※ 임대사업자 등록한 임대주택을 직접 양도하는 경우 §89 비과세 대상 아님 — 반드시 §97의3 감면 여부를 검토할 것.
-- "중과": 다주택자 조정대상지역 중과(+20%p/+30%p). 소득세법 §104①7·8호.
+- "중과": 다주택자 조정대상지역 중과(+{heavy_2}%p/+{heavy_3}%p). 소득세법 §104①7·8호.
 - "일반과세": 기본세율 6~45%. 비과세·감면·중과·단기세율 어느 것도 해당하지 않는 경우.
-- "단기세율": 보유기간 2년 미만 단기양도. 1년 미만 70%, 1년 이상 2년 미만 60%. 미등기 전매(70%). 소득세법 §104①1·2호.
+- "단기세율": 보유기간 2년 미만 단기양도. 1년 미만 {short_1y}%, 1년 이상 2년 미만 {short_2y}%. 미등기 전매({short_1y}%). 소득세법 §104①1·2호.
 - "사실관계부족": 결론을 내리기에 필수 사실관계가 부족한 경우. ※ 법령을 못 찾은 경우가 아니라 사실관계 자체가 없을 때만 사용.
 
 [핵심 구별 포인트]
 - 보유 2년 이상 + 비조정지역 취득: 거주요건 불필요 → 비과세 가능
-- 보유 2년 이상 + 조정지역 취득: 거주 2년 이상 필요 → 미충족 시 일반과세
-- 보유 1년 이상 2년 미만: 일반과세가 아닌 60% 단기세율
+- 보유 2년 이상 + 조정지역 취득: 거주 {int(res_req)}년 이상 필요 → 미충족 시 일반과세
+- 보유 1년 이상 2년 미만: 일반과세가 아닌 {short_2y}% 단기세율
 - 조특법 감면은 비과세(§89)와 다른 verdict("감면")로 분류할 것
 - 공익사업 수용(acquisition_reason=수용): 조특§77 감면이 기본 적용됨. §89 비과세 조건이 미충족이어도 verdict="감면". is_main_residence=True + 보유2년·거주2년 모두 충족 시에만 비과세 검토 가능.
 - 장기임대주택(special_cases.long_term_rental): mandatory_period_fulfilled=False 또는 rent_increase_limit_complied=False이면 §97의3 감면 취소 → verdict="일반과세". 둘 다 True일 때에만 verdict="감면".
-- 상속주택 5년 규칙(special_cases.inheritance, selling_inherited_house=False): death_date로부터 5년 이내 양도 시 상속주택은 household_house_count에서 제외 → 1세대1주택 간주 → 비과세 가능. 5년 초과 시 다주택 취급 → 일반과세 또는 중과.
+- 상속주택 {inh_yrs}년 규칙(special_cases.inheritance, selling_inherited_house=False): death_date로부터 {inh_yrs}년 이내 양도 시 상속주택은 household_house_count에서 제외 → 1세대1주택 간주 → 비과세 가능. {inh_yrs}년 초과 시 다주택 취급 → 일반과세 또는 중과.
 - 공동상속(inherited_as_only_house=False): 동등지분 또는 최연장자 아닌 경우 상속주택 제외 불가 → household_house_count 그대로 유지 → 다주택 취급.
 - 상속주택 직접 양도(selling_inherited_house=True): 동일세대 아닌 경우(same_household_at_death=False) §89 비과세 불가 → verdict="일반과세".
-- 동거봉양합가(special_cases.cohabitation_care): cohabitation_date로부터 10년 이내이면 1주택 간주. 10년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
-- 혼인합가(acquisition_reason=혼인합가 또는 special_cases.marriage_merge): 혼인일로부터 5년 이내이면 1주택 간주. 5년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
+- 동거봉양합가(special_cases.cohabitation_care): cohabitation_date로부터 {cohab_yrs}년 이내이면 1주택 간주. {cohab_yrs}년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
+- 혼인합가(acquisition_reason=혼인합가 또는 special_cases.marriage_merge): 혼인일로부터 {marriage_yrs}년 이내이면 1주택 간주. {marriage_yrs}년 초과 시 다주택 취급 → 조정지역이면 verdict="중과", 비조정이면 verdict="일반과세".
 - 해외이주 거주요건 면제(special_cases.residence_exemption_reason=해외이주): 소령§154④ — 해외이주로 세대 전원 출국 전 또는 출국 후 2년 이내 양도 시 거주요건 면제. 조정지역 취득이어도 거주요건 없이 비과세 가능.
-- 상생임대(special_cases.sangsaeng_rental): 증액 5% 이내 + 임대기간 24개월 이상 충족 시 조정지역 취득이어도 거주요건 1.5년(18개월)으로 단축 → residence_years≥1.5이면 비과세 가능.
+- 상생임대(special_cases.sangsaeng_rental): 증액 {sg_rate}% 이내 + 임대기간 {sg_months}개월 이상 충족 시 조정지역 취득이어도 거주요건 {sg_res}년({sg_res_months}개월)으로 단축 → residence_years≥{sg_res}이면 비과세 가능.
 - 승계조합원 입주권(special_cases.reconstruction.is_original_member=False): 소득세법 §156의2 비과세 불가 → verdict="일반과세".
-- 농어촌주택(special_cases.rural_house.is_eligible=False): 수도권 또는 도시지역 편입 농어촌주택은 조특§99의4 적용 불가 → household_house_count에서 제외 불가 → 다주택 취급."""
+- 농어촌주택(special_cases.rural_house.is_eligible=False): 수도권 또는 도시지역 편입 농어촌주택은 조특§99의4 적용 불가 → household_house_count에서 제외 불가 → 다주택 취급.
+- 이월과세(special_cases.rollover_taxation): 배우자·직계존비속 증여일로부터 {iota_yrs}년 이내 양도 시 원증여자의 취득가액·취득일로 계산(소득세법 §97의2). 적용 시 비과세 판단도 원증여자 기준."""
+
+
+# 모듈 로드 시 생성 — import 호환성 유지 (하위 호환)
+RAG_SYSTEM_PROMPT: str = build_rag_system_prompt()
 
 RAG_USER_TEMPLATE = """다음 법령 조문을 참고해 질문에 답하세요.
 
@@ -118,7 +162,14 @@ RAG_USER_TEMPLATE = """다음 법령 조문을 참고해 질문에 답하세요.
 
 # ── Red Team 프롬프트 ─────────────────────────────────────────────────────────
 
-RED_TEAM_SYSTEM = """당신은 양도소득세 법령 감사관입니다.
+
+def build_red_team_system(as_of: Optional[_date] = None) -> str:
+    """레드팀 시스템 프롬프트 — 수치는 레지스트리에서 조회."""
+    as_of = as_of or _date.today()
+    threshold_eok: int = _TCR.get("HIGH_VALUE_THRESHOLD", as_of) // 100_000_000
+    iota_yrs: int = _TCR.get("IOTA_PERIOD_YEARS", as_of, anchor_key="gift_date")
+
+    return f"""당신은 양도소득세 법령 감사관입니다.
 블루팀의 판단에서 법적 오류를 찾아 반박합니다.
 
 반박 가능한 오류 유형:
@@ -127,14 +178,18 @@ RED_TEAM_SYSTEM = """당신은 양도소득세 법령 감사관입니다.
 3. 시점 오류 — 조정대상지역 판단 시점(취득/양도) 혼동
 4. 특례 누락 — 부칙 경과조치, 한시 규정 미적용
 5. 중과 회피 — 다주택 중과세율 적용 누락
-6. 고가주택 기준 오류 — 12억 초과 판단 착오
-7. 이월과세 누락 — 배우자·직계존비속 증여 후 5년/10년 내 양도
+6. 고가주택 기준 오류 — {threshold_eok}억 초과 판단 착오
+7. 이월과세 누락 — 배우자·직계존비속 증여 후 현재 기준 {iota_yrs}년 이내 양도 (2022.12.31 이전 증여는 5년 적용)
 
 반드시 지킬 규칙:
 - 구체적 법령 조문 번호로 근거를 제시하라 (예: 소득세법 제104조 제1항 제8호)
 - 근거 없이 반박하지 말라
 - 오류가 없으면 "이의 없음"을 반환하라
 - 반드시 JSON으로만 응답하라"""
+
+
+# 모듈 로드 시 생성 — import 호환성 유지 (하위 호환)
+RED_TEAM_SYSTEM: str = build_red_team_system()
 
 RED_TEAM_CHALLENGE_TEMPLATE = """블루팀 판단을 검토하고 오류를 찾아라.
 

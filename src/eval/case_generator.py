@@ -246,18 +246,21 @@ def generate_inheritance_cases(
             "death_date": "20210601",
             "expected": "비과세",
             "tags": ["상속주택", "5년이내"],
+            "house_count": 1,  # §155② 5년 이내 = 상속주택 주택수 제외 → 유효 1주택
         },
         {
             "desc": "상속주택 — 상속 후 5년 초과 양도 (다주택 취급)",
             "death_date": "20190601",
             "expected": "일반과세",
             "tags": ["상속주택", "5년초과"],
+            "house_count": 2,  # 5년 초과 = 상속주택 주택수 산입 → 2주택
         },
         {
             "desc": "상속주택 — 협의분할 취득일 기산 (취득일 경계)",
             "death_date": "20210101",
             "expected": None,
             "tags": ["상속주택", "협의분할"],
+            "house_count": 2,
         },
     ]
     for s in scenarios:
@@ -268,7 +271,7 @@ def generate_inheritance_cases(
                 "acquisition_date": "20180101",
                 "property_type": "아파트",
                 "acquisition_reason": "매매",
-                "household_house_count": 2,
+                "household_house_count": s["house_count"],
                 "transfer_price": 800_000_000,
                 "acquisition_price": 400_000_000,
                 "residence_years": 2.0,

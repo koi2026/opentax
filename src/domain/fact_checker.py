@@ -22,6 +22,7 @@ from .query_input import (
     PropertyType,
     RAGQueryInput,
 )
+from .tax_constants import TaxConstantsRegistry as _TCR
 
 
 @dataclass
@@ -182,9 +183,10 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
             danger.append("분양권_2021후_주택수산입")
 
     # ── 7. 조정대상지역 취득 + 거주요건 미충족 경고 ──────────────────────
-    # 취득 당시 조정대상지역이었으면 거주기간 2년 이상 필요 (소령 §154①)
+    # 취득 당시 조정대상지역이었으면 거주기간 N년 이상 필요 (소령 §154①)
     # 미충족 시 §89 비과세 불가 → L3 키워드 주입으로 §154 조문 검색 유도
-    if fv.adjustment_area_at_acquisition and (fv.residence_period_years or 0.0) < 2.0:
+    _req_res_years: float = _TCR.get("RESIDENCE_REQUIRED_YEARS_ADJUSTMENT", db.transfer_date)
+    if fv.adjustment_area_at_acquisition and (fv.residence_period_years or 0.0) < _req_res_years:
         danger.append("조정지역_거주요건")
 
     # ── 7-2. 다주택 중과 가능 여부 ───────────────────────────────────────
@@ -192,9 +194,8 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
         if fv.adjustment_area_at_transfer:
             # 한시적 중과배제 기간(2022.5.10~) 확인 — 기간 내면 조정지역이어도 일반세율
             _transfer_dt = query.date_bundle.transfer_date
-            from .tax_constants import TaxConstantsRegistry
-            _suspension_start: date = TaxConstantsRegistry.get("HEAVY_TAX_SUSPENSION_START", _transfer_dt)
-            _suspension_end: date = TaxConstantsRegistry.get("HEAVY_TAX_SUSPENSION_END", _transfer_dt)
+            _suspension_start: date = _TCR.get("HEAVY_TAX_SUSPENSION_START", _transfer_dt)
+            _suspension_end: date = _TCR.get("HEAVY_TAX_SUSPENSION_END", _transfer_dt)
 
             if _suspension_start <= _transfer_dt <= _suspension_end:
                 danger.append("중과한시면세")  # 면세 기간 중 → 조정지역이어도 일반세율

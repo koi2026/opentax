@@ -25,7 +25,7 @@ class TaxCalculationInput:
     household_house_count: int = 1
     is_one_house_exemption: bool = False      # 1세대1주택 비과세 해당 여부
     is_high_value_house: bool = False         # 12억 초과 고가주택
-    transfer_price_exempt_threshold: int = 1_200_000_000  # 비과세 한도 (TaxConstantsRegistry에서)
+    transfer_price_exempt_threshold: Optional[int] = None  # None이면 레지스트리에서 자동 조회
     is_heavy_tax: bool = False                # 다주택 중과 적용 여부
     heavy_tax_suspended: bool = False         # 한시적 중과배제
     is_short_term: bool = False               # 단기 세율 적용 여부(1~2년 보유)
@@ -33,6 +33,12 @@ class TaxCalculationInput:
     necessary_expenses: int = 0              # 필요경비 (양도비용 등)
     long_term_deduction_rate: float = 0.0    # 장기보유특별공제율 (외부에서 계산하여 주입)
     is_burden_gift: bool = False              # 부담부증여 여부
+
+    def __post_init__(self) -> None:
+        if self.transfer_price_exempt_threshold is None:
+            self.transfer_price_exempt_threshold = _TCR.get(
+                "HIGH_VALUE_THRESHOLD", self.transfer_date
+            )
 
 
 @dataclass
@@ -147,7 +153,9 @@ def calculate_transfer_tax(inp: TaxCalculationInput) -> TaxCalculation:
         tax = int(taxable_income * rate)
     elif inp.is_heavy_tax and not inp.heavy_tax_suspended:
         base_tax, base_rate = _apply_basic_brackets(taxable_income, _brackets)
-        additional = _heavy_additional.get(min(inp.household_house_count, 3), 0.30)
+        _max_count_key = max(_heavy_additional.keys())
+        additional = _heavy_additional.get(min(inp.household_house_count, _max_count_key),
+                                           _heavy_additional[_max_count_key])
         rate = base_rate + additional
         rate_type = f"중과세율({inp.household_house_count}주택)"
         tax = base_tax + int(taxable_income * additional)
@@ -206,7 +214,7 @@ def compute_ltshd_rate(
         max_key = max(table2)
         holding_rate = table2.get(min(int(holding_years), max_key), 0.0)
         residence_rate = table2.get(min(int(residence_years), max_key), 0.0)
-        max_component = table2.get(10, 0.40)  # 각 컴포넌트 40% 캡
+        max_component = max(table2.values()) / 2  # 보유·거주 각 컴포넌트 상한 (전체 상한의 절반)
         return min(
             min(holding_rate, max_component) + min(residence_rate, max_component),
             max(table2.values()),

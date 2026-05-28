@@ -475,6 +475,49 @@ def main() -> None:
         except Exception as e:
             print(f"  ⚠ 합성 케이스 stale 탐지 오류: {e}")
 
+    # 11. TaxConstantsRegistry 자동 패치 + GitHub PR 생성
+    # extract_thresholds()로 추출된 수치가 있으면 tax_constants.py를 직접 패치하고
+    # draft PR을 생성한다. 병합은 인간이 검토 후 수행.
+    if new_versions and not args.dry_run:
+        print("\n--- TaxConstantsRegistry 자동 업데이트 ---")
+        try:
+            from scripts.generate_amendment_cases import extract_thresholds
+            from scripts.auto_update_registry import run_registry_update_pr
+            from src.ingestion.collect import fetch_law_version_list
+
+            for law_name, mst_list in new_versions.items():
+                mst = mst_list[-1]  # 최신 MST만 처리
+                try:
+                    xml_text = fetch_law_xml(mst)
+                except Exception as e:
+                    print(f"  ⚠ XML 수집 실패 ({mst}): {e}")
+                    continue
+
+                thresholds = extract_thresholds(xml_text, law_name)
+                if not thresholds:
+                    print(f"  [{law_name}] 추출된 임계값 없음 — 레지스트리 업데이트 건너뜀")
+                    continue
+
+                # 시행일: 버전 목록에서 가져오거나 오늘 날짜 사용
+                try:
+                    versions = fetch_law_version_list(law_name)
+                    ver = next((v for v in versions if v.get("mst") == mst), {})
+                    eff_str = ver.get("effective_date", "")
+                    if eff_str and len(eff_str) == 8:
+                        eff_date = datetime.strptime(eff_str, "%Y%m%d").date()
+                    else:
+                        eff_date = datetime.now().date()
+                except Exception:
+                    eff_date = datetime.now().date()
+
+                reg_result = run_registry_update_pr(thresholds, law_name, mst, eff_date)
+                if reg_result.get("pr_url"):
+                    print(f"  ✓ PR 생성: {reg_result['pr_url']}")
+                if reg_result.get("manual_review"):
+                    print(f"  ⊘ 수동 확인 필요 키: {reg_result['manual_review']}")
+        except Exception as e:
+            print(f"  ⚠ 레지스트리 자동 업데이트 오류: {e}")
+
     print("\n=== 완료 ===")
 
 

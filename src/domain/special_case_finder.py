@@ -174,17 +174,18 @@ def _detect_cohabitation_care(fv: FactVector, transfer_date: date) -> Optional[A
     if cc is not None:
         if cc.age_requirement_met:
             years_since_merge = (transfer_date - cc.cohabitation_start_date).days / 365.25
-            if years_since_merge <= 10:
+            _cohab_limit: int = _TCR.get("COHABITATION_EXEMPT_YEARS", transfer_date)
+            if years_since_merge <= _cohab_limit:
                 certainty: Literal["확정", "가능", "검토_필요"] = "확정"
                 missing = []
                 desc = (
-                    f"동거봉양 합가일({cc.cohabitation_start_date})부터 10년 이내 양도 — "
+                    f"동거봉양 합가일({cc.cohabitation_start_date})부터 {_cohab_limit}년 이내 양도 — "
                     "먼저 양도하는 주택 비과세 적용"
                 )
             else:
                 certainty = "가능"
-                missing = ["합가 후 10년 초과 여부 재확인 (10년 경과 시 특례 소멸)"]
-                desc = "동거봉양 합가 후 10년 초과 가능 — 비과세 특례 소멸 위험"
+                missing = [f"합가 후 {_cohab_limit}년 초과 여부 재확인 ({_cohab_limit}년 경과 시 특례 소멸)"]
+                desc = f"동거봉양 합가 후 {_cohab_limit}년 초과 가능 — 비과세 특례 소멸 위험"
         else:
             certainty = "가능"
             missing = ["직계존속 나이 60세 이상 또는 중증질환 해당 여부 확인"]
@@ -213,16 +214,17 @@ def _detect_marriage_merge(fv: FactVector, transfer_date: date) -> Optional[Appl
 
     if mm is not None:
         years_since_marriage = (transfer_date - mm.marriage_date).days / 365.25
-        if years_since_marriage <= 5:
+        _marriage_limit: int = _TCR.get("MARRIAGE_MERGE_EXEMPT_YEARS", transfer_date)
+        if years_since_marriage <= _marriage_limit:
             certainty: Literal["확정", "가능", "검토_필요"] = "확정"
             desc = (
-                f"혼인신고일({mm.marriage_date})부터 5년 이내 양도 — "
+                f"혼인신고일({mm.marriage_date})부터 {_marriage_limit}년 이내 양도 — "
                 "혼인 전 각자 보유 1주택 비과세 적용"
             )
         else:
             certainty = "가능"
-            missing = ["혼인 후 5년 초과 여부 재확인 (5년 경과 시 특례 소멸)"]
-            desc = "혼인합가 후 5년 초과 가능 — 비과세 특례 소멸 위험"
+            missing = [f"혼인 후 {_marriage_limit}년 초과 여부 재확인 ({_marriage_limit}년 경과 시 특례 소멸)"]
+            desc = f"혼인합가 후 {_marriage_limit}년 초과 가능 — 비과세 특례 소멸 위험"
     else:
         certainty = "가능"
         missing = ["혼인신고일", "합가 전 각자 보유주택 수"]

@@ -24,7 +24,7 @@ class InheritanceInput(BaseModel):
     """상속 상세"""
     death_date: str                         # 상속개시일 YYYYMMDD
     same_household_at_death: bool = False
-    inherited_as_only_house: bool = False
+    inherited_as_only_house: bool = True    # 지정보유자 여부 — 공동상속 비지정이면 False로 명시
     selling_inherited_house: bool = True    # True: 상속주택 양도, False: 일반주택 양도
     donor_acquisition_date: Optional[str] = None
 

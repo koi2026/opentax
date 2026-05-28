@@ -123,7 +123,7 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 | 레이어 | 현재 | 목표 |
 |--------|------|------|
 | 법령 조문 | ✅ Pinecone 자동 재인덱스 | ✅ 완료 |
-| TaxConstantsRegistry | 🔧 코드 수동 수정 | 🔲 LLM 자동 파싱 → PR |
+| TaxConstantsRegistry | ✅ LLM 자동 파싱 → draft PR | ✅ `scripts/auto_update_registry.py` |
 | 골든셋·eval | 🔧 수동 케이스 검토 | 🔲 eval 자동 재실행 → 영향 케이스 알림 |
 | BGE reranker | 🔧 수동 (50건 초과 시) | 🔲 자동 파인튜닝 트리거 |
 

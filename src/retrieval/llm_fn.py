@@ -12,6 +12,7 @@ from anthropic import AsyncAnthropic
 
 from src.agents.prompts import RAG_SYSTEM_PROMPT
 from src.config import ANTHROPIC_API_KEY, CLAUDE_FAST_MODEL, CLAUDE_MODEL
+from src.domain.tax_constants import TaxConstantsRegistry as _TCR
 from src.domain.retriever import RetrievedChunk
 from src.domain.tax_answer import Citation, TaxAnswer
 
@@ -176,6 +177,16 @@ def _build_user_prompt(
 
     few_shot_section = f"\n{few_shot_block}\n" if few_shot_block else ""
 
+    from datetime import date as _date_cls
+    _today = _date_cls.today()
+    _threshold = _TCR.get("HIGH_VALUE_THRESHOLD", _today) // 100_000_000
+    _short = _TCR.get("SHORT_TERM_RATES", _today)
+    _s1 = int(_short["under_1_year"] * 100)
+    _s2 = int(_short["1_to_2_years"] * 100)
+    _heavy = _TCR.get("HEAVY_TAX_ADDITIONAL", _today)
+    _h2 = int(_heavy[2] * 100)
+    _h3 = int(_heavy[3] * 100)
+
     return f"""다음 법령 조문을 근거로 판단하십시오.
 
 [검색된 법령 조문]
@@ -203,12 +214,12 @@ JSON을 가장 먼저 출력하는 것이 필수입니다.
 </reasoning>
 
 [verdict 선택 기준]
-- "비과세": 1세대1주택 완전 비과세 (소득세법 §89, 양도가액 12억 이하)
-- "고가주택": 1세대1주택이나 양도가액 12억 초과 (초과분만 과세)
+- "비과세": 1세대1주택 완전 비과세 (소득세법 §89, 양도가액 {_threshold}억 이하)
+- "고가주택": 1세대1주택이나 양도가액 {_threshold}억 초과 (초과분만 과세)
 - "감면": 조세특례제한법상 감면 (장기임대§97의3, 신축주택§99의3, 공익사업§77, 자경농지§69 등)
-- "중과": 다주택자 조정대상지역 중과 (+20%/+30%, 소득세법 §104①7,8호)
+- "중과": 다주택자 조정대상지역 중과 (+{_h2}%/+{_h3}%, 소득세법 §104①7,8호)
 - "일반과세": 기본세율 6~45% (중과·단기·비과세 어디도 해당하지 않는 경우)
-- "단기세율": 보유기간 2년 미만 단기양도 (1년 미만 70%, 1~2년 60%), 미등기 전매
+- "단기세율": 보유기간 2년 미만 단기양도 (1년 미만 {_s1}%, 1~2년 {_s2}%), 미등기 전매
 - "사실관계부족": 판단에 필수적인 사실관계가 없어 결론을 낼 수 없는 경우"""
 
 

@@ -150,6 +150,68 @@ _REGISTRY: Dict[str, List[ConstantVersion]] = {
             "소득세법 시행령 §155의3",
         ),
     ],
+    # 상생임대 단축 거주요건 연수 (조정지역 2년 → 1.5년, 소득세법 시행령 §155의3)
+    "SANGSAENG_RESIDENCE_YEARS": [
+        ConstantVersion(
+            date(2021, 12, 20), date.max,
+            1.5,
+            "소득세법 시행령 §155의3",
+        ),
+    ],
+    # 상속주택 주택 수 제외 기간 — 사망일 기준 (소득세법 시행령 §155②)
+    "INHERITANCE_EXEMPT_YEARS": [
+        ConstantVersion(
+            date(2000, 1, 1), date.max,
+            5,
+            "소득세법 시행령 §155②",
+        ),
+    ],
+    # 동거봉양합가 특례 적용 기간 — 합가일 기준 (소득세법 시행령 §155④)
+    "COHABITATION_EXEMPT_YEARS": [
+        ConstantVersion(
+            date(2000, 1, 1), date.max,
+            10,
+            "소득세법 시행령 §155④",
+        ),
+    ],
+    # 혼인합가 특례 적용 기간 — 혼인신고일 기준 (소득세법 시행령 §155⑤)
+    "MARRIAGE_MERGE_EXEMPT_YEARS": [
+        ConstantVersion(
+            date(2000, 1, 1), date.max,
+            5,
+            "소득세법 시행령 §155⑤",
+        ),
+    ],
+    # 증여세율표 (상속세 및 증여세법 §56)
+    # list[(과세표준 상한, 세율, 누진공제)]
+    "GIFT_TAX_BRACKETS": [
+        ConstantVersion(
+            date(2000, 1, 1), date.max,
+            [
+                (100_000_000,   0.10,          0),
+                (500_000_000,   0.20,   10_000_000),
+                (1_000_000_000, 0.30,   60_000_000),
+                (3_000_000_000, 0.40,  160_000_000),
+                (float("inf"),  0.50,  460_000_000),
+            ],
+            "상속세 및 증여세법 §56",
+            manual_review_required=True,  # 별표 개정 감지 필요
+        ),
+    ],
+    # 증여재산공제 (10년 합산 기준, 상속세 및 증여세법 §53)
+    "GIFT_DEDUCTIONS": [
+        ConstantVersion(
+            date(2000, 1, 1), date.max,
+            {
+                "배우자":             600_000_000,   # 6억
+                "직계존비속":          50_000_000,   # 5천만 (성년)
+                "직계존비속_미성년":    20_000_000,   # 2천만
+                "기타":               10_000_000,   # 1천만
+            },
+            "상속세 및 증여세법 §53",
+            manual_review_required=True,  # 별표 개정 감지 필요
+        ),
+    ],
     # 비거주자 해외이주 후 비과세 예외 적용 기한 (소득세법 §89①4호)
     "NON_RESIDENT_DEPARTURE_EXEMPTION_MONTHS": [
         ConstantVersion(date(2000, 1, 1), date.max, 24, "소득세법 §89①4호"),

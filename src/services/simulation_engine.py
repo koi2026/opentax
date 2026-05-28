@@ -28,24 +28,7 @@ from src.calculator.tax_calculator import (
 from src.domain.tax_answer import TaxVerdict
 from src.domain.tax_constants import TaxConstantsRegistry as _TCR
 
-# ── 증여세율표 (상속세 및 증여세법 §56) ──────────────────────────────────────
-# TODO: TaxConstantsRegistry 확장 시 "GIFT_TAX_BRACKETS" / "GIFT_DEDUCTIONS" 키로 이관
-_GIFT_TAX_BRACKETS: list[tuple] = [
-    (100_000_000,     0.10,          0),
-    (500_000_000,     0.20,   10_000_000),
-    (1_000_000_000,   0.30,   60_000_000),
-    (3_000_000_000,   0.40,  160_000_000),
-    (float("inf"),    0.50,  460_000_000),
-]
-
-# 증여재산공제 10년 합산 기준 (상증법 §53)
-# TODO: TaxConstantsRegistry "GIFT_DEDUCTIONS" 키로 이관
-_GIFT_DEDUCTIONS: dict[str, int] = {
-    "배우자":              600_000_000,  # 6억
-    "직계존비속":           50_000_000,  # 5천만 (성년)
-    "직계존비속_미성년":     20_000_000,  # 2천만
-    "기타":                10_000_000,  # 1천만
-}
+# 증여세율표 및 공제는 TaxConstantsRegistry("GIFT_TAX_BRACKETS", "GIFT_DEDUCTIONS")에서 관리
 
 
 @dataclass
@@ -103,15 +86,19 @@ class SimulationResult:
 # ── 세부 계산 함수 ──────────────────────────────────────────────────────────
 
 
-def _calc_gift_tax(gift_value: int, recipient: str, is_adult: bool) -> int:
-    """증여세 산출세액 계산 (누진공제 방식)."""
+def _calc_gift_tax(gift_value: int, recipient: str, is_adult: bool, *, as_of: _date) -> int:
+    """증여세 산출세액 계산 (누진공제 방식). 세율표·공제는 TaxConstantsRegistry 조회."""
+    brackets = _TCR.get("GIFT_TAX_BRACKETS", as_of)
+    deductions = _TCR.get("GIFT_DEDUCTIONS", as_of)
     key = "직계존비속_미성년" if (recipient == "직계존비속" and not is_adult) else recipient
-    deduction = _GIFT_DEDUCTIONS.get(key, _GIFT_DEDUCTIONS["기타"])
+    deduction = deductions.get(key, deductions["기타"])
     taxable = max(0, gift_value - deduction)
-    for upper, rate, prog_ded in _GIFT_TAX_BRACKETS:
+    for upper, rate, prog_ded in brackets:
         if taxable <= upper:
             return max(0, int(taxable * rate - prog_ded))
-    return max(0, int(taxable * 0.50 - 460_000_000))
+    # 최고 구간 — float("inf") 상한이므로 여기에 도달하지 않음. 방어적 처리.
+    _, rate, prog_ded = brackets[-1]
+    return max(0, int(taxable * rate - prog_ded))
 
 
 def _estimate_acquisition_tax(value: int, *, is_gift: bool = True) -> int:
@@ -200,19 +187,22 @@ def build_gift_scenario(
     recipient_is_adult: bool = True,
 ) -> ScenarioResult:
     """증여 시나리오 — 증여세 + 수증자 취득세 추산."""
-    gift_tax = _calc_gift_tax(market_value, gift_recipient, recipient_is_adult)
+    _today = _date.today()
+    gift_tax = _calc_gift_tax(market_value, gift_recipient, recipient_is_adult, as_of=_today)
     acquisition_tax = _estimate_acquisition_tax(market_value)
     total = gift_tax + acquisition_tax
 
+    deductions = _TCR.get("GIFT_DEDUCTIONS", _today)
     key = "직계존비속_미성년" if (gift_recipient == "직계존비속" and not recipient_is_adult) else gift_recipient
-    deduction = _GIFT_DEDUCTIONS.get(key, _GIFT_DEDUCTIONS["기타"])
+    deduction = deductions.get(key, deductions["기타"])
 
+    _iota_years = _TCR.get("IOTA_PERIOD_YEARS", _today, anchor_key="gift_date")
     notes = [
         "수증자 취득세 추산 포함 (시가 × 3.5%, 감면 미적용)",
         "수증자 추후 양도 시 이월과세 위험 별도 검토 필요",
     ]
     if gift_recipient == "배우자":
-        notes.append("배우자 증여 후 5년 내 양도 시 이월과세(§97의2) 의무 확인")
+        notes.append(f"배우자 증여 후 {_iota_years}년 내 양도 시 이월과세(§97의2) 의무 확인")
 
     return ScenarioResult(
         scenario_type="증여",
@@ -279,7 +269,8 @@ def build_burden_gift_scenario(
             debt_tax = int(taxable * rate)
         elif is_heavy_tax:
             base_tax, base_rate = _apply_basic_brackets(taxable, _brackets)
-            additional = _heavy_add.get(3, 0.30)  # 부담부증여는 3주택 기준 추산
+            _max_count = max(_heavy_add.keys())
+            additional = _heavy_add.get(_max_count, _heavy_add[_max_count])  # 최고 구간 기준
             debt_tax = base_tax + int(taxable * additional)
         else:
             debt_tax, _ = _apply_basic_brackets(taxable, _brackets)
@@ -288,7 +279,7 @@ def build_burden_gift_scenario(
         debt_tax = debt_local = 0
 
     net_gift = market_value - encumbrance
-    gift_tax = _calc_gift_tax(net_gift, gift_recipient, recipient_is_adult)
+    gift_tax = _calc_gift_tax(net_gift, gift_recipient, recipient_is_adult, as_of=_today)
     acquisition_tax = _estimate_acquisition_tax(market_value)
     total = debt_tax + debt_local + gift_tax + acquisition_tax
 
