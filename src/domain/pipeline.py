@@ -17,7 +17,7 @@ from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Literal
 from .confirmation import check_confirmation
 from .fact_checker import FactCheckResult, check_facts
 from .output_validator import validate_output
-from .query_enrichment import build_rag_query
+from .query_enrichment import DANGER_KEYWORD_MAP, build_rag_query
 from .query_input import RAGQueryInput
 from .retriever import RetrievedChunk, TaxLawRetriever
 from .tax_answer import TaxAnswer, TaxVerdict
@@ -34,6 +34,87 @@ class PipelineResult:
     debate_record: Optional[dict] = None   # 논쟁이 실행된 경우 결과 요약
     query_mode: str = "report"
     consulting_scenarios: Optional[List[dict]] = None
+
+
+def _fmt_date(value: Any) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _stream_event(event: str, data: dict) -> dict[str, Any]:
+    return {"event": event, "data": data}
+
+
+def _fact_summary_data(query: RAGQueryInput) -> dict[str, Any]:
+    fv = query.fact_vector
+    db = query.date_bundle
+    return {
+        "transfer_date": _fmt_date(db.transfer_date),
+        "acquisition_date": _fmt_date(db.acquisition_date),
+        "property_type": fv.property_type.value,
+        "acquisition_reason": fv.acquisition_reason.value,
+        "holding_years": round(float(fv.holding_period_years or 0.0), 2),
+        "residence_years": round(float(fv.residence_period_years or 0.0), 2),
+        "household_house_count": fv.household_house_count,
+        "transfer_price": fv.transfer_price,
+        "adjustment_area_at_acquisition": fv.adjustment_area_at_acquisition,
+        "adjustment_area_at_transfer": fv.adjustment_area_at_transfer,
+    }
+
+
+def _fact_check_data(fact_check: FactCheckResult) -> dict[str, Any]:
+    return {
+        "can_proceed": fact_check.can_proceed,
+        "missing_facts": fact_check.missing_fact_texts(),
+        "critical_missing_count": len(fact_check.critical_missing),
+        "danger_flags": fact_check.danger_flags,
+    }
+
+
+def _query_enrichment_data(enriched_query: str, danger_flags: List[str]) -> dict[str, Any]:
+    return {
+        "danger_flags": danger_flags,
+        "keywords": [
+            {"flag": flag, "keyword": DANGER_KEYWORD_MAP[flag]}
+            for flag in danger_flags
+            if flag in DANGER_KEYWORD_MAP
+        ],
+        "enriched_query_preview": enriched_query[:600],
+    }
+
+
+def _retrieved_chunks_data(chunks: List[RetrievedChunk]) -> List[dict[str, Any]]:
+    items: List[dict[str, Any]] = []
+    for chunk in chunks:
+        meta = chunk.metadata
+        article = f"{meta.law_name} 제{meta.article_number}조"
+        if getattr(meta, "article_title", ""):
+            article += f" ({meta.article_title})"
+        items.append({
+            "article": article,
+            "source_label": getattr(meta, "source_label", "") or meta.law_name,
+            "chunk_id": meta.chunk_id,
+            "score": round(float(chunk.score), 4),
+            "included_as_linked_buchik": chunk.included_as_linked_buchik,
+        })
+    return items
+
+
+def _validation_data(
+    raw_answer: TaxAnswer,
+    validated: TaxAnswer,
+    retrieved_ids: Set[str],
+) -> dict[str, Any]:
+    cited_ids = {c.chunk_id for c in raw_answer.citations if c.chunk_id}
+    phantom_ids = sorted(cited_ids - retrieved_ids)
+    return {
+        "citation_count": len(cited_ids),
+        "retrieved_count": len(retrieved_ids),
+        "phantom_count": len(phantom_ids),
+        "phantom_ids": phantom_ids,
+        "confidence_before": raw_answer.confidence,
+        "confidence_after": validated.confidence,
+        "warnings_added": max(0, len(validated.warnings) - len(raw_answer.warnings)),
+    }
 
 
 def _build_consulting_scenarios(
@@ -223,13 +304,16 @@ async def run_rag_pipeline_stream(
     debate_auto_promote: bool = True,
     confirmed: Optional[Dict[str, bool]] = None,
     query_mode: Literal["report", "consulting"] = "report",
-) -> AsyncGenerator[Union[str, PipelineResult], None]:
+) -> AsyncGenerator[Union[str, dict[str, Any], PipelineResult], None]:
     """파이프라인 스트리밍 버전.
 
     Yields:
         str: "PROGRESS:메시지" (단계 진행 상태) 또는 Claude reasoning 텍스트 조각
+        dict: {"event": "...", "data": ...} 구조화 중간 이벤트
         PipelineResult: 최종 결과 (마지막에 한 번만 yield)
     """
+    yield _stream_event("fact_summary", _fact_summary_data(query))
+
     # ── L1.5 Confirmation ──────────────────────────────────────────────────
     confirmation = check_confirmation(confirmed)
     if not confirmation.can_proceed:
@@ -238,6 +322,7 @@ async def run_rag_pipeline_stream(
 
     # ── L2 Fact Check ──────────────────────────────────────────────────────
     fact_check = check_facts(query)
+    yield _stream_event("fact_check", _fact_check_data(fact_check))
     if not fact_check.can_proceed:
         yield _l2_blocked_result(fact_check)
         return
@@ -245,11 +330,16 @@ async def run_rag_pipeline_stream(
     # ── L3 Query Enrichment ─────────────────────────────────────────────────
     enriched_query = build_rag_query(query, fact_check.danger_flags)
     llm_missing_hints = fact_check.missing_fact_texts()
+    yield _stream_event(
+        "query_enrichment",
+        _query_enrichment_data(enriched_query, fact_check.danger_flags),
+    )
 
     # ── L4a Retrieval ───────────────────────────────────────────────────────
     yield "PROGRESS:관련 법령 조문 검색 중..."
     chunks = retriever.retrieve_with_buchik(query)
     retrieved_ids: Set[str] = {c.metadata.chunk_id for c in chunks}
+    yield _stream_event("retrieved_chunks", {"chunks": _retrieved_chunks_data(chunks)})
 
     yield f"PROGRESS:AI 법령 해석 중 ({len(chunks)}개 조문)..."
 
@@ -278,6 +368,7 @@ async def run_rag_pipeline_stream(
 
     # ── L5 Output Validation ────────────────────────────────────────────────
     validated = validate_output(raw_answer, retrieved_ids, danger_flags=fact_check.danger_flags, query=query)
+    yield _stream_event("validation", _validation_data(raw_answer, validated, retrieved_ids))
 
     result = PipelineResult(
         answer=validated,
