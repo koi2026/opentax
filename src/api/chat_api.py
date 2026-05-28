@@ -118,6 +118,8 @@ async def chat_turn_stream(
         ):
             if isinstance(item, str):
                 yield item
+            elif isinstance(item, dict):
+                yield item
             elif isinstance(item, PipelineResult):
                 ans = item.answer
                 citations_str = [_fmt_citation(c) for c in ans.citations]

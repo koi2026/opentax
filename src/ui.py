@@ -56,6 +56,95 @@ def _render_fact_korean(fact: dict) -> None:
         col1.caption(label)
         col2.caption(f"**{_fmt_value(v)}**")
 
+
+def _fmt_optional(v) -> str:
+    return "미입력" if v is None else _fmt_value(v)
+
+
+def _short_chunk_id(chunk_id: str) -> str:
+    return chunk_id if len(chunk_id) <= 28 else f"{chunk_id[:25]}..."
+
+
+def _render_realtime_event(event: dict, placeholders: dict) -> None:
+    name = event.get("event")
+    data = event.get("data") or {}
+
+    if name == "fact_summary":
+        with placeholders["fact"].container():
+            st.markdown("#### 1. 입력 이해")
+            cols = st.columns(3)
+            cols[0].caption(f"양도일: **{_fmt_optional(data.get('transfer_date'))}**")
+            cols[1].caption(f"취득일: **{_fmt_optional(data.get('acquisition_date'))}**")
+            cols[2].caption(f"보유기간: **{_fmt_optional(data.get('holding_years'))}년**")
+            cols = st.columns(3)
+            cols[0].caption(f"부동산: **{_fmt_optional(data.get('property_type'))}**")
+            cols[1].caption(f"주택 수: **{_fmt_optional(data.get('household_house_count'))}주택**")
+            cols[2].caption(f"양도가액: **{_fmt_optional(data.get('transfer_price'))}원**")
+            st.caption(
+                "조정지역: "
+                f"취득시 **{_fmt_optional(data.get('adjustment_area_at_acquisition'))}**, "
+                f"양도시 **{_fmt_optional(data.get('adjustment_area_at_transfer'))}**"
+            )
+
+    elif name == "fact_check":
+        missing = data.get("missing_facts") or []
+        flags = data.get("danger_flags") or []
+        with placeholders["fact_check"].container():
+            st.markdown("#### 2. 사실관계 점검")
+            if data.get("can_proceed"):
+                st.success("필수 사실관계 확인 완료")
+            else:
+                st.warning("필수 사실관계가 부족해 판단을 중단합니다.")
+            if flags:
+                st.caption("탐지된 쟁점: " + ", ".join(f"`{flag}`" for flag in flags))
+            else:
+                st.caption("탐지된 고위험 쟁점 없음")
+            for item in missing:
+                st.warning(item, icon="⚠️")
+
+    elif name == "query_enrichment":
+        keywords = data.get("keywords") or []
+        with placeholders["query"].container():
+            st.markdown("#### 3. 검색 쟁점")
+            if keywords:
+                st.table([
+                    {"쟁점": item.get("flag", ""), "검색 보강": item.get("keyword", "")}
+                    for item in keywords
+                ])
+            else:
+                st.caption("추가 검색 보강 없이 기본 사실관계로 검색합니다.")
+
+    elif name == "retrieved_chunks":
+        chunks = data.get("chunks") or []
+        with placeholders["chunks"].container():
+            st.markdown("#### 4. 검색된 근거 후보")
+            if chunks:
+                st.table([
+                    {
+                        "조문": c.get("article", ""),
+                        "출처": c.get("source_label", ""),
+                        "chunk_id": _short_chunk_id(c.get("chunk_id", "")),
+                        "score": c.get("score", 0.0),
+                    }
+                    for c in chunks
+                ])
+            else:
+                st.warning("검색된 근거 후보가 없습니다.")
+
+    elif name == "validation":
+        with placeholders["validation"].container():
+            st.markdown("#### 5. 인용 검증")
+            if data.get("phantom_count", 0):
+                st.warning(
+                    f"검색 결과에 없는 인용 {data.get('phantom_count')}건을 감지했습니다. "
+                    f"신뢰도 {data.get('confidence_before'):.2f} → {data.get('confidence_after'):.2f}"
+                )
+            else:
+                st.success(
+                    f"검색된 {data.get('retrieved_count')}개 후보 기준으로 "
+                    f"인용 {data.get('citation_count')}건 검증 완료"
+                )
+
 st.set_page_config(page_title="양도소득세 판단", page_icon="⚖️", layout="wide")
 
 # ── 세션 상태 초기화 (사이드바보다 반드시 먼저) ──────────────────────────────
@@ -213,28 +302,20 @@ def _render_debate_section(dr: dict) -> None:
 
 
 def _render_pipeline_result(result: dict) -> None:
-    """3단계 결과 렌더링: 사고과정 → Red Team → 최종 판단."""
+    """최종 판단 결과 렌더링."""
     verdict = result["verdict"]
     answer_text = result["answer"]
     confidence = result.get("confidence", 0.0)
     conf_label, conf_color = _confidence_label(confidence)
-
-    # ── 1단계: AI 사고 과정 ───────────────────────────────────────────────────
-    with st.expander("💭 1단계: AI 사고 과정 및 1차 판단", expanded=False):
-        st.markdown(answer_text)
-        if result.get("missing_facts"):
-            st.divider()
-            for m in result["missing_facts"]:
-                st.warning(m, icon="⚠️")
 
     # ── 2단계: Red Team ───────────────────────────────────────────────────────
     if result.get("debate_record") and not result["debate_record"].get("error"):
         st.markdown("")
         _render_debate_section(result["debate_record"])
 
-    # ── 3단계: 최종 판단 ──────────────────────────────────────────────────────
+    # ── 최종 판단 ─────────────────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("#### ⚖️ 3단계: 최종 판단")
+    st.markdown("#### ⚖️ 최종 판단")
 
     verdict_color = _VERDICT_COLOR.get(verdict, "gray")
     rate_text = _VERDICT_RATE.get(verdict, "")
@@ -249,6 +330,13 @@ def _render_pipeline_result(result: dict) -> None:
     with col_c:
         st.markdown(f"**신뢰도**")
         st.markdown(f":{conf_color}[{conf_label}]")
+
+    with st.expander("판단 근거 설명", expanded=True):
+        st.markdown(answer_text)
+        if result.get("missing_facts"):
+            st.divider()
+            for m in result["missing_facts"]:
+                st.warning(m, icon="⚠️")
 
     if result.get("citations"):
         with st.expander("📋 근거 법령", expanded=True):
@@ -291,32 +379,46 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
         status_placeholder = st.status("🚀 분석 엔진 가동 중...", expanded=True)
         reasoning_placeholder = st.empty()
         reasoning_text = ""
+        realtime_placeholders = {
+            "fact": st.empty(),
+            "fact_check": st.empty(),
+            "query": st.empty(),
+            "chunks": st.empty(),
+            "validation": st.empty(),
+            "reasoning": st.empty(),
+        }
         
         from src.api.chat_api import chat_turn_stream
 
         result = None
+        showed_reasoning_status = False
         async for item in chat_turn_stream(
             fact_json=parsed_fact,
             question=user_text if not parsed_fact else None,
-            enable_debate=True,
+            enable_debate=False,
             query_mode="report",
         ):
             if isinstance(item, str):
                 if item.startswith("PROGRESS:"):
                     status_placeholder.update(label=item[9:])
                 else:
-                    # Claude의 추론 과정 스트리밍
-                    if not reasoning_text:
-                        status_placeholder.update(label="🧠 AI 법령 해석 중...", expanded=False)
+                    if not showed_reasoning_status:
+                        showed_reasoning_status = True
+                        status_placeholder.update(label="AI 판단 생성 중...", expanded=False)
                     reasoning_text += item
-                    reasoning_placeholder.markdown(f"**AI 사고 과정:**\n\n{reasoning_text}▌")
+                    with realtime_placeholders["reasoning"].container():
+                        st.markdown("#### 6. AI 추론 과정")
+                        st.markdown(reasoning_text + "▌")
+            elif isinstance(item, dict) and "event" in item:
+                _render_realtime_event(item, realtime_placeholders)
             else:
                 result = item
         
         if result:
-            reasoning_placeholder.empty() # 사고 과정은 지우고 최종 결과로 대체 (또는 expander에 보존)
+            reasoning_placeholder.empty()
             if reasoning_text:
-                with st.expander("AI 사고 과정 (상세)"):
+                with realtime_placeholders["reasoning"].container():
+                    st.markdown("#### 6. AI 추론 과정")
                     st.markdown(reasoning_text)
             
             status_placeholder.update(label="✅ 분석 완료", state="complete", expanded=False)
