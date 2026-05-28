@@ -258,6 +258,26 @@ def validate_output(
                 "[L5 수정] 공익사업 수용(조특§77) — 일반과세 판정 오류 수정, 감면 적용"
             )
 
+    # ── 6-6c. 공익수용 + 비조정지역 + REDUCED → §89 비과세 우선 ────────────────────
+    # 비조정지역 취득 + 1주택 + 보유2년 이상이면 §89 비과세 조건 충족 (거주요건 불요).
+    # LLM이 §77 감면을 먼저 적용해 REDUCED 반환 시 §89 비과세로 보정.
+    if (
+        query is not None
+        and ("공익수용감면" in active_flags or "수용_조특77감면" in active_flags)
+        and verdict == TaxVerdict.REDUCED
+        and not query.fact_vector.adjustment_area_at_acquisition
+        and (query.fact_vector.holding_period_years or 0.0) >= 2.0
+        and query.fact_vector.household_house_count == 1
+    ):
+        from .tax_constants import TaxConstantsRegistry as _TCR6c
+        _threshold6c = int(_TCR6c.get("HIGH_VALUE_THRESHOLD", query.date_bundle.transfer_date))
+        _tp6c = query.fact_vector.transfer_price
+        if _tp6c is not None and _tp6c <= _threshold6c:
+            verdict = TaxVerdict.EXEMPT
+            warnings.append(
+                "[L5 수정] 공익수용 비조정지역 1주택(보유2년+거주요건없음) — §89 비과세 우선, §77 감면 판정 수정"
+            )
+
     # ── 6-8. 다주택 중과세율 적용 → 일반/고가/사실관계부족 판정 보정 ────────────────
     # 조정대상지역 다주택 + 한시면세 종료 → 중과세율 필수 (소득세법 §104)
     # fact_checker가 "다주택중과" 플래그를 세운 경우 LLM 오판(일반·고가·사실관계부족) 보정
