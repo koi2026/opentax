@@ -298,7 +298,7 @@ async def _run_analysis_async(user_text: str, parsed_fact: dict | None) -> None:
         async for item in chat_turn_stream(
             fact_json=parsed_fact,
             question=user_text if not parsed_fact else None,
-            enable_debate=True,
+            enable_debate=False,
             query_mode="report",
         ):
             if isinstance(item, str):

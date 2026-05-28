@@ -167,7 +167,7 @@ def _fact_summary(fact: dict) -> str:
 
 def _run_case(fact_json: dict) -> dict:
     from src.api.chat_api import chat_turn
-    return asyncio.run(chat_turn(fact_json=fact_json, enable_debate=True))
+    return asyncio.run(chat_turn(fact_json=fact_json, enable_debate=False))
 
 
 def _render_result(result: dict, expected_verdict: str | None = None) -> None:
