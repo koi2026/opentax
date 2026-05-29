@@ -107,6 +107,8 @@ async def chat_turn_stream(
         from src.retrieval.llm_fn import llm_fn_stream
 
         fact_for_schema = {k: v for k, v in fact_json.items() if not k.startswith("simulation_") and k != "necessary_expenses"}
+        if fact_for_schema.get("property_type") == "오피스텔":
+            fact_for_schema["property_type"] = "주거용오피스텔"
         query = fact_input_to_rag_query(FactInput(**fact_for_schema))
         retriever = PineconeTaxLawRetriever()
 
