@@ -2,7 +2,7 @@
   "mcpServers": {
     "tax-rag": {
       "command": "C:\\Users\\user\\anaconda3\\python.exe",
-      "args": ["-m", "src.mcp_server"],
+      "args": ["-m", "src.mcp.server"],
       "cwd": "C:\\Users\\user\\cording2025\\tax-rag",
       "env": {
         "PYTHONPATH": "C:\\Users\\user\\cording2025\\tax-rag"

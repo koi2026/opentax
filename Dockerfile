@@ -28,4 +28,4 @@ RUN python -m pip install --upgrade pip \
 
 COPY . .
 
-CMD ["uvicorn", "src.api.chat_api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

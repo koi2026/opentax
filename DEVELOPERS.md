@@ -106,12 +106,11 @@ answer 본문이 채워지면 37,400건 전부가 훈련 쌍이 됩니다. 사�
 ```
 
 **3개 서버:**
-- `src/ui.py` — Streamlit (세무사용 웹, 포트 8501)
-- `src/api/chat_api.py` — FastAPI (외부 연동 REST, 포트 8000)
-- `src/api/mcp_server.py` — FastMCP (Claude Desktop 연동, 7개 도구)
+- `src/ui/app.py` — Streamlit (세무사용 웹, 포트 8501)
+- `src/api/main.py` — FastAPI (외부 연동 REST, 포트 8000)
+- `src/mcp/server.py` — FastMCP (RAG 검색 실행 계층, 포트 8001)
 
-**알려진 구조 문제:** UI가 API 서버를 거치지 않고 `chat_turn()`을 직접 import합니다.  
-BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 됩니다.
+**현재 구조:** UI는 API만 호출하고, API는 MCP 검색 tool을 통해 Pinecone/BGE 검색을 수행합니다.
 
 ---
 
@@ -219,10 +218,9 @@ BGE Reranker가 UI 프로세스에서 실행됩니다. 리소스 분리가 안 �
 
 | 항목 | 위치 | 영향 |
 |------|------|------|
-| UI가 API 서버 우회 | `src/ui.py` → `chat_turn()` 직접 import | BGE가 UI 프로세스 실행, 리소스 분리 불가 |
-| MCP 검색 범위 구식 | `src/api/mcp_server.py` | 유권해석 네임스페이스 미포함 |
+| MCP 검색 서버 의존 | `src/api/main.py` → `src/mcp/server.py` | API 판단 전 MCP 서버가 먼저 떠 있어야 함 |
+| MCP 검색 범위 구식 | `src/mcp/server.py` | 유권해석 네임스페이스 미포함 시 검색 누락 |
 | eval set 33건뿐 | BGE 평가 | 1건 차이 = 3% 변동, 통계 신뢰 낮음 |
-| MCP `check_area_designation` stub | `mcp_server.py` | 실제 API 없이 빈 응답 |
 
 ---
 
@@ -289,7 +287,7 @@ LangGraph로 멀티스텝 세법 분석 에이전트를 MCP 위에 올리는 구
 #### A-5. 조정대상지역 자동조회
 
 현재 수동 입력입니다. 주소 → 자동 판별로 바꾸면 오류가 크게 줄어듭니다.  
-국토교통부 API 또는 법령 DB 연동. MCP `check_area_designation` stub 채우기.
+국토교통부 API 또는 법령 DB 연동. 현재 MCP `check_area_designation`은 수동 기준표 기반이며, 외부 API 연동은 후속 과제.
 
 ---
 
@@ -394,10 +392,12 @@ git clone [repo]
 pip install -r requirements.txt
 cp .env.example .env  # API 키는 별도 전달
 
-streamlit run src/ui.py          # UI (포트 8501)
-uvicorn src.api.chat_api:app     # API (포트 8000)
-python src/api/mcp_server.py     # MCP (Claude Desktop용)
+python -m src.mcp.server --sse   # MCP 검색 서버 (포트 8001)
+uvicorn src.api.main:app         # API (포트 8000)
+streamlit run src/ui/app.py      # UI (포트 8501)
 ```
+
+검증은 Docker 기준으로 수행한다: `docker compose exec ...`, `docker compose logs`, `docker compose ps` 우선.
 
 주요 환경변수: `.env.example` 참고
 

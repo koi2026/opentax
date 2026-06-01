@@ -166,8 +166,16 @@ def _fact_summary(fact: dict) -> str:
 
 
 def _run_case(fact_json: dict) -> dict:
-    from src.api.chat_api import chat_turn
-    return asyncio.run(chat_turn(fact_json=fact_json, enable_debate=False))
+    import requests
+    from src.config import API_BASE_URL
+
+    response = requests.post(
+        f"{API_BASE_URL.rstrip('/')}/api/v1/chat",
+        json={"fact_json": fact_json, "enable_debate": False},
+        timeout=300,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def _render_result(result: dict, expected_verdict: str | None = None) -> None:

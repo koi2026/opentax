@@ -107,10 +107,12 @@ cd korean-tax-rag
 pip install -r requirements.txt
 cp .env.example .env   # API 키 입력
 
-streamlit run src/ui.py          # UI  → http://localhost:8501
-uvicorn src.api.chat_api:app     # API → http://localhost:8000
-python src/api/mcp_server.py     # MCP (Claude Desktop용)
+python -m src.mcp.server --sse   # MCP 검색 서버 → http://localhost:8001
+uvicorn src.api.main:app         # API → http://localhost:8000
+streamlit run src/ui/app.py      # UI  → http://localhost:8501
 ```
+
+역할 경계: UI는 API만 호출하고, API는 MCP의 `retrieve_tax_context` 도구로 검색한 chunk만 사용해 L2~L5 판단을 수행합니다.
 
 ---
 
@@ -118,23 +120,28 @@ python src/api/mcp_server.py     # MCP (Claude Desktop용)
 
 ```
 src/
+├── application/
+│   ├── chat_service.py    # API 오케스트레이션 — L2~L5 + MCP 검색 호출
+│   └── serializers.py     # API/MCP 공통 직렬화
 ├── api/
-│   ├── chat_api.py        # FastAPI — 외부 연동 REST
-│   └── mcp_server.py      # FastMCP — Claude Desktop 7개 도구
+│   └── main.py            # FastAPI — 외부 연동 REST
+├── mcp/
+│   └── server.py          # FastMCP — RAG 검색 실행 계층
 ├── domain/
 │   ├── pipeline.py        # L1.5 ~ L5 메인 파이프라인
 │   ├── confirmation.py    # 확인서 체크 (L1.5)
 │   ├── tax_calculator.py  # 세액 계산
 │   └── constants.py       # TaxConstantsRegistry
 ├── retrieval/
-│   └── retriever_impl.py  # 멀티 네임스페이스 + BGE reranking
+│   ├── retriever_impl.py  # Pinecone 멀티 네임스페이스 + BGE reranking
+│   └── mcp_retriever.py   # API에서 MCP 검색 tool 호출
 ├── ingestion/             # 법령·유권해석 수집기
 ├── eval/                  # RVRL debate, golden set 관리
 ├── agents/prompts.py      # 프롬프트 버전 관리
 ├── pages/
 │   ├── admin.py           # 어드민 — 수집 현황·파이프라인 상태
 │   └── labeling.py        # 전문가 레이블링 UI
-└── ui.py                  # Streamlit 메인
+└── ui/app.py              # Streamlit 메인
 
 data/
 ├── golden/                # 골든셋 (142건 종합 케이스)

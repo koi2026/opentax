@@ -64,9 +64,13 @@ AI 코딩 어시스턴트(Claude Code 등)가 이 프로젝트에서 올바르�
 
 ```bash
 pip install -r requirements.txt && cp .env.example .env
-streamlit run src/ui.py
+python -m src.mcp.server --sse
+uvicorn src.api.main:app
+streamlit run src/ui/app.py
 python -m scripts.run_baseline_eval --workers 3
 ```
+
+검증은 기본적으로 Docker 기준으로 수행한다: `docker compose exec ...`, `docker compose logs`, `docker compose ps`를 우선 사용한다.
 
 ---
 
