@@ -34,9 +34,12 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 | Reranker | BAAI/bge-reranker-v2-m3 (CrossEncoder) |
 | LLM | Claude Sonnet 4.6 (기본), Claude Opus 4.7 (고정밀) |
 | 파이프라인 | src/domain/pipeline.py — L2~L5 오케스트레이터 |
-| 채팅 API | src/api/chat_api.py — POST /api/v1/chat + chat_turn() |
-| UI | Streamlit (src/ui.py) — 입력/표시/피드백 수집만 담당 |
+| 채팅 API | src/api/main.py — POST /api/v1/chat + POST /api/v1/chat/stream |
+| MCP 검색 | src/mcp/server.py — retrieve_tax_context tool |
+| UI | Streamlit (src/ui/app.py) — 입력/표시/피드백 수집만 담당 |
 | 평가·루프 | src/eval/debate.py → golden_injector.py → llm_fn.py (우로보로스 루프) |
+
+**역할 경계:** UI는 API만 호출한다. API는 MCP `retrieve_tax_context`로 검색된 chunk를 받아 L2~L5 판단과 LLM 추론을 수행한다. Pinecone/BGE 검색은 MCP 계층에서 실행한다.
 
 ---
 
@@ -45,7 +48,7 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 ```text
 [입력 경로]
   JSON fact_json ─► src/api/fact_input.py  (FactInput → RAGQueryInput 변환)
-                    src/api/chat_api.py    (chat_turn / POST /api/v1/chat)
+                    src/api/main.py        (POST /api/v1/chat)
                     src/api/sample_cases.py (35개 실무 케이스)
   자연어 question ─► src/rag.py answer_with_citations (레거시 경로)
 
@@ -338,7 +341,7 @@ Pinecone namespace: "tax-law-pending" (별도 격리)
 | 개정안 PDF 파서 | `src/ingestion/collect_amendment_pdf.py` | 기재부 PDF → 개정 조문 추출 |
 | pending namespace 업로드 | `src/ingestion/embed_amendment.py` | 시행예정일 메타데이터 포함 |
 | 이중 검색 쿼리 | `src/retrieval/retriever_impl.py` | 현행 + pending 병렬 검색 |
-| 개정 예고 UI 컴포넌트 | `src/ui.py` | "개정안 기준 시뮬레이션" 탭 |
+| 개정 예고 UI 컴포넌트 | `src/ui/app.py` | "개정안 기준 시뮬레이션" 탭 |
 | 자동 전환 스케줄러 | `scripts/promote_pending_law.py` | 시행일 0시 pending→main |
 
 **개정안 입수 방법:** API 불가. 기재부 홈페이지(moef.go.kr) PDF 수동 다운로드 → `data/amendments/` 드롭 → 자동 파싱.
@@ -361,12 +364,16 @@ Pinecone namespace: "tax-law-pending" (별도 격리)
 ### JSON 입력 (UI / REST API)
 
 ```python
-from src.api.chat_api import chat_turn
+import requests
 
-result = await chat_turn(
-    fact_json={"transfer_date": "20240601", "property_type": "아파트", ...},
-    enable_debate=True,
-)
+result = requests.post(
+    "http://localhost:8000/api/v1/chat",
+    json={
+        "fact_json": {"transfer_date": "20240601", "property_type": "아파트", ...},
+        "enable_debate": True,
+    },
+    timeout=300,
+).json()
 # result["verdict"]  → "비과세" | "감면" | "중과" | "일반과세" | "단기세율" | "고가주택" | "사실관계부족"
 # result["blocked"]  → True이면 missing_facts 채워 재요청
 ```
@@ -445,11 +452,13 @@ tax-rag/
 │   │   ├── area_designation_pipeline.py  # 규제지역 변경 감지 3-tier
 │   │   └── admin_notices.py              # 행정/금융 고시 수집
 │   ├── api/
-│   │   ├── chat_api.py          # POST /api/v1/chat + chat_turn()
+│   │   ├── main.py              # FastAPI app + route registration
+│   │   ├── routes/chat.py       # POST /api/v1/chat + /chat/stream
 │   │   ├── fact_input.py        # FactInput → RAGQueryInput 변환 팩토리
 │   │   ├── sample_cases.py      # 35개 실무 케이스
-│   │   ├── mcp_server.py        # FastMCP (search_tax_law 등)
 │   │   └── schema.py            # Pydantic 스키마 (레거시 shim)
+│   ├── mcp/
+│   │   └── server.py            # FastMCP search layer (retrieve_tax_context 등)
 │   ├── eval/
 │   │   ├── debate.py            # Red-Blue 논쟁 엔진
 │   │   ├── golden_injector.py   # 유사 케이스 few-shot 블록 생성
@@ -509,6 +518,8 @@ RETRIEVER_RERANK_TOP_N=7
 
 MCP_PORT=8001
 STREAMLIT_PORT=8501
+MCP_SERVER_URL=http://localhost:8001
+API_BASE_URL=http://localhost:8000
 ```
 
 ---
@@ -531,11 +542,14 @@ python -m src.ingestion.embed_rulings nts                          # Pinecone �
 python -m src.ingestion.embed_rulings decisions
 python -m src.ingestion.embed_rulings pdf
 
-streamlit run src/ui.py               # UI 실행
-python -m src.api.mcp_server --sse    # MCP 서버 (HTTP SSE)
+python -m src.mcp.server --sse        # MCP 검색 서버 (HTTP SSE)
+uvicorn src.api.main:app              # API 실행
+streamlit run src/ui/app.py           # UI 실행
 python -m src.eval.eval               # 골든셋 평가
 pytest                                # 테스트
 ```
+
+검증은 기본적으로 Docker 기준으로 수행한다. 예: `docker compose exec api ...`, `docker compose exec ui ...`, `docker compose logs --tail=...`.
 
 ---
 

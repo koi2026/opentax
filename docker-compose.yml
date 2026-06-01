@@ -14,6 +14,8 @@ x-tax-rag-common: &tax-rag-common
     FASTAPI_PORT: 8000
     MCP_PORT: 8001
     STREAMLIT_PORT: 8501
+    MCP_SERVER_URL: http://mcp:8001
+    API_BASE_URL: http://api:8000
   volumes:
     - .:/app
     - pip-cache:/root/.cache/pip
@@ -22,13 +24,15 @@ x-tax-rag-common: &tax-rag-common
 services:
   api:
     <<: *tax-rag-common
-    command: uvicorn src.api.chat_api:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "${FASTAPI_PORT:-8000}:8000"
+    depends_on:
+      - mcp
 
   ui:
     <<: *tax-rag-common
-    command: streamlit run src/ui.py --server.address 0.0.0.0 --server.port 8501
+    command: streamlit run src/ui/app.py --server.address 0.0.0.0 --server.port 8501
     ports:
       - "${STREAMLIT_PORT:-8501}:8501"
     depends_on:
@@ -36,7 +40,7 @@ services:
 
   mcp:
     <<: *tax-rag-common
-    command: python -m src.api.mcp_server --sse
+    command: python -m src.mcp.server --sse
     ports:
       - "${MCP_PORT:-8001}:8001"
 

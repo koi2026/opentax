@@ -1,1 +1,1 @@
-"""외부 API 표면 — MCP 서버 + 업스트림 스키마."""
+"""HTTP API surface — external REST schemas and routes."""
