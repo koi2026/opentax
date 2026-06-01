@@ -210,7 +210,21 @@ JSON을 가장 먼저 출력하는 것이 필수입니다.
 }}
 
 <reasoning>
-판단 과정을 단계별로 서술 (JSON 출력 후 여기에 작성)
+아래 heading을 그대로 사용해 판단 과정을 작성하십시오.
+사용자에게 보이는 추론 문단에서는 JSON 필드명인 verdict, confidence를 쓰지 말고
+반드시 "판정", "신뢰도"라고 표현하십시오.
+
+### 1. 사실관계 확인
+입력 사실관계 중 결론에 영향을 주는 항목을 정리합니다.
+
+### 2. 쟁점 식별
+비과세·감면·중과·단기세율·고가주택 여부의 핵심 쟁점을 정리합니다.
+
+### 3. 근거 검토
+검색된 조문 chunk를 기준으로 적용 요건과 배제 요건을 검토합니다.
+
+### 4. 잠정 결론
+최종 판정과 신뢰도를 선택한 이유를 정리합니다.
 </reasoning>
 
 [verdict 선택 기준]
@@ -337,6 +351,7 @@ async def llm_fn_stream(
 
     full_text = ""
     in_reasoning = False
+    emitted_reasoning_chars = 0
 
     async with client.messages.stream(
         model=model,
@@ -349,20 +364,20 @@ async def llm_fn_stream(
             if event.type == "content_block_delta":
                 text = event.delta.text
                 full_text += text
-                
-                # <reasoning> 내부 텍스트만 실시간으로 yield (UI 표시용)
-                if "<reasoning>" in full_text and not in_reasoning:
-                    in_reasoning = True
+
+                # <reasoning> 내부 텍스트만 실시간으로 yield (UI 표시용).
+                # 태그와 첫 heading이 같은 delta에 들어오는 경우도 보존한다.
+                if "<reasoning>" not in full_text:
                     continue
-                
-                if in_reasoning:
-                    if "</reasoning>" in text:
-                        # 태그가 포함된 조각이면 이전 부분까지만 보냄
-                        reasoning_part = text.split("</reasoning>")[0]
-                        yield reasoning_part
-                        in_reasoning = False
-                    else:
-                        yield text
+                in_reasoning = True
+                reasoning = full_text.split("<reasoning>", 1)[1]
+                if "</reasoning>" in reasoning:
+                    reasoning = reasoning.split("</reasoning>", 1)[0]
+                    in_reasoning = False
+                new_text = reasoning[emitted_reasoning_chars:]
+                if new_text:
+                    emitted_reasoning_chars += len(new_text)
+                    yield new_text
 
     # 최종 파싱
     raw_json = _extract_json(full_text)

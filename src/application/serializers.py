@@ -162,4 +162,5 @@ def pipeline_result_to_response(result: Any, session_id: str, mode: str = "pipel
         "mode": mode,
         "consulting_scenarios": result.consulting_scenarios,
         "debate_record": result.debate_record,
+        "agent_traces": getattr(result, "agent_traces", None),
     }

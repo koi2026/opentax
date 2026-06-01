@@ -65,6 +65,44 @@ def render_fact_korean(fact: dict) -> None:
 
 
 def render_realtime_event(event: str, data: dict, placeholders: dict) -> None:
+    if "_agent_panels" not in st.session_state:
+        st.session_state["_agent_panels"] = {
+            "A": {"label": "검색 법령 기반", "text": "", "done": False, "summary": None, "heartbeat": 0},
+            "B": {"label": "비검색 독립 검토", "text": "", "done": False, "summary": None, "heartbeat": 0},
+            "synthesis": None,
+        }
+
+    def _render_agent_panels() -> None:
+        panel_state = st.session_state["_agent_panels"]
+        with placeholders["agents"].container():
+            st.markdown("#### 5. 병렬 에이전트 추론")
+            col_a, col_b = st.columns(2)
+            for col, key in [(col_a, "A"), (col_b, "B")]:
+                agent = panel_state[key]
+                pulse = "." * int(agent.get("heartbeat", 0) % 4)
+                status = "완료" if agent["done"] else f"추론 중{pulse}"
+                with col:
+                    st.markdown(f"**Agent {key} · {agent['label']}**")
+                    st.caption(status)
+                    if agent["text"]:
+                        st.markdown(agent["text"])
+                    if agent["summary"]:
+                        summary = agent["summary"]
+                        st.caption(
+                            f"판단: **{summary.get('verdict', '')}** · "
+                            f"신뢰도: **{float(summary.get('confidence', 0.0) or 0.0):.0%}**"
+                        )
+                        warnings = summary.get("warnings") or []
+                        if warnings:
+                            st.caption(" / ".join(str(w) for w in warnings[:2]))
+            synthesis = panel_state.get("synthesis")
+            if synthesis:
+                disagreement = " · 불일치 감지" if synthesis.get("disagreement") else ""
+                st.success(
+                    f"종합 완료: {synthesis.get('verdict', '')} "
+                    f"({float(synthesis.get('confidence', 0.0) or 0.0):.0%}){disagreement}"
+                )
+
     if event == "fact_summary":
         with placeholders["fact"].container():
             st.markdown("#### 1. 입력 이해")
@@ -111,9 +149,41 @@ def render_realtime_event(event: str, data: dict, placeholders: dict) -> None:
                 ])
             else:
                 st.warning("검색된 근거 후보가 없습니다.")
+    elif event == "agent_reasoning_start":
+        st.session_state["_agent_panels"] = {
+            "A": {"label": "검색 법령 기반", "text": "", "done": False, "summary": None, "heartbeat": 0},
+            "B": {"label": "비검색 독립 검토", "text": "", "done": False, "summary": None, "heartbeat": 0},
+            "synthesis": None,
+        }
+        for agent in data.get("agents") or []:
+            key = agent.get("agent")
+            if key in st.session_state["_agent_panels"]:
+                st.session_state["_agent_panels"][key]["label"] = agent.get("label", "")
+        _render_agent_panels()
+    elif event == "agent_reasoning_delta":
+        key = data.get("agent")
+        if key in st.session_state["_agent_panels"]:
+            existing = st.session_state["_agent_panels"][key]["text"]
+            text = data.get("text", "")
+            st.session_state["_agent_panels"][key]["text"] = (existing + text).strip()
+        _render_agent_panels()
+    elif event == "agent_reasoning_heartbeat":
+        key = data.get("agent")
+        if key in st.session_state["_agent_panels"] and not st.session_state["_agent_panels"][key]["done"]:
+            st.session_state["_agent_panels"][key]["heartbeat"] += 1
+        _render_agent_panels()
+    elif event == "agent_reasoning_done":
+        key = data.get("agent")
+        if key in st.session_state["_agent_panels"]:
+            st.session_state["_agent_panels"][key]["done"] = True
+            st.session_state["_agent_panels"][key]["summary"] = data
+        _render_agent_panels()
+    elif event == "synthesis_done":
+        st.session_state["_agent_panels"]["synthesis"] = data
+        _render_agent_panels()
     elif event == "validation":
         with placeholders["validation"].container():
-            st.markdown("#### 5. 인용 검증")
+            st.markdown("#### 6. 인용 검증")
             if data.get("phantom_count", 0):
                 st.warning(
                     f"검색 결과에 없는 인용 {data.get('phantom_count')}건을 감지했습니다. "
