@@ -60,6 +60,20 @@ def _cheap_prefilter(matches: list[dict], query_text: str, limit: int = _PREFILT
 
     return sorted(matches, key=_score, reverse=True)[:limit]
 
+
+def _tag_ruling_match(match: dict, namespace: str) -> dict:
+    """Return a mutable match dict tagged with its ruling namespace.
+
+    Pinecone SDK match models reject unknown key assignment, so normalize to a
+    plain dict before adding local-only retrieval metadata.
+    """
+    return {
+        "id": match["id"],
+        "score": match.get("score", 0.0),
+        "metadata": dict(match.get("metadata", {}) or {}),
+        "_ruling_namespace": namespace,
+    }
+
 TOP_K = RETRIEVER_TOP_K
 RERANK_TOP_N = RETRIEVER_RERANK_TOP_N
 
@@ -296,9 +310,7 @@ class PineconeTaxLawRetriever(TaxLawRetriever):
                 sparse_vector=sparse_vec,
                 alpha=hybrid_alpha,
             )
-            for m in ns_matches:
-                m["_ruling_namespace"] = ns  # 출처 네임스페이스 태깅
-            ruling_matches.extend(ns_matches)
+            ruling_matches.extend(_tag_ruling_match(m, ns) for m in ns_matches)
 
         # 법령 + 유권해석 통합 풀 — BGE가 단일 pass로 최종 순위 결정
         all_matches = matches + ruling_matches
