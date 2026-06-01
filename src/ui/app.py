@@ -101,6 +101,7 @@ def _run_analysis(user_text: str, parsed_fact: dict | None) -> None:
             "fact_check": st.empty(),
             "query": st.empty(),
             "chunks": st.empty(),
+            "agents": st.empty(),
             "validation": st.empty(),
             "reasoning": st.empty(),
         }

@@ -27,4 +27,4 @@ class ChatResponse(BaseModel):
     mode: str
     consulting_scenarios: Optional[list[dict[str, Any]]] = None
     debate_record: Optional[dict[str, Any]] = None
-
+    agent_traces: Optional[dict[str, Any]] = None

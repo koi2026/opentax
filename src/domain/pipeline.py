@@ -34,6 +34,7 @@ class PipelineResult:
     debate_record: Optional[dict] = None   # 논쟁이 실행된 경우 결과 요약
     query_mode: str = "report"
     consulting_scenarios: Optional[List[dict]] = None
+    agent_traces: Optional[dict] = None
 
 
 def _fmt_date(value: Any) -> str:
@@ -240,7 +241,24 @@ async def run_rag_pipeline(
     # missing_facts를 LLM 프롬프트에 전달 → "이 정보가 없어서 불확실합니다" 안내
     llm_missing_hints = fact_check.missing_fact_texts()
 
-    raw_answer = await llm_fn(enriched_query, chunks, llm_missing_hints)
+    try:
+        from src.retrieval.multi_agent_reasoner import run_multi_agent_reasoning
+
+        multi_agent_result = await run_multi_agent_reasoning(
+            enriched_query,
+            chunks,
+            llm_missing_hints,
+            fact_json=fact_json,
+            agent_a_fn=llm_fn,
+        )
+        raw_answer = multi_agent_result.answer
+        agent_traces = multi_agent_result.agent_traces
+    except Exception as exc:
+        raw_answer = await llm_fn(enriched_query, chunks, llm_missing_hints)
+        raw_answer = raw_answer.with_update(
+            warnings=list(raw_answer.warnings) + [f"멀티에이전트 추론 실패 — 단일 RAG 추론으로 대체: {exc}"]
+        )
+        agent_traces = {"error": str(exc), "fallback": "single_rag_llm"}
 
     # chunk_ids 동기화 — LLM이 누락시켰을 수 있으므로 검색 결과로 보완
     if not raw_answer.chunk_ids:
@@ -259,6 +277,7 @@ async def run_rag_pipeline(
         enriched_query=enriched_query,
         retrieved_chunks=chunks,
         query_mode=query_mode,
+        agent_traces=agent_traces,
     )
 
     # ── Consulting Mode: 시나리오 비교 노드 ──────────────────────────────
@@ -341,15 +360,39 @@ async def run_rag_pipeline_stream(
     retrieved_ids: Set[str] = {c.metadata.chunk_id for c in chunks}
     yield _stream_event("retrieved_chunks", {"chunks": _retrieved_chunks_data(chunks)})
 
-    yield f"PROGRESS:AI 법령 해석 중 ({len(chunks)}개 조문)..."
+    yield f"PROGRESS:AI 병렬 법령 해석 중 ({len(chunks)}개 조문)..."
 
-    # ── L4b LLM Streaming ───────────────────────────────────────────────────
+    # ── L4b Multi-Agent LLM Streaming ────────────────────────────────────────
     raw_answer: Optional[TaxAnswer] = None
-    async for item in llm_fn_stream_fn(enriched_query, chunks, llm_missing_hints, fact_json):
-        if isinstance(item, str):
-            yield item  # reasoning 텍스트 조각
-        elif hasattr(item, "verdict"):
-            raw_answer = item  # TaxAnswer
+    agent_traces: Optional[dict] = None
+
+    try:
+        from src.retrieval.multi_agent_reasoner import MultiAgentReasoningResult, run_multi_agent_reasoning_stream
+
+        async for item in run_multi_agent_reasoning_stream(
+            enriched_query,
+            chunks,
+            llm_missing_hints,
+            fact_json=fact_json,
+            agent_a_stream_fn=llm_fn_stream_fn,
+        ):
+            if isinstance(item, MultiAgentReasoningResult):
+                raw_answer = item.answer
+                agent_traces = item.agent_traces
+            else:
+                yield item
+    except Exception as exc:
+        raw_answer = None
+        async for item in llm_fn_stream_fn(enriched_query, chunks, llm_missing_hints, fact_json):
+            if isinstance(item, str):
+                yield item
+            elif hasattr(item, "verdict"):
+                raw_answer = item
+        agent_traces = {"error": str(exc), "fallback": "single_rag_llm"}
+        if raw_answer is not None:
+            raw_answer = raw_answer.with_update(
+                warnings=list(raw_answer.warnings) + [f"멀티에이전트 추론 실패 — 단일 RAG 추론으로 대체: {exc}"]
+            )
 
     if raw_answer is None:
         raw_answer = TaxAnswer(
@@ -376,6 +419,7 @@ async def run_rag_pipeline_stream(
         enriched_query=enriched_query,
         retrieved_chunks=chunks,
         query_mode=query_mode,
+        agent_traces=agent_traces,
     )
 
     # ── Consulting Scenarios ─────────────────────────────────────────────────

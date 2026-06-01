@@ -8,6 +8,7 @@ pinecone>=5.0.0
 
 # Agent framework
 crewai>=0.95.0
+langgraph>=0.2.70
 
 # LLM
 anthropic>=0.40.0
