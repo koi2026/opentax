@@ -104,7 +104,7 @@ async def bootstrap(min_confidence: float, dry_run: bool) -> None:
                 total_already_done += 1
                 continue
 
-            print(f"  [{i+1:03d}] {case.get('description', '')[:50]}...", end=" ", flush=True)
+            print(f"  [{i+1:03d}] {case.get('description', '')[:50]}...", flush=True)
 
             result = await _run_case(case)
             actual_verdict = result["verdict"]

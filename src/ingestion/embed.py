@@ -11,7 +11,6 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
-from tqdm import tqdm
 
 load_dotenv()
 
@@ -153,12 +152,14 @@ def embed_and_upload(chunks_path: Optional[Path] = None) -> int:
     total_upserted = 0
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
 
-    for batch in tqdm(batches, desc="Pinecone 업로드"):
+    total_batches = len(batches)
+    for batch_idx, batch in enumerate(batches, start=1):
+        print(f"Pinecone 업로드 {batch_idx}/{total_batches} 배치 시작", flush=True)
         texts = [c.get("full_text", "") for c in batch]
         try:
             vectors = _embed_texts(embed_client, embed_model, texts)
         except Exception as e:
-            print(f"\n임베딩 오류 (배치 건너뜀): {e}")
+            print(f"Pinecone 업로드 {batch_idx}/{total_batches} 배치 오류: {e}", flush=True)
             continue
 
         upsert_payload = []
@@ -196,9 +197,13 @@ def embed_and_upload(chunks_path: Optional[Path] = None) -> int:
 
         index.upsert(vectors=upsert_payload, namespace=PINECONE_NAMESPACE)
         total_upserted += len(upsert_payload)
+        print(
+            f"Pinecone 업로드 {batch_idx}/{total_batches} 배치 완료: {len(upsert_payload)}개",
+            flush=True,
+        )
         time.sleep(0.2)  # rate limit 방지
 
-    print(f"\n[완료] {total_upserted}개 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
+    print(f"[완료] {total_upserted}개 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
     return total_upserted
 
 
@@ -220,12 +225,14 @@ def embed_and_upload_chunks(chunks: list[dict]) -> int:
     total_upserted = 0
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
 
-    for batch in tqdm(batches, desc="신규 버전 업로드"):
+    total_batches = len(batches)
+    for batch_idx, batch in enumerate(batches, start=1):
+        print(f"신규 버전 업로드 {batch_idx}/{total_batches} 배치 시작", flush=True)
         texts = [c.get("full_text", "") for c in batch]
         try:
             vectors = _embed_texts(embed_client, embed_model, texts)
         except Exception as e:
-            print(f"\n임베딩 오류 (배치 건너뜀): {e}")
+            print(f"신규 버전 업로드 {batch_idx}/{total_batches} 배치 오류: {e}", flush=True)
             continue
 
         upsert_payload = []
@@ -257,9 +264,13 @@ def embed_and_upload_chunks(chunks: list[dict]) -> int:
 
         index.upsert(vectors=upsert_payload, namespace=PINECONE_NAMESPACE)
         total_upserted += len(upsert_payload)
+        print(
+            f"신규 버전 업로드 {batch_idx}/{total_batches} 배치 완료: {len(upsert_payload)}개",
+            flush=True,
+        )
         time.sleep(0.2)
 
-    print(f"\n[완료] {total_upserted}개 신규 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
+    print(f"[완료] {total_upserted}개 신규 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
     return total_upserted
 
 

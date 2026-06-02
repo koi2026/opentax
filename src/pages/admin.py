@@ -5,9 +5,14 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
+import queue
+import subprocess
 import sys
+import threading
+import time
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +32,8 @@ for key, default in [
     ("admin_running_idx", None),
     ("admin_golden_result", None),
     ("admin_golden_running_idx", None),
+    ("admin_command_result", None),
+    ("admin_command_running", False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -177,6 +184,484 @@ def _run_case(fact_json: dict) -> dict:
     response.raise_for_status()
     return response.json()
 
+
+def _command_text(args: list[str]) -> str:
+    return " ".join(["python", "-m", *args])
+
+
+def _path_status(path: Path | None) -> str:
+    if path is None:
+        return "상태 파일 없음"
+    if path.is_dir():
+        files = list(path.glob("*.json"))
+        if not files:
+            return f"데이터 없음 · {path.relative_to(_ROOT)}"
+        latest = max(files, key=lambda f: f.stat().st_mtime)
+        return f"{len(files):,}개 파일 · 최신 {_fmt_mtime(latest)}"
+    if path.exists():
+        return f"수정 {_fmt_mtime(path)} · {path.relative_to(_ROOT)}"
+    return f"데이터 없음 · {path.relative_to(_ROOT)}"
+
+
+def _render_command_overlay(
+    placeholder,
+    command: dict,
+    log_lines: list[str],
+    started_at: datetime,
+    returncode: int | None = None,
+) -> None:
+    elapsed_s = time.monotonic() - st.session_state.get("admin_command_t0", time.monotonic())
+    state = "실행 중" if returncode is None else ("완료" if returncode == 0 else f"실패 exit {returncode}")
+    log_text = "\n".join(log_lines[-300:]) or "로그 대기 중..."
+    escaped_log = html.escape(log_text)
+    escaped_label = html.escape(command["label"])
+    escaped_cmd = html.escape(_command_text(command["args"]))
+    started = html.escape(started_at.strftime("%Y-%m-%d %H:%M:%S"))
+    placeholder.markdown(
+        f"""
+<style>
+@media (max-width: 720px) {{
+  .admin-command-overlay {{
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+  }}
+}}
+</style>
+<div style="
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background: rgba(0, 0, 0, 0.72);
+    color: #f5f5f5;
+    padding: 32px 48px;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+" class="admin-command-overlay">
+<div style="max-width:1120px; margin:0 auto;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:18px;">
+    <div>
+      <div style="font-size:24px; font-weight:800; margin-bottom:8px;">{escaped_label}</div>
+      <div style="color:#bdbdbd; font-size:13px;">{escaped_cmd}</div>
+    </div>
+    <div style="text-align:right; color:#e0e0e0; font-size:13px; line-height:1.7;">
+      <div>상태: <strong>{state}</strong></div>
+      <div>시작: {started}</div>
+      <div>경과: {elapsed_s:.1f}s</div>
+    </div>
+  </div>
+  <pre style="
+      height: calc(100vh - 170px);
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      background: #050505;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 18px;
+      margin: 0;
+      color: #d7ffd9;
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  ">{escaped_log}</pre>
+</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _run_admin_command(command: dict, overlay_placeholder) -> dict:
+    args = list(command["args"])
+    cmd = [sys.executable, "-m", *args]
+    timeout_s = int(command.get("timeout_s", 1800))
+    started = datetime.now()
+    t0 = time.monotonic()
+    st.session_state.admin_command_t0 = t0
+    result: dict = {
+        "label": command["label"],
+        "cmd": _command_text(args),
+        "started_at": started.strftime("%Y-%m-%d %H:%M:%S"),
+        "finished_at": "",
+        "elapsed_s": 0.0,
+        "returncode": None,
+        "timed_out": False,
+    }
+    log_lines = [f"$ {_command_text(args)}"]
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    _render_command_overlay(overlay_placeholder, command, log_lines, started)
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=_ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+        )
+        assert process.stdout is not None
+        output_queue: queue.Queue[str | None] = queue.Queue()
+
+        def _read_output() -> None:
+            try:
+                for output_line in process.stdout:
+                    output_queue.put(output_line.rstrip("\n"))
+            finally:
+                output_queue.put(None)
+
+        threading.Thread(target=_read_output, daemon=True).start()
+        reader_done = False
+        while True:
+            if time.monotonic() - t0 > timeout_s:
+                result["timed_out"] = True
+                log_lines.append(f"명령이 {timeout_s}초 제한을 초과해 중단되었습니다.")
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                break
+
+            updated = False
+            while True:
+                try:
+                    line = output_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if line is None:
+                    reader_done = True
+                    continue
+                log_lines.append(line)
+                updated = True
+            if updated:
+                _render_command_overlay(overlay_placeholder, command, log_lines, started)
+
+            if process.poll() is not None and reader_done:
+                break
+            _render_command_overlay(overlay_placeholder, command, log_lines, started)
+            time.sleep(0.1)
+
+        result["returncode"] = process.returncode if process.returncode is not None else -1
+        if result["timed_out"]:
+            result["returncode"] = -1
+        _render_command_overlay(overlay_placeholder, command, log_lines, started, result["returncode"])
+        time.sleep(0.7)
+    except Exception as exc:
+        result["returncode"] = -1
+        log_lines.append(f"실행 오류: {exc}")
+        _render_command_overlay(overlay_placeholder, command, log_lines, started, result["returncode"])
+        time.sleep(0.7)
+    finally:
+        result["finished_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result["elapsed_s"] = time.monotonic() - t0
+        overlay_placeholder.empty()
+    return result
+
+
+def _render_command_result(result: dict | None) -> None:
+    if not result:
+        return
+    elapsed = f"{result.get('elapsed_s', 0):.1f}s"
+    returncode = result.get("returncode")
+    if returncode == 0:
+        st.success(f"`{result.get('label')}` 완료 · {elapsed}")
+    else:
+        st.error(f"`{result.get('label')}` 실패 · exit {returncode} · {elapsed}")
+    meta_cols = st.columns(3)
+    meta_cols[0].caption(f"시작: {result.get('started_at', '—')}")
+    meta_cols[1].caption(f"종료: {result.get('finished_at', '—')}")
+    meta_cols[2].caption(f"명령: `{result.get('cmd', '')}`")
+
+
+def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str, int]) -> None:
+    is_paid = bool(command.get("paid"))
+    disabled = bool(st.session_state.admin_command_running) or (is_paid and not paid_confirmed)
+    status = _path_status(command.get("path"))
+    ns = command.get("namespace")
+    if ns:
+        status = f"{status} · Pinecone {pc_stats.get(ns, 0):,}개"
+    phase_label = {
+        "collect": "로컬 데이터 생성",
+        "upload": "Pinecone 업로드/API 비용 가능",
+        "automation": "수집+업로드 혼합",
+        "eval": "LLM/eval 비용 가능",
+    }.get(command.get("phase"), "명령")
+
+    with st.container(border=True):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.markdown(f"**{command['label']}**")
+            st.caption(command.get("description", ""))
+            st.code(_command_text(command["args"]), language="bash")
+            st.caption(status)
+        with c2:
+            st.caption(phase_label)
+            if command.get("long"):
+                st.caption("장시간 작업")
+            if st.button("실행", key=f"run_cmd_{command['key']}", disabled=disabled, use_container_width=True):
+                st.session_state.admin_command_running = True
+                _overlay = st.empty()
+                try:
+                    st.session_state.admin_command_result = _run_admin_command(command, _overlay)
+                finally:
+                    _overlay.empty()
+                    st.session_state.admin_command_running = False
+                    st.rerun()
+
+
+_COLLECT_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
+    ("법령 조문", [
+        {
+            "key": "law_collect",
+            "label": "법령 조문 수집",
+            "description": "law.go.kr DRF API에서 법령 XML을 수집하고 로컬 청크 파일을 갱신합니다.",
+            "args": ["src.ingestion.collect"],
+            "path": _ROOT / "data" / "processed" / "all_chunks.json",
+            "phase": "collect",
+        },
+        {
+            "key": "law_changes",
+            "label": "법령 개정 감지",
+            "description": "법령 버전 스냅샷과 최신 목록을 비교하고 개정 로그를 기록합니다. Pinecone 업로드는 하지 않습니다.",
+            "args": ["scripts.detect_law_changes"],
+            "path": _ROOT / "data" / "law_change_log.jsonl",
+            "phase": "collect",
+        },
+    ]),
+    ("유권해석 개별 수집", [
+        {
+            "key": "ruling_revision",
+            "label": "폐지 예규 목록 수집",
+            "description": "세법해석정비 목록을 수집해 폐지 예규 필터의 원천 데이터를 갱신합니다.",
+            "args": ["src.ingestion.collect_rulings_revision", "--tax", "transfer"],
+            "path": _ROOT / "data" / "rulings" / "deprecated_ids.json",
+            "phase": "collect",
+        },
+        {
+            "key": "ruling_nts",
+            "label": "국세청 질의회신 수집",
+            "description": "양도소득세 질의회신/쟁점별 사례를 resume 모드로 수집합니다.",
+            "args": ["src.ingestion.collect_rulings_nts", "--tax", "양도소득세", "--resume"],
+            "path": _ROOT / "data" / "rulings" / "nts",
+            "phase": "collect",
+        },
+        {
+            "key": "ruling_decisions",
+            "label": "심판청구 결정례 수집",
+            "description": "조세심판원 결정례를 양도 키워드로 수집합니다.",
+            "args": ["src.ingestion.collect_rulings_decisions", "--type", "tax_tribunal", "--keyword", "양도", "--resume"],
+            "path": _ROOT / "data" / "rulings" / "decisions",
+            "phase": "collect",
+        },
+        {
+            "key": "ruling_moef",
+            "label": "기재부 법령해석 수집",
+            "description": "기재부 법령해석 목록을 resume 모드로 수집합니다.",
+            "args": ["src.ingestion.collect_rulings_moef", "--resume", "--no-detail"],
+            "path": _ROOT / "data" / "rulings" / "moef",
+            "phase": "collect",
+        },
+        {
+            "key": "ruling_nts_interp",
+            "label": "국세청 법령해석 수집",
+            "description": "양도·증여·상속·상생임대·임대주택 키워드의 법령해석을 수집합니다.",
+            "args": [
+                "src.ingestion.collect_rulings_nts_interp",
+                "--keywords", "양도", "증여", "상속", "상생임대", "임대주택",
+                "--resume", "--no-detail",
+            ],
+            "path": _ROOT / "data" / "rulings" / "nts_interp",
+            "phase": "collect",
+            "long": True,
+        },
+    ]),
+    ("PDF/행정 데이터 수집", [
+        {
+            "key": "pdf_collect",
+            "label": "PDF 집행기준 파싱",
+            "description": "data/rulings/pdf_source의 PDF를 로컬 JSON 레코드로 파싱합니다. Pinecone 업로드는 하지 않습니다.",
+            "args": ["src.ingestion.collect_rulings_pdf"],
+            "path": _ROOT / "data" / "rulings" / "pdf",
+            "phase": "collect",
+        },
+        {
+            "key": "admin_notices",
+            "label": "행정 고시 수집",
+            "description": "규제지역 관련 행정/금융 고시 데이터를 갱신합니다.",
+            "args": ["src.ingestion.admin_notices"],
+            "path": _ROOT / "data" / "area_designations",
+            "phase": "collect",
+        },
+        {
+            "key": "regulatory_changes",
+            "label": "규제지역 변경 감지",
+            "description": "규제지역 변경 후보를 감지해 인박스에 기록합니다.",
+            "args": ["scripts.detect_regulatory_changes"],
+            "path": _ROOT / "data" / "area_designations" / "detection_inbox.json",
+            "phase": "collect",
+        },
+    ]),
+]
+
+_UPLOAD_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
+    ("법령 조문 업로드", [
+        {
+            "key": "law_embed",
+            "label": "법령 조문 임베딩/Pinecone 업로드",
+            "description": "data/processed/all_chunks.json을 임베딩하고 Pinecone tax-law 네임스페이스에 업로드합니다.",
+            "args": ["src.ingestion.embed"],
+            "path": _ROOT / "data" / "processed" / "all_chunks.json",
+            "namespace": "tax-law",
+            "phase": "upload",
+            "paid": True,
+        },
+    ]),
+    ("유권해석 개별 업로드", [
+        {
+            "key": "embed_nts",
+            "label": "국세청 질의회신 임베딩/Pinecone 업로드",
+            "description": "국세청 질의회신을 임베딩하고 Pinecone에 업로드합니다.",
+            "args": ["src.ingestion.embed_rulings", "nts"],
+            "path": _ROOT / "data" / "rulings" / "nts",
+            "namespace": "tax-ruling-nts",
+            "phase": "upload",
+            "paid": True,
+        },
+        {
+            "key": "embed_decisions",
+            "label": "심판청구 결정례 임베딩/Pinecone 업로드",
+            "description": "결정례 데이터를 임베딩하고 Pinecone에 업로드합니다.",
+            "args": ["src.ingestion.embed_rulings", "decisions"],
+            "path": _ROOT / "data" / "rulings" / "decisions",
+            "namespace": "tax-ruling-decisions",
+            "phase": "upload",
+            "paid": True,
+        },
+        {
+            "key": "embed_moef",
+            "label": "기재부 법령해석 임베딩/Pinecone 업로드",
+            "description": "기재부 법령해석을 임베딩하고 Pinecone에 업로드합니다.",
+            "args": ["src.ingestion.embed_rulings", "moef"],
+            "path": _ROOT / "data" / "rulings" / "moef",
+            "namespace": "tax-ruling-moef",
+            "phase": "upload",
+            "paid": True,
+        },
+        {
+            "key": "embed_nts_interp",
+            "label": "국세청 법령해석 임베딩/Pinecone 업로드",
+            "description": "국세청 법령해석을 임베딩하고 Pinecone에 업로드합니다.",
+            "args": ["src.ingestion.embed_rulings", "nts_interp"],
+            "path": _ROOT / "data" / "rulings" / "nts_interp",
+            "namespace": "tax-ruling-nts-interp",
+            "phase": "upload",
+            "paid": True,
+        },
+        {
+            "key": "embed_pdf",
+            "label": "PDF 집행기준 임베딩/Pinecone 업로드",
+            "description": "PDF 집행기준을 임베딩하고 Pinecone에 업로드합니다.",
+            "args": ["src.ingestion.embed_rulings", "pdf"],
+            "path": _ROOT / "data" / "rulings" / "pdf",
+            "namespace": "tax-ruling-pdf",
+            "phase": "upload",
+            "paid": True,
+        },
+    ]),
+]
+
+_AUTOMATION_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
+    ("수집+업로드 통합 자동화", [
+        {
+            "key": "rulings_incremental",
+            "label": "유권해석 증분 수집 + 신규 임베딩/Pinecone 업로드",
+            "description": "수집 후 신규 파일이 있으면 임베딩까지 수행합니다. 신규 데이터가 없으면 업로드를 생략합니다.",
+            "args": ["scripts.collect_and_embed_rulings"],
+            "path": _ROOT / "data" / "rulings",
+            "phase": "automation",
+            "paid": True,
+            "long": True,
+        },
+        {
+            "key": "law_changes_embed",
+            "label": "법령 개정 감지 + 신규 법령 Pinecone 업로드",
+            "description": "개정 감지 후 신규 법령을 수집하고 Pinecone까지 업로드합니다.",
+            "args": ["scripts.detect_law_changes", "--embed"],
+            "path": _ROOT / "data" / "law_change_log.jsonl",
+            "namespace": "tax-law",
+            "phase": "automation",
+            "paid": True,
+        },
+    ]),
+]
+
+_EVAL_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
+    ("평가/골든셋", [
+        {
+            "key": "golden_eval",
+            "label": "골든셋 평가",
+            "description": "qa_pairs.json 전체를 현재 파이프라인으로 평가합니다.",
+            "args": ["scripts.run_golden_eval"],
+            "path": _ROOT / "data" / "eval_results" / "golden_eval_latest.json",
+            "phase": "eval",
+            "paid": True,
+        },
+        {
+            "key": "baseline_eval",
+            "label": "Baseline 평가",
+            "description": "종합 baseline 평가를 워커 3개로 실행합니다.",
+            "args": ["scripts.run_baseline_eval", "--workers", "3"],
+            "path": _ROOT / "data" / "eval_results",
+            "phase": "eval",
+            "paid": True,
+            "long": True,
+            "timeout_s": 7200,
+        },
+        {
+            "key": "baseline_debate",
+            "label": "Baseline 평가 + Debate",
+            "description": "비용과 시간이 큰 debate 포함 평가를 실행합니다.",
+            "args": ["scripts.run_baseline_eval", "--debate", "--workers", "3"],
+            "path": _ROOT / "data" / "eval_results",
+            "phase": "eval",
+            "paid": True,
+            "long": True,
+            "timeout_s": 7200,
+        },
+    ]),
+    ("Reranker 루프", [
+        {
+            "key": "extract_reranker_pairs",
+            "label": "Debate 훈련쌍 추출",
+            "description": "debate 기록에서 reranker 훈련쌍을 생성합니다.",
+            "args": ["scripts.extract_reranker_pairs"],
+            "path": _ROOT / "data" / "reranker_pairs.jsonl",
+            "phase": "eval",
+        },
+        {
+            "key": "extract_ruling_pairs",
+            "label": "유권해석 훈련쌍 추출",
+            "description": "유권해석과 법령 검색 결과를 연결해 reranker 훈련쌍을 생성합니다.",
+            "args": ["scripts.extract_ruling_pairs"],
+            "path": _ROOT / "data" / "reranker_pairs.jsonl",
+            "phase": "eval",
+            "paid": True,
+            "long": True,
+        },
+        {
+            "key": "finetune_reranker",
+            "label": "Reranker 파인튜닝",
+            "description": "로컬 환경에서 BGE reranker 파인튜닝을 실행합니다.",
+            "args": ["scripts.finetune_reranker"],
+            "path": _ROOT / "data" / "models" / "bge-reranker-tax-rag",
+            "phase": "eval",
+            "paid": True,
+            "long": True,
+            "timeout_s": 7200,
+        },
+    ]),
+]
 
 def _render_result(result: dict, expected_verdict: str | None = None) -> None:
     verdict = result["verdict"]
@@ -524,9 +1009,10 @@ needs_review_cnt = sum(1 for g in golden_pairs if g.get("invalidated"))
 _red_pct = int(red_wins / red_target * 100) if red_target else 0
 _high_stale = [s for s in stale_cases if s.get("sensitivity") == "high"]
 
-tab_dash, tab_law, tab_scenarios = st.tabs([
+tab_dash, tab_law, tab_collect, tab_scenarios = st.tabs([
     "📊 대시보드",
     "📜 법령 데이터",
+    "🧰 법령 수집",
     "🎯 평가 현황",
 ])
 
@@ -816,6 +1302,48 @@ with tab_law:
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 탭 3: 법령 수집 명령 실행
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_collect:
+    st.caption("UI/API/MCP 런타임과 별도로 실행해야 하는 명령입니다. 수집과 Pinecone 업로드를 단계별로 분리했습니다.")
+
+    _collect_pc_stats = _load_pinecone_stats()
+    _confirm_paid_ops = st.checkbox(
+        "임베딩/Pinecone 업로드/평가 등 비용 가능 작업 실행을 허용합니다.",
+        key="admin_confirm_paid_ops",
+        help="순수 수집 명령은 체크 없이 실행할 수 있습니다. 업로드, 통합 자동화, LLM 평가, debate, finetune 작업은 API 비용 또는 장시간 실행이 발생할 수 있습니다.",
+    )
+
+    if st.session_state.admin_command_running:
+        st.info("명령 실행 중입니다. 완료될 때까지 페이지를 닫지 마세요.")
+
+    _render_command_result(st.session_state.admin_command_result)
+
+    st.divider()
+
+    _sections = [
+        ("1. 데이터 수집", "로컬 파일과 JSON 원천 데이터를 생성합니다. Pinecone 업로드는 하지 않습니다.", _COLLECT_COMMAND_GROUPS, True),
+        ("2. 임베딩/Pinecone 업로드", "이미 수집된 로컬 데이터를 임베딩하고 Pinecone 네임스페이스에 업로드합니다.", _UPLOAD_COMMAND_GROUPS, True),
+        ("3. 통합 자동화", "수집 후 신규 데이터가 있으면 업로드까지 이어서 수행하는 혼합 명령입니다.", _AUTOMATION_COMMAND_GROUPS, False),
+        ("4. 평가/학습", "골든셋 평가, baseline 평가, reranker 학습 루프 명령입니다.", _EVAL_COMMAND_GROUPS, False),
+    ]
+
+    for _section_title, _section_caption, _groups, _expanded in _sections:
+        st.markdown(f"#### {_section_title}")
+        st.caption(_section_caption)
+        for _group_name, _commands in _groups:
+            with st.expander(_group_name, expanded=_expanded):
+                _cols = st.columns(2)
+                for _idx, _command in enumerate(_commands):
+                    with _cols[_idx % 2]:
+                        _render_command_card(_command, _confirm_paid_ops, _collect_pc_stats)
+        st.divider()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 탭 4: 평가 현황
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_scenarios:

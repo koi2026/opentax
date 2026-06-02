@@ -10,7 +10,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 from pinecone import Pinecone, ServerlessSpec
-from tqdm import tqdm
 
 load_dotenv()
 
@@ -93,7 +92,9 @@ def embed_and_upsert() -> None:
     index = pc.Index(PINECONE_INDEX_NAME)
 
     upserted = 0
-    for i in tqdm(range(0, len(chunks), BATCH_SIZE), desc="Pinecone 업로드"):
+    total_batches = (len(chunks) + BATCH_SIZE - 1) // BATCH_SIZE
+    for batch_idx, i in enumerate(range(0, len(chunks), BATCH_SIZE), start=1):
+        print(f"Pinecone 업로드 {batch_idx}/{total_batches} 배치 시작", flush=True)
         batch = chunks[i : i + BATCH_SIZE]
         texts = [c["full_text"] for c in batch]
         embeddings = embed_texts(client, model, texts)
@@ -118,8 +119,9 @@ def embed_and_upsert() -> None:
 
         index.upsert(vectors=vectors, namespace=PINECONE_NAMESPACE)
         upserted += len(vectors)
+        print(f"Pinecone 업로드 {batch_idx}/{total_batches} 배치 완료: {len(vectors)}개", flush=True)
 
-    print(f"\n[완료] {upserted}개 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
+    print(f"[완료] {upserted}개 벡터 업로드 → {PINECONE_INDEX_NAME}/{PINECONE_NAMESPACE}")
     stats = index.describe_index_stats()
     print(f"인덱스 통계: {stats}")
 

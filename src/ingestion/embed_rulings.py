@@ -161,22 +161,23 @@ def _upload_to_namespace(
     existing_ids: set[str] | None = None,
 ) -> int:
     """청크 배치를 임베딩 후 지정 네임스페이스에 upsert. 업로드 수 반환."""
-    from tqdm import tqdm
-
     total_upserted = 0
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
 
-    for batch in tqdm(batches, desc=f"업로드 → {namespace}"):
+    total_batches = len(batches)
+    for batch_idx, batch in enumerate(batches, start=1):
+        print(f"업로드 → {namespace} {batch_idx}/{total_batches} 배치 시작", flush=True)
         if existing_ids:
             batch = [c for c in batch if c["chunk_id"] not in existing_ids]
             if not batch:
+                print(f"업로드 → {namespace} {batch_idx}/{total_batches} 배치 스킵: 기존 업로드", flush=True)
                 continue
 
         texts = [c["full_text"] for c in batch]
         try:
             vectors = _embed_texts(embed_client, embed_model, texts)
         except Exception as exc:
-            print(f"\n  임베딩 오류 (배치 건너뜀): {exc}")
+            print(f"업로드 → {namespace} {batch_idx}/{total_batches} 배치 오류: {exc}", flush=True)
             continue
 
         upsert_payload = [
@@ -190,6 +191,10 @@ def _upload_to_namespace(
 
         index.upsert(vectors=upsert_payload, namespace=namespace)
         total_upserted += len(upsert_payload)
+        print(
+            f"업로드 → {namespace} {batch_idx}/{total_batches} 배치 완료: {len(upsert_payload)}개",
+            flush=True,
+        )
         time.sleep(0.2)  # rate limit 방지
 
     return total_upserted
