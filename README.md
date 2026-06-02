@@ -1,13 +1,14 @@
 <p align="center">
-  <img src=".github/images/logo.svg" width="600" alt="OpenTax Logo">
+  <img src=".github/images/logo.svg" width="400" alt="OpenTax Logo">
 </p>
 
-> **한국 양도소득세 비과세·감면·중과 판단을 위한 법령 기반 AI 추론 엔진**  
-> 단순한 계산기가 아닙니다. 법령을 읽고, 유권해석을 참조하고, 근거를 제시하면서 판단합니다.
+<div align="center">
+  <h3>한국 양도소득세 비과세·감면·중과 판단을 위한 법령 RAG 기반 멀티 에이전트 AI.</h3>
+</div>
 
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue)](LICENSE)
-
----
+<div align="center">
+  <a href="https://polyformproject.org/licenses/noncommercial/1.0.0" target="_blank"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue" alt="PyPI - License"></a>
+</div>
 
 ## 핵심 철학
 
