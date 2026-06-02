@@ -1,4 +1,6 @@
-# RAW Agent — 양도소득세 법령 RAG 시스템
+<p align="center">
+  <img src=".github/images/logo.svg" width="600" alt="OpenTax Logo">
+</p>
 
 > **한국 양도소득세 비과세·감면·중과 판단을 위한 법령 기반 AI 추론 엔진**  
 > 단순한 계산기가 아닙니다. 법령을 읽고, 유권해석을 참조하고, 근거를 제시하면서 판단합니다.
