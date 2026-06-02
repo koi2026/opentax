@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/Raw-Agent/korean-tax-rag#readme
+    about: Read the project overview and quick start
+  - name: Security
+    url: https://github.com/Raw-Agent/korean-tax-rag/security/advisories/new
+    about: Report security vulnerabilities privately
