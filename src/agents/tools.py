@@ -4,7 +4,7 @@ CrewAI Agent 도구 정의
 from crewai.tools import BaseTool
 from pydantic import Field
 
-from src.rag import retrieve_tax_law
+from src.retrieval.tax_law_search import retrieve_tax_law
 
 
 class RAGSearchTool(BaseTool):

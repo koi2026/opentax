@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 from src.config import MCP_HOST, MCP_PORT
 from src.domain.query_enrichment import enrich_raw_query_text
 from src.mcp.tools.retrieval import retrieve_tax_context_payload
-from src.rag import retrieve_tax_law
+from src.retrieval.tax_law_search import retrieve_tax_law
 
 mcp = FastMCP(
     name="tax-rag",

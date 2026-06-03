@@ -5,12 +5,12 @@
 → 스냅샷과 비교 → 새 버전 발견 시 XML 수집 + Pinecone reindex
 
 사용법:
-    python -m scripts.detect_law_changes              # 감지만
-    python -m scripts.detect_law_changes --embed      # 감지 + Pinecone 업로드
-    python -m scripts.detect_law_changes --dry-run    # API 호출 없이 스냅샷만 출력
+    python -m scripts.ops.detect_law_changes              # 감지만
+    python -m scripts.ops.detect_law_changes --embed      # 감지 + Pinecone 업로드
+    python -m scripts.ops.detect_law_changes --dry-run    # API 호출 없이 스냅샷만 출력
 
 Windows Task Scheduler 등록:
-    schtasks /create /tn "TaxLawChanges" /tr "python -m scripts.detect_law_changes --embed" /sc DAILY /st 23:00
+    schtasks /create /tn "TaxLawChanges" /tr "python -m scripts.ops.detect_law_changes --embed" /sc DAILY /st 23:00
 """
 from __future__ import annotations
 
@@ -162,7 +162,7 @@ def collect_new_versions(
         print("Pinecone 업로드 완료")
     else:
         print("--embed 없이 실행: Pinecone 업로드 건너뜀.")
-        print(f"업로드하려면:  python -m scripts.detect_law_changes --embed")
+        print(f"업로드하려면:  python -m scripts.ops.detect_law_changes --embed")
 
 
 # ── 변경 이력 기록 ────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ async def shadow_eval_case(case_id: str, fact_json: dict) -> dict:
         result = await shadow_eval_case("CASE-16", fact_json)
     """
     try:
-        from src.api.chat_api import chat_turn
+        from src.application.chat_service import run_chat as chat_turn
     except ImportError:
         return {"case_id": case_id, "error": "chat_turn import 실패"}
 
@@ -411,7 +411,7 @@ def main() -> None:
             _n = _flag_golden(list(new_versions.keys()))
             if _n:
                 print(f"\n  ⚠ 골든셋 재검토 플래그: {_n}건 → data/golden/qa_pairs.json")
-                print(f"     python -m scripts.run_golden_eval  # 재평가 실행")
+                print(f"     python -m scripts.eval.run_golden_eval  # 재평가 실행")
         except Exception as _e:
             print(f"  ⚠ 골든셋 플래그 오류: {_e}")
 
@@ -445,7 +445,7 @@ def main() -> None:
     if new_versions and not args.dry_run:
         print("\n--- 개정 임계값 경계 케이스 자동 검증 ---")
         try:
-            from scripts.generate_amendment_cases import run_amendment_verification
+            from scripts.ingestion.generate_amendment_cases import run_amendment_verification
             amd = run_amendment_verification(new_versions, fetch_law_xml)
             if amd.get("anomalies"):
                 print(f"\n  🚨 {len(amd['anomalies'])}건 verdict 불일치 — 즉시 확인 필요")
@@ -481,8 +481,8 @@ def main() -> None:
     if new_versions and not args.dry_run:
         print("\n--- TaxConstantsRegistry 자동 업데이트 ---")
         try:
-            from scripts.generate_amendment_cases import extract_thresholds
-            from scripts.auto_update_registry import run_registry_update_pr
+            from scripts.ingestion.generate_amendment_cases import extract_thresholds
+            from scripts.ops.auto_update_registry import run_registry_update_pr
             from src.ingestion.collect import fetch_law_version_list
 
             for law_name, mst_list in new_versions.items():

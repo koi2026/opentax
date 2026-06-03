@@ -19,7 +19,8 @@ from src.eval.retrieval_analyzer import run_analysis
 from src.eval.verdict_matcher import compute_reward
 from src.domain.tax_answer import TaxVerdict
 from src.domain.query_enrichment import enrich_raw_query_text, detect_flags_from_text
-from src.rag import answer_with_citations, retrieve_tax_law
+from src.application.question_service import answer_with_citations
+from src.retrieval.tax_law_search import retrieve_tax_law
 
 GOLDEN_PATH = Path("data/golden/qa_pairs.json")
 RESULTS_DIR = Path("data/eval_results")

@@ -51,7 +51,7 @@ MOCK_CHUNKS_RAW = [
 
 
 def _make_mock_chunk(raw: dict, score: float = 0.9):
-    from src.rag import LawChunk
+    from src.retrieval.tax_law_search import LawChunk
     return LawChunk(
         id=raw["id"],
         law_name=raw["law_name"],
@@ -67,7 +67,7 @@ def _make_mock_chunk(raw: dict, score: float = 0.9):
 
 def test_law_chunk_has_required_fields():
     """LawChunk 모델에 id, chunk_id 포함 필수 필드 존재"""
-    from src.rag import LawChunk
+    from src.retrieval.tax_law_search import LawChunk
     chunk = _make_mock_chunk(MOCK_CHUNKS_RAW[0])
     assert chunk.id == "285523_0089001"
     assert chunk.law_name == "소득세법"
@@ -78,7 +78,7 @@ def test_law_chunk_has_required_fields():
 
 def test_tax_answer_model():
     """TaxAnswer 모델 구조 검증"""
-    from src.rag import TaxAnswer
+    from src.application.question_service import TaxAnswer
     answer = TaxAnswer(
         answer="비과세 해당",
         citations=["소득세법 제89조 제1항 제3호"],
@@ -94,12 +94,12 @@ def test_tax_answer_model():
 
 # ── 검색 단계 모킹 테스트 ─────────────────────────────────────────────────────
 
-@patch("src.rag._get_pinecone_index")
-@patch("src.rag._embed_query")
-@patch("src.rag._get_reranker")
+@patch("src.retrieval.tax_law_search._get_pinecone_index")
+@patch("src.retrieval.tax_law_search._embed_query")
+@patch("src.retrieval.tax_law_search._get_reranker")
 def test_retrieve_returns_law_chunks(mock_reranker, mock_embed, mock_index):
     """retrieve_tax_law가 LawChunk 리스트 반환, chunk_id 포함"""
-    from src.rag import retrieve_tax_law
+    from src.retrieval.tax_law_search import retrieve_tax_law
 
     # 임베딩 모킹
     mock_embed.return_value = [0.1] * 4096
@@ -130,12 +130,12 @@ def test_retrieve_returns_law_chunks(mock_reranker, mock_embed, mock_index):
     assert chunks[0].score > 0
 
 
-@patch("src.rag._get_pinecone_index")
-@patch("src.rag._embed_query")
-@patch("src.rag._get_reranker")
+@patch("src.retrieval.tax_law_search._get_pinecone_index")
+@patch("src.retrieval.tax_law_search._embed_query")
+@patch("src.retrieval.tax_law_search._get_reranker")
 def test_retrieve_returns_chunk_ids_not_just_text(mock_reranker, mock_embed, mock_index):
     """검색 결과에 chunk_id 반드시 포함 (텍스트만 반환 금지)"""
-    from src.rag import retrieve_tax_law
+    from src.retrieval.tax_law_search import retrieve_tax_law
 
     mock_embed.return_value = [0.1] * 4096
     mock_index.return_value.query.return_value = {
@@ -161,7 +161,7 @@ def test_retrieve_returns_chunk_ids_not_just_text(mock_reranker, mock_embed, moc
 
 def test_citations_only_from_retrieved_chunks():
     """TaxAnswer.citations는 retrieved chunk에 있는 법령만 인용해야 함"""
-    from src.rag import TaxAnswer
+    from src.application.question_service import TaxAnswer
 
     retrieved_ids = {"285523_0089001", "285631_0154001"}
 
@@ -180,7 +180,7 @@ def test_citations_only_from_retrieved_chunks():
 
 def test_no_retrieved_chunks_returns_empty_answer():
     """검색 결과 없으면 빈 TaxAnswer 반환 (hallucination 방지)"""
-    from src.rag import TaxAnswer
+    from src.application.question_service import TaxAnswer
 
     empty_answer = TaxAnswer(
         answer="관련 법령을 찾을 수 없습니다.",
@@ -198,12 +198,12 @@ def test_no_retrieved_chunks_returns_empty_answer():
 
 # ── BGE Reranker 호출 검증 ────────────────────────────────────────────────────
 
-@patch("src.rag._get_pinecone_index")
-@patch("src.rag._embed_query")
-@patch("src.rag._get_reranker")
+@patch("src.retrieval.tax_law_search._get_pinecone_index")
+@patch("src.retrieval.tax_law_search._embed_query")
+@patch("src.retrieval.tax_law_search._get_reranker")
 def test_reranker_is_called_before_final_selection(mock_reranker, mock_embed, mock_index):
     """BGE reranker가 반드시 호출됨 (최종 선택 전)"""
-    from src.rag import retrieve_tax_law
+    from src.retrieval.tax_law_search import retrieve_tax_law
 
     mock_embed.return_value = [0.1] * 4096
     mock_index.return_value.query.return_value = {

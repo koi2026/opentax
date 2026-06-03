@@ -5,12 +5,12 @@ Phase A 베이스라인 평가 배치 실행기.
 측정하고, 추후 fine-tuning을 위한 red_win 데이터를 확보한다.
 
 사용법:
-    python -m scripts.run_baseline_eval                   # 전체 실행
-    python -m scripts.run_baseline_eval --resume          # 이어서 실행
-    python -m scripts.run_baseline_eval --cases-file <path>  # 외부 케이스 파일
-    python -m scripts.run_baseline_eval --limit 20        # 처음 N건만
-    python -m scripts.run_baseline_eval --debate          # debate 포함 (비용 증가)
-    python -m scripts.run_baseline_eval --report-only     # 기존 결과만 요약
+    python -m scripts.eval.run_baseline_eval                   # 전체 실행
+    python -m scripts.eval.run_baseline_eval --resume          # 이어서 실행
+    python -m scripts.eval.run_baseline_eval --cases-file <path>  # 외부 케이스 파일
+    python -m scripts.eval.run_baseline_eval --limit 20        # 처음 N건만
+    python -m scripts.eval.run_baseline_eval --debate          # debate 포함 (비용 증가)
+    python -m scripts.eval.run_baseline_eval --report-only     # 기존 결과만 요약
 """
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ async def _run_single(
     case: dict,
     enable_debate: bool,
 ) -> EvalResult:
-    from src.api.chat_api import chat_turn
+    from src.application.chat_service import run_chat as chat_turn
 
     t0 = time.monotonic()
     error: Optional[str] = None
@@ -272,14 +272,14 @@ def _maybe_trigger_finetune() -> None:
         # 1. pair 추출
         print("=== [1/3] reranker pair 추출 ===")
         subprocess.run(
-            [sys.executable, "scripts/extract_reranker_pairs.py"],
+            [sys.executable, "scripts/training/extract_reranker_pairs.py"],
             check=True,
         )
 
         # 2. 파인튜닝
         print("\n=== [2/3] BGE 파인튜닝 ===")
         subprocess.run(
-            [sys.executable, "scripts/finetune_reranker.py"],
+            [sys.executable, "scripts/training/finetune_reranker.py"],
             check=True,
         )
 
@@ -316,7 +316,7 @@ def _maybe_trigger_finetune() -> None:
                 print(f"  정확도: {acc_pct:.1f}% ✗ (목표 {ACCURACY_TARGET*100:.0f}% 미달)")
                 print(f"  ⚠️  모델 프로모션 보류 — base model 유지 (.env 미변경)")
                 print(f"  → 다음 eval 사이클을 실행해 debate를 더 수집하세요.")
-                print(f"  → 권장 명령: python -m scripts.run_baseline_eval --debate --auto-finetune --workers 3")
+                print(f"  → 권장 명령: python -m scripts.eval.run_baseline_eval --debate --auto-finetune --workers 3")
         else:
             _save_training_state({
                 "debate_count": current,
@@ -326,7 +326,7 @@ def _maybe_trigger_finetune() -> None:
                 "promoted": False,
             })
             print(f"  정확도 CSV 없음 — 프로모션 보류 (수동 확인 필요)")
-            print(f"  → python -m scripts.finetune_reranker --eval-only 로 재평가하세요.")
+            print(f"  → python -m scripts.training.finetune_reranker --eval-only 로 재평가하세요.")
             print(f"  다음 파인튜닝 트리거: {current + MIN_NEW_DEBATES_FOR_RETRAIN}건 도달 시")
 
     except subprocess.CalledProcessError as e:

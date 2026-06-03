@@ -13,7 +13,7 @@ LLM 3회 교차 추출 + 다수결 검증으로 자동 확인한다.
 
 detect_law_changes.py에서 자동 호출.
 단독 실행:
-    python -m scripts.verify_image_tables --law 소득세법 --mst 285523
+    python -m scripts.ingestion.verify_image_tables --law 소득세법 --mst 285523
 """
 from __future__ import annotations
 

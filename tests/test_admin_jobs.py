@@ -17,9 +17,9 @@ def test_admin_commands_exclude_eval_but_include_automation() -> None:
     )
     command_keys = {command["key"] for command in commands}
 
-    assert "scripts.run_golden_eval" not in text
-    assert "scripts.run_baseline_eval" not in text
-    assert "scripts.finetune_reranker" not in text
+    assert "scripts.eval.run_golden_eval" not in text
+    assert "scripts.eval.run_baseline_eval" not in text
+    assert "scripts.training.finetune_reranker" not in text
     assert "law_changes" not in command_keys
     assert "rulings_incremental" in command_keys
     assert "law_changes_embed" in command_keys
@@ -56,7 +56,7 @@ def test_admin_paid_command_requires_confirmation() -> None:
 def test_admin_rejects_unknown_command() -> None:
     client = TestClient(app)
 
-    response = client.post("/api/v1/admin/jobs", json={"command_key": "scripts.run_baseline_eval"})
+    response = client.post("/api/v1/admin/jobs", json={"command_key": "scripts.eval.run_baseline_eval"})
 
     assert response.status_code == 404
 
@@ -74,15 +74,15 @@ def test_admin_rejects_concurrent_job(monkeypatch) -> None:
 
 
 def test_admin_page_removed_eval_ui_text() -> None:
-    text = Path("src/pages/admin.py").read_text(encoding="utf-8")
+    text = Path("src/ui/pages/admin.py").read_text(encoding="utf-8")
     banned = [
         "평가 현황",
         "Baseline",
         "Debate",
         "Reranker 파인튜닝",
-        "scripts.run_golden_eval",
-        "scripts.run_baseline_eval",
-        "scripts.finetune_reranker",
+        "scripts.eval.run_golden_eval",
+        "scripts.eval.run_baseline_eval",
+        "scripts.training.finetune_reranker",
     ]
 
     assert [item for item in banned if item in text] == []

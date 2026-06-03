@@ -136,7 +136,7 @@ answer 본문이 채워지면 37,400건 전부가 훈련 쌍이 됩니다. 사�
 |------|------|------|
 | `src/infra/reranker.py` | `_MAX_TEXT_CHARS` 400→**900자** | 한국 법령 단서조항·부칙이 400자 이후에 위치하는 경우 있음 |
 | `src/infra/reranker.py` | `_MAX_LENGTH` 256→**512** | 파인튜닝(512)과 서빙(256) 불일치 → 점수 분포 왜곡 수정 |
-| `scripts/run_baseline_eval.py` | 모델 프로모션 게이트 추가 | 정확도 85% 미달 시 `.env` 업데이트 차단 (기존에는 미달해도 프로모션됨) |
+| `scripts/eval/run_baseline_eval.py` | 모델 프로모션 게이트 추가 | 정확도 85% 미달 시 `.env` 업데이트 차단 (기존에는 미달해도 프로모션됨) |
 
 ---
 
@@ -147,7 +147,7 @@ answer 본문이 채워지면 37,400건 전부가 훈련 쌍이 됩니다. 사�
 ```
 훈련 데이터: data/reranker_pairs.jsonl
   - debate 기반 pairs: ~326쌍
-  - nts_interp answer 추출: 1,823쌍  ← scripts/extract_ruling_pairs.py 신규 작성
+  - nts_interp answer 추출: 1,823쌍  ← scripts/training/extract_ruling_pairs.py 신규 작성
   - moef answer 추출: 374쌍
   - 합계: ~2,523쌍 (complete=2,190+, pos_only 소수)
 
@@ -201,7 +201,7 @@ answer 본문이 채워지면 37,400건 전부가 훈련 쌍이 됩니다. 사�
 
 ```
 1. data/reranker_pairs.jsonl 다운로드
-2. scripts/finetune_reranker.py 다운로드
+2. scripts/training/finetune_reranker.py 다운로드
 3. Colab에서:
    !pip install sentence-transformers
    !python finetune_reranker.py --epochs 4
@@ -328,7 +328,7 @@ scripts/run_debate.py → (query, positive, negative) 쌍 → data/reranker_trai
 #### B-3. BGE Reranker 재파인튜닝
 
 ```bash
-python scripts/finetune_reranker.py --epochs 4
+python scripts/training/finetune_reranker.py --epochs 4
 ```
 
 - 현재 베이스라인: acc=0.9545 (eval 33건, 신뢰도 낮음)
@@ -337,7 +337,7 @@ python scripts/finetune_reranker.py --epochs 4
 
 #### B-4. 레이블링 UI 개선
 
-`src/pages/admin.py` 어드민 "✏️ 전문가 검토" 서브탭으로 통합됨 (기존 `labeling.py` 삭제).
+`src/ui/pages/admin.py` 어드민 "✏️ 전문가 검토" 서브탭으로 통합됨 (기존 `labeling.py` 삭제).
 
 - 사실관계 표시 + 전문가 verdict·확신도·메모 입력 → `expert_labels.json` 저장
 - 신규 케이스 직접 입력 폼 (골든셋 추가)

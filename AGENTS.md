@@ -93,9 +93,9 @@ src/services/tier_router.py  — 상담 3티어 라우터 [NEW]
 ```text
 [법령 개정 공포]
     ↓ (매일 23:00 자동)
-scripts/detect_law_changes.py
+scripts/ops/detect_law_changes.py
     ├── 조문 변경 감지 → Pinecone 재인덱스 자동 실행           ✅ 구현됨
-    ├── TaxConstantsRegistry 변경 LLM 자동 파싱 → PR 생성     ✅ 구현됨 (scripts/auto_update_registry.py)
+    ├── TaxConstantsRegistry 변경 LLM 자동 파싱 → PR 생성     ✅ 구현됨 (scripts/ops/auto_update_registry.py)
     ├── 영향 케이스 eval 자동 실행 → Slack/이메일 알림         🔲 목표
     └── eval 정확도 하락 시 RERANK_TOP_N 자동 조정 시도        🔲 목표
     ↓
@@ -110,7 +110,7 @@ scripts/detect_law_changes.py
 |--------|---------|----------|-----------|
 | 법령 조문 | Pinecone `tax-law` | detect_law_changes.py | ✅ 자동 |
 | 유권해석 DB | Pinecone `tax-ruling-*` | collect_rulings_*.py → embed_rulings.py | 🔲 스케줄링 목표 |
-| 세율·기간·한도 | `TaxConstantsRegistry` | LLM 파싱 → 코드 PR | ✅ 자동 (`scripts/auto_update_registry.py`) |
+| 세율·기간·한도 | `TaxConstantsRegistry` | LLM 파싱 → 코드 PR | ✅ 자동 (`scripts/ops/auto_update_registry.py`) |
 | 장기보유공제율 | `data/tax_tables/*.json` | JSON 교체 | 수동 |
 | 골든셋·eval | `data/golden/qa_pairs.json` | eval 자동 재실행 | 🔲 목표 (현재: 반수동) |
 | BGE reranker | `BAAI/bge-reranker-v2-m3` | red_wins 50건 → 재파인튜닝 | 🔲 목표 (현재: 수동) |
@@ -217,10 +217,10 @@ scripts/detect_law_changes.py
 | embed_rulings (6개 namespace) | `src/ingestion/embed_rulings.py` | ✅ 완성 + `--resume` 플래그 추가 |
 | verdict_matcher | `src/eval/verdict_matcher.py` | ✅ 완성 |
 | Red-Blue 무한루프 | `src/eval/debate.py` | ✅ 완성 |
-| Red-Win 누적 배치 러너 | `scripts/accumulate_red_wins.py` | ✅ 완성 |
-| BGE 파인튜닝 파이프라인 수정 | `scripts/extract_reranker_pairs.py`, `scripts/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
+| Red-Win 누적 배치 러너 | `scripts/training/accumulate_red_wins.py` | ✅ 완성 |
+| BGE 파인튜닝 파이프라인 수정 | `scripts/training/extract_reranker_pairs.py`, `scripts/training/finetune_reranker.py` | ✅ 파이프라인 수정 완료 (2026-05-25) |
 | BGE 파인튜닝 실행 | `notebooks/bge_finetune_colab.ipynb` | 🔄 Colab 노트북 준비 완료 (2026-05-27) — 사무실 CPU 실행 중단 예정 |
-| 유권해석 훈련쌍 추출 | `scripts/extract_ruling_pairs.py` | ✅ 신규 — nts_interp 1,823쌍 + moef 374쌍 추출 완료 |
+| 유권해석 훈련쌍 추출 | `scripts/training/extract_ruling_pairs.py` | ✅ 신규 — nts_interp 1,823쌍 + moef 374쌍 추출 완료 |
 
 > **⚠️ BGE 파인튜닝 실행 환경 — 반드시 Colab 사용 (2026-05-26 확정):**
 >
@@ -235,7 +235,7 @@ scripts/detect_law_changes.py
 > 3. 완료된 모델은 Drive `tax-rag/bge-reranker-tax-rag/` 에 자동 저장
 > 4. Drive → 로컬 `data/models/bge-reranker-tax-rag/` 교체
 > 5. `.env`: `BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag`
-> 6. `python -m scripts.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
+> 6. `python -m scripts.eval.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
 >
 > **모델 배포 원칙:** `data/models/`는 `.gitignore` 대상이다. 파인튜닝된 BGE 모델 가중치는 Git에 커밋하지 않고 Drive/S3 등 별도 저장소에서 다운로드해 `data/models/bge-reranker-tax-rag/`에 배치한다. 모델 교체 후 API/MCP 프로세스를 재시작해야 새 reranker가 적용된다.
 >
@@ -244,7 +244,7 @@ scripts/detect_law_changes.py
 > **Reranker 서빙 버그 수정 (2026-05-26):**
 > - `src/infra/reranker.py` `_MAX_TEXT_CHARS` 400→**900자** — 한국 법령 단서조항·부칙이 400자 이후에 위치하는 경우가 있어 절단 시 핵심 조건 누락 가능
 > - `src/infra/reranker.py` `_MAX_LENGTH` 256→**512** — 파인튜닝(`finetune_reranker.py` default=512)과 서빙 코드 불일치 수정. 학습 컨텍스트와 서빙 절단 길이가 달라지면 reranking 점수 분포 왜곡
-> - `scripts/run_baseline_eval.py` 모델 프로모션 게이트 추가 — `ACCURACY_TARGET(85%)` 통과 시에만 `.env`의 `BGE_RERANKER_MODEL` 업데이트. 미달 시 `promoted=False` 기록 후 베이스 모델 유지
+> - `scripts/eval/run_baseline_eval.py` 모델 프로모션 게이트 추가 — `ACCURACY_TARGET(85%)` 통과 시에만 `.env`의 `BGE_RERANKER_MODEL` 업데이트. 미달 시 `promoted=False` 기록 후 베이스 모델 유지
 
 > **파인튜닝 파이프라인 수정 내역 (2026-05-25):**
 > - `extract_reranker_pairs.py`: LLM 텍스트 인용을 chunk ID로 오인하던 버그 수정 → `debates/*.json`의 `new_chunks_found`(positives) / `blue_answer.chunk_ids`(negatives) 직접 사용

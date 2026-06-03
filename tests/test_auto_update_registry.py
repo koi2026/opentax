@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.auto_update_registry import (
+from scripts.ops.auto_update_registry import (
     convert_value,
     match_registry_key,
     patch_registry_source,

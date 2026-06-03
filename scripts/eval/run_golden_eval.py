@@ -5,10 +5,10 @@ qa_pairs.json의 모든 케이스를 현재 파이프라인으로 실행하고,
 각 케이스의 last_eval 필드를 갱신한 뒤 전체 리포트를 저장한다.
 
 사용법:
-    python -m scripts.run_golden_eval                  # 전체 실행
-    python -m scripts.run_golden_eval --limit 10       # 처음 N건만
-    python -m scripts.run_golden_eval --workers 2      # 병렬 수 (기본 2)
-    python -m scripts.run_golden_eval --report-only    # 기존 결과 요약만
+    python -m scripts.eval.run_golden_eval                  # 전체 실행
+    python -m scripts.eval.run_golden_eval --limit 10       # 처음 N건만
+    python -m scripts.eval.run_golden_eval --workers 2      # 병렬 수 (기본 2)
+    python -m scripts.eval.run_golden_eval --report-only    # 기존 결과 요약만
 
 법령 개정 후 자동 실행:
     detect_law_changes.py → flag_for_review() → 이 스크립트로 재평가
@@ -83,7 +83,7 @@ def _save_golden(cases: list[dict]) -> None:
 
 
 async def _run_case(case: dict) -> CaseEvalResult:
-    from src.api.chat_api import chat_turn
+    from src.application.chat_service import run_chat as chat_turn
 
     t0 = time.monotonic()
     run_at = datetime.now().strftime("%Y%m%d_%H%M%S")

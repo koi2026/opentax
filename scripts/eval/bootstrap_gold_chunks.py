@@ -7,9 +7,9 @@ verdict가 일치하고 confidence >= 0.7인 경우 chunk_ids를 gold_chunk_ids�
 한 번만 실행하면 됨. 이후 eval.py가 Recall@K를 의미 있는 값으로 리포트.
 
 사용법:
-    python -m scripts.bootstrap_gold_chunks
-    python -m scripts.bootstrap_gold_chunks --min-confidence 0.8
-    python -m scripts.bootstrap_gold_chunks --dry-run
+    python -m scripts.eval.bootstrap_gold_chunks
+    python -m scripts.eval.bootstrap_gold_chunks --min-confidence 0.8
+    python -m scripts.eval.bootstrap_gold_chunks --dry-run
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ MIN_CONFIDENCE_DEFAULT = 0.7
 
 async def _run_case(case: dict) -> dict:
     """케이스를 파이프라인으로 실행하여 verdict + chunk_ids 반환."""
-    from src.api.chat_api import chat_turn
+    from src.application.chat_service import run_chat as chat_turn
     fact_json = case.get("fact_json")
     if not fact_json:
         return {"verdict": "", "confidence": 0.0, "chunk_ids": []}

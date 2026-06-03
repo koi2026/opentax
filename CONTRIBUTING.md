@@ -106,7 +106,7 @@ pytest -m integration
 For baseline evaluation:
 
 ```bash
-python -m scripts.run_baseline_eval --workers 3
+python -m scripts.eval.run_baseline_eval --workers 3
 ```
 
 ## Coding rules

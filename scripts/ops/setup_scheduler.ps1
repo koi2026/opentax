@@ -39,7 +39,7 @@ Write-Host "Python: $PythonExe"
 # ── 태스크 액션 ───────────────────────────────────────────────────────────────
 $Action = New-ScheduledTaskAction `
     -Execute $PythonExe `
-    -Argument "-m scripts.detect_law_changes --embed" `
+    -Argument "-m scripts.ops.detect_law_changes --embed" `
     -WorkingDirectory $ProjectRoot
 
 # ── 트리거 (09:00 / 18:00) ────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ detect_law_changes.py가 신규 MST를 발견하면 자동 호출:
   4. verdict 불일치 시 경보 출력 + data/amendment_test_results/ 저장
 
 단독 실행:
-    python -m scripts.generate_amendment_cases --law 소득세법 --mst 285523
+    python -m scripts.ingestion.generate_amendment_cases --law 소득세법 --mst 285523
 """
 from __future__ import annotations
 
@@ -220,7 +220,7 @@ def build_boundary_cases(threshold: dict, law_name: str, today: date) -> list[Am
 
 async def _verify_cases(cases: list[AmendmentCase]) -> list[dict]:
     """각 케이스를 chat_turn()으로 실행, debate 없이 속도 우선."""
-    from src.api.chat_api import chat_turn
+    from src.application.chat_service import run_chat as chat_turn
 
     results = []
     for c in cases:

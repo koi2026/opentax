@@ -8,7 +8,7 @@ detect_law_changes.py의 step 8(개정 케이스 검증) 이후 step 11로 호�
   4. git branch + commit + gh pr create (draft — 인간 review 필수)
 
 수동 실행:
-    python -m scripts.auto_update_registry --law 소득세법 --mst 285523 --effective 20260101
+    python -m scripts.ops.auto_update_registry --law 소득세법 --mst 285523 --effective 20260101
 
 반환값 (run_registry_update_pr):
     {"pr_url": str | None, "patched": [key, ...], "manual_review": [key, ...]}
@@ -433,7 +433,7 @@ def _create_pr(
 
 - [x] `tests/test_no_hardcoded_constants.py` 전체 통과
 - [ ] 수동 확인 필요 항목 검토
-- [ ] 골든셋 재실행: `python -m scripts.run_baseline_eval --workers 3`
+- [ ] 골든셋 재실행: `python -m scripts.eval.run_baseline_eval --workers 3`
 - [ ] 프롬프트 내 수치 변경 반영 확인
 
 > ⚠ 이 PR은 자동 생성입니다. **병합 전 반드시 세무사 또는 담당자가 검토해야 합니다.**
@@ -517,7 +517,7 @@ def main() -> None:
         thresholds = json.loads(Path(args.thresholds_file).read_text(encoding="utf-8"))
     else:
         from src.ingestion.collect import fetch_law_xml
-        from scripts.generate_amendment_cases import extract_thresholds
+        from scripts.ingestion.generate_amendment_cases import extract_thresholds
         print(f"XML 수집 중: {args.law} MST={args.mst}")
         xml_text = fetch_law_xml(args.mst)
         thresholds = extract_thresholds(xml_text, args.law)

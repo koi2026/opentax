@@ -67,7 +67,7 @@ pip install -r requirements.txt && cp .env.example .env
 python -m src.mcp.server --sse
 uvicorn src.api.main:app
 streamlit run src/ui/app.py
-python -m scripts.run_baseline_eval --workers 3
+python -m scripts.eval.run_baseline_eval --workers 3
 ```
 
 검증은 기본적으로 Docker 기준으로 수행한다: `docker compose exec ...`, `docker compose logs`, `docker compose ps`를 우선 사용한다.
@@ -121,13 +121,13 @@ L1.5 확인서는 파이프라인 입구 차단 장치다. 항목 중 하나라�
 | 이월과세 기산 기간 (10년) | `TaxConstantsRegistry.IOTA_PERIOD_YEARS` | |
 | 기준시가 (공시가격) | 상위 수집기에서 제공 — 엔진 역할 아님 | fact_json으로 수신 |
 
-**법령 개정 감지 자동화:** `scripts/detect_law_changes.py` → 매일 23:00 실행 → 변경 감지 시 알림 + Pinecone 재인덱스.
+**법령 개정 감지 자동화:** `scripts/ops/detect_law_changes.py` → 매일 23:00 실행 → 변경 감지 시 알림 + Pinecone 재인덱스.
 
 **개정 시 처리 목표 (전 과정 자동화 + 모니터링):**
 | 레이어 | 현재 | 목표 |
 |--------|------|------|
 | 법령 조문 | ✅ Pinecone 자동 재인덱스 | ✅ 완료 |
-| TaxConstantsRegistry | ✅ LLM 자동 파싱 → draft PR | ✅ `scripts/auto_update_registry.py` |
+| TaxConstantsRegistry | ✅ LLM 자동 파싱 → draft PR | ✅ `scripts/ops/auto_update_registry.py` |
 | 골든셋·eval | 🔧 수동 케이스 검토 | 🔲 eval 자동 재실행 → 영향 케이스 알림 |
 | BGE reranker | 🔧 수동 (50건 초과 시) | 🔲 자동 파인튜닝 트리거 |
 

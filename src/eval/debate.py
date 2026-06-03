@@ -130,7 +130,7 @@ async def _search_articles_for_red(missing_articles: List[str]) -> str:
     """
     context_parts: List[str] = []
     try:
-        from src.rag import retrieve_tax_law
+        from src.retrieval.tax_law_search import retrieve_tax_law
         for article_hint in missing_articles[:5]:
             chunks = retrieve_tax_law(article_hint, top_k=10, rerank_top_n=3)
             for c in chunks:
@@ -232,7 +232,7 @@ async def _blue_defend(
     # 누락 조문 추가 검색
     if red_challenge.missing_articles:
         try:
-            from src.rag import retrieve_tax_law
+            from src.retrieval.tax_law_search import retrieve_tax_law
             for article_hint in red_challenge.missing_articles[:3]:
                 chunks = retrieve_tax_law(article_hint, top_k=10, rerank_top_n=3)
                 for c in chunks:

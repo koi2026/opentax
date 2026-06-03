@@ -12,10 +12,10 @@
   - 출력은 invalidated=True + ruling_signals 기록이며 판단이 아니다.
 
 사용법:
-    python -m scripts.refresh_golden_set                 # 전체 실행
-    python -m scripts.refresh_golden_set --dry-run       # 변경 없이 결과 출력
-    python -m scripts.refresh_golden_set --generate-only # 합성케이스 생성만
-    python -m scripts.refresh_golden_set --cross-check-only # 교차탐지만
+    python -m scripts.eval.refresh_golden_set                 # 전체 실행
+    python -m scripts.eval.refresh_golden_set --dry-run       # 변경 없이 결과 출력
+    python -m scripts.eval.refresh_golden_set --generate-only # 합성케이스 생성만
+    python -m scripts.eval.refresh_golden_set --cross-check-only # 교차탐지만
 """
 from __future__ import annotations
 

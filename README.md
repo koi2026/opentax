@@ -157,14 +157,14 @@ src/
 │   └── constants.py       # TaxConstantsRegistry
 ├── retrieval/
 │   ├── retriever_impl.py  # Pinecone 멀티 네임스페이스 + BGE reranking
-│   └── mcp_retriever.py   # API에서 MCP 검색 tool 호출
+│   ├── mcp_retriever.py   # API에서 MCP 검색 tool 호출
+│   └── tax_law_search.py  # 자연어 법령 검색 helper
 ├── ingestion/             # 법령·유권해석 수집기
 ├── eval/                  # RVRL debate, golden set 관리
 ├── agents/prompts.py      # 프롬프트 버전 관리
-├── pages/
-│   ├── admin.py           # 어드민 — 수집 현황·파이프라인 상태
-│   └── labeling.py        # 전문가 레이블링 UI
-└── ui/app.py              # Streamlit 메인
+└── ui/
+    ├── app.py             # Streamlit 메인
+    └── pages/admin.py     # 어드민 — 수집 현황·파이프라인 상태
 
 data/
 ├── golden/                # 골든셋 (142건 종합 케이스)
@@ -172,10 +172,11 @@ data/
 └── models/                # BGE 파인튜닝 모델 (별도 다운로드, Git 제외)
 
 scripts/
-├── collect_and_embed_rulings.py  # 증분 수집 + 임베딩 스케줄러
-├── finetune_reranker.py          # BGE 파인튜닝
-├── run_baseline_eval.py          # 골든셋 eval 실행
-└── detect_law_changes.py         # 법령 개정 자동 감지
+├── dev/browser/           # Playwright 디버그·스크린샷 도구
+├── eval/                  # 골든셋·검색 품질 eval 실행
+├── ingestion/             # 수집/임베딩 오케스트레이션
+├── ops/                   # 법령·규제 변경 감지, registry 자동화
+└── training/              # reranker pair 추출·파인튜닝
 ```
 
 ---

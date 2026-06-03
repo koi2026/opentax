@@ -239,7 +239,7 @@ def main() -> None:
     if args.extract_first:
         print("=== pair 추출 선행 실행 ===")
         subprocess.run(
-            [sys.executable, "scripts/extract_reranker_pairs.py", "--out", str(args.pairs)],
+            [sys.executable, "scripts/training/extract_reranker_pairs.py", "--out", str(args.pairs)],
             check=True,
         )
         print()

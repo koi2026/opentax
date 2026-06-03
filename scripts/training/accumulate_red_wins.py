@@ -5,10 +5,10 @@ Phase 1 (방법3): 골든케이스 30개 → debate 실행
 Phase 2 (방법2): 합성 경계케이스 → debate 실행
 
 사용법:
-    python -m scripts.accumulate_red_wins              # Phase 1+2 전체
-    python -m scripts.accumulate_red_wins --phase 1    # 골든케이스만
-    python -m scripts.accumulate_red_wins --phase 2    # 합성케이스만
-    python -m scripts.accumulate_red_wins --dry-run    # API 미호출, 케이스 목록만 출력
+    python -m scripts.training.accumulate_red_wins              # Phase 1+2 전체
+    python -m scripts.training.accumulate_red_wins --phase 1    # 골든케이스만
+    python -m scripts.training.accumulate_red_wins --phase 2    # 합성케이스만
+    python -m scripts.training.accumulate_red_wins --dry-run    # API 미호출, 케이스 목록만 출력
 """
 from __future__ import annotations
 
@@ -135,7 +135,7 @@ def golden_case_to_fact_json(case: dict) -> dict:
 # ── 실행 ───────────────────────────────────────────────────────────────────────
 
 async def _run_one(case_id: str, fact_json: dict, expected_verdict: str) -> dict:
-    from src.api.chat_api import chat_turn
+    from src.application.chat_service import run_chat as chat_turn
     t0 = time.time()
     result = await chat_turn(fact_json=fact_json, enable_debate=True)
     elapsed = round(time.time() - t0, 1)

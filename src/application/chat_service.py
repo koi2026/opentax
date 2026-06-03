@@ -85,7 +85,7 @@ async def run_chat(
         return pipeline_result_to_response(result, session_id=sid, mode="pipeline")
 
     if question:
-        from src.rag import answer_with_citations
+        from src.application.question_service import answer_with_citations
 
         loop = asyncio.get_event_loop()
         ans = await loop.run_in_executor(None, lambda: answer_with_citations(question))
@@ -146,4 +146,3 @@ async def stream_chat(
             yield pipeline_result_to_response(item, session_id=sid, mode="pipeline")
         else:
             yield item
-
