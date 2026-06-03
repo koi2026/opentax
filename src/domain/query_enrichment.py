@@ -19,15 +19,27 @@ from typing import Dict, List
 from .query_input import RAGQueryInput
 
 
+DEFAULT_DANGER_KEYWORD_MAP: Dict[str, str] = {
+    "이월과세": "소득세법 제97조의2 이월과세 배우자 직계존비속 증여 후 양도 원취득가액 원취득일",
+    "일시적2주택": "소득세법 시행령 제155조 제1항 일시적 2주택 종전주택 신규주택 3년 이내 양도",
+    "고가주택": "소득세법 시행령 제156조 고가주택 12억 초과 양도차익 과세",
+    "특수관계자거래": "소득세법 제101조 특수관계인 부당행위계산부인 시가 저가양도",
+    "상속주택": "소득세법 시행령 제155조 제2항 상속주택 1세대1주택 특례",
+    "조합원입주권": "소득세법 시행령 제156조의2 조합원입주권 관리처분계획인가일 원조합원",
+    "분양권": "소득세법 제88조 분양권 주택 수 산입 2021년 1월 1일",
+}
+
+
 def _load_keyword_map() -> Dict[str, str]:
-    """data/config/danger_keyword_map.json에서 키워드 맵을 로드한다. 파일 없으면 빈 dict 반환."""
+    """data/config/danger_keyword_map.json에서 키워드 맵을 로드한다. 파일 없으면 기본 맵을 사용한다."""
+    keyword_map = dict(DEFAULT_DANGER_KEYWORD_MAP)
     path = Path("data/config/danger_keyword_map.json")
     if path.exists():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            keyword_map.update(json.loads(path.read_text(encoding="utf-8")))
         except Exception:
             pass
-    return {}
+    return keyword_map
 
 
 # danger_flag → 삽입할 도메인 키워드 + 조문 번호

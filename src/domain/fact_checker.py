@@ -156,6 +156,13 @@ def check_facts(query: RAGQueryInput) -> FactCheckResult:
                 article_hint="소득세법 시행령 §156의2",
                 is_critical=True,
             ))
+        elif not rc.management_disposal_date:
+            missing.append(MissingFact(
+                field_name="management_disposal_date",
+                reason="관리처분계획인가일 필요 — 조합원입주권 보유기간 기산점, 1세대1주택 특례 판단 불가",
+                article_hint="소득세법 시행령 §156의2",
+                is_critical=True,
+            ))
         elif not rc.original_house_acquisition_date:
             missing.append(MissingFact(
                 field_name="reconstruction.original_house_acquisition_date",

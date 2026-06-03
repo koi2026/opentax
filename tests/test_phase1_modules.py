@@ -186,7 +186,7 @@ class TestConfirmationGate:
     def test_empty_dict_blocks_all(self):
         result = check_confirmation({})
         assert result.can_proceed is False
-        assert len(result.unconfirmed_items) == 4
+        assert len(result.unconfirmed_items) == len(CONFIRMATION_ITEMS)
 
     def test_partial_confirmation_blocks(self):
         confirmed = {"household_house_count_verified": True}
@@ -196,35 +196,35 @@ class TestConfirmationGate:
 
 
 class TestChunkIdFormat:
-    """collect.py _build_chunk_id — 새 포맷 검증"""
+    """collect.py _build_chunk_id — Pinecone ASCII 포맷 검증"""
 
     def test_normal_article_format(self):
         chunk_id = _build_chunk_id("285523", "소득세법", "89", "20240101")
-        assert chunk_id == "285523_소득세법_제89조_20240101"
+        assert chunk_id == "285523_ita_a89_20240101"
 
     def test_buchik_article_uses_raw_number(self):
         chunk_id = _build_chunk_id("285523", "소득세법", "부칙1", "20240101")
-        assert chunk_id == "285523_소득세법_부칙1_20240101"
+        assert chunk_id == "285523_ita_bch1_20240101"
 
     def test_empty_article_number_uses_unknown(self):
         chunk_id = _build_chunk_id("285523", "소득세법", "", "20240101")
-        assert chunk_id == "285523_소득세법_미상_20240101"
+        assert chunk_id == "285523_ita_unk_20240101"
 
     def test_empty_effective_date_uses_zeros(self):
         chunk_id = _build_chunk_id("285523", "소득세법", "89", "")
-        assert chunk_id == "285523_소득세법_제89조_00000000"
+        assert chunk_id == "285523_ita_a89_00000000"
 
-    def test_law_name_truncated_to_20_chars(self):
+    def test_unknown_law_name_uses_unknown_code(self):
         long_name = "a" * 30
         chunk_id = _build_chunk_id("285523", long_name, "89", "20240101")
         parts = chunk_id.split("_")
-        assert len(parts[1]) == 20
+        assert parts[1] == "unk"
 
     def test_spaces_removed_from_law_name(self):
         chunk_id = _build_chunk_id("285523", "소득세법 시행령", "154", "20230101")
-        assert "소득세법시행령" in chunk_id
+        assert chunk_id == "285523_itd_a154_20230101"
         assert " " not in chunk_id
 
     def test_조세특례제한법_article(self):
         chunk_id = _build_chunk_id("285907", "조세특례제한법", "99", "20231201")
-        assert chunk_id == "285907_조세특례제한법_제99조_20231201"
+        assert chunk_id == "285907_sta_a99_20231201"

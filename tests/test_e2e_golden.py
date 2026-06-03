@@ -121,6 +121,7 @@ def test_l2_passes_complete_facts(case: Dict[str, Any]) -> None:
                 "balance_or_registration_date_used": True,
                 "no_related_party": True,
                 "actual_residence_verified": True,
+                "acquisition_document_confirmed": True,
             },
             True,
         ),  # 4개 모두 True → 통과

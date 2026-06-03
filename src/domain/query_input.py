@@ -336,7 +336,7 @@ class ReconstructionDetail:
     청산금 수령 시: 그 부분 비례 양도로 과세.
     """
     is_original_member: bool              # 원조합원(True) vs 승계조합원(False)
-    management_disposal_date: date        # 관리처분계획인가일 (취득시기 기산점)
+    management_disposal_date: Optional[date] # 관리처분계획인가일 (취득시기 기산점)
     original_house_acquisition_date: date # 종전주택 취득일 (원조합원 보유기간 기산)
     original_house_area_sqm: float        # 종전주택 전용면적
 
@@ -1100,7 +1100,7 @@ def _build_special_cases(fl: dict, up: dict) -> SpecialCaseFlags:
             sc.is_reconstruction = True
             sc.reconstruction = ReconstructionDetail(
                 is_original_member=bool(fl.get("is_original_member", True)),
-                management_disposal_date=_pd(up.get("management_disposal_date") or fl.get("management_disposal_date")) or odat2,
+                management_disposal_date=_pd(up.get("management_disposal_date") or fl.get("management_disposal_date")),
                 original_house_acquisition_date=odat2,
                 original_house_area_sqm=float(fl.get("original_house_area_sqm", 0)),
                 demolition_date=_pd(fl.get("demolition_date")),
