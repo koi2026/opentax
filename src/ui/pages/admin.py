@@ -1,5 +1,5 @@
 """
-어드민 페이지 — 대시보드 / 법령 / 지역데이터 / 시나리오.
+어드민 페이지 — Vector Database / Local Database / Data Fetching.
 판단 로직 없음. 표시·실행·통계 전용.
 """
 from __future__ import annotations
@@ -49,10 +49,6 @@ def _fmt_date8(v) -> str:
     return s or "—"
 
 
-def _command_text(args: list[str]) -> str:
-    return " ".join(["python", "-m", *args])
-
-
 def _path_status(path: Path | None) -> str:
     if path is None:
         return "상태 파일 없음"
@@ -83,7 +79,6 @@ def _render_command_overlay(
     log_text = "\n".join(log_lines[-300:]) or "로그 대기 중..."
     escaped_log = html.escape(log_text)
     escaped_label = html.escape(command["label"])
-    escaped_cmd = html.escape(_command_text(command["args"]))
     started = html.escape(started_at.strftime("%Y-%m-%d %H:%M:%S"))
     placeholder.markdown(
         f"""
@@ -109,7 +104,7 @@ def _render_command_overlay(
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:18px;">
     <div>
       <div style="font-size:24px; font-weight:800; margin-bottom:8px;">{escaped_label}</div>
-      <div style="color:#bdbdbd; font-size:13px;">{escaped_cmd}</div>
+      <div style="color:#bdbdbd; font-size:13px;">관리 작업을 실행하고 있습니다.</div>
     </div>
     <div style="text-align:right; color:#e0e0e0; font-size:13px; line-height:1.7;">
       <div>상태: <strong>{state}</strong></div>
@@ -147,14 +142,13 @@ def _run_admin_command(command: dict, overlay_placeholder) -> dict:
     st.session_state.admin_command_t0 = t0
     result: dict = {
         "label": command["label"],
-        "cmd": _command_text(command["args"]),
         "started_at": started.strftime("%Y-%m-%d %H:%M:%S"),
         "finished_at": "",
         "elapsed_s": 0.0,
         "returncode": None,
         "timed_out": False,
     }
-    log_lines = [f"$ {_command_text(command['args'])}"]
+    log_lines = [f"{command['label']} 작업 시작"]
     _render_command_overlay(overlay_placeholder, command, log_lines, started)
     try:
         base_url = API_BASE_URL.rstrip("/")
@@ -225,7 +219,7 @@ def _render_command_result(result: dict | None) -> None:
     meta_cols = st.columns(3)
     meta_cols[0].caption(f"시작: {result.get('started_at', '—')}")
     meta_cols[1].caption(f"종료: {result.get('finished_at', '—')}")
-    meta_cols[2].caption(f"명령: `{result.get('cmd', '')}`")
+    meta_cols[2].caption(f"작업: {result.get('label', '—')}")
 
 
 def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str, int]) -> None:
@@ -242,11 +236,11 @@ def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str
     }.get(command.get("phase"), "명령")
 
     with st.container(border=True):
+        st.markdown('<div class="admin-command-card-marker"></div>', unsafe_allow_html=True)
         c1, c2 = st.columns([3, 1])
         with c1:
             st.markdown(f"**{command['label']}**")
             st.caption(command.get("description", ""))
-            st.code(_command_text(command["args"]), language="bash")
             st.caption(status)
         with c2:
             st.caption(phase_label)
@@ -360,7 +354,7 @@ _PINECONE_NAMESPACE_LABELS = {
     "tax-ruling-moef": "기재부 법령해석",
     "tax-ruling-nts": "국세청 질의회신",
     "tax-ruling-nts-interp": "국세청 법령해석",
-    "tax-ruling-decisions": "심판청구·판례",
+    "tax-ruling-decisions": "심판청구 결정례",
     "tax-ruling-pdf": "세법집행기준 PDF",
 }
 
@@ -720,149 +714,15 @@ st.markdown("""
 
 import pandas as pd
 
-# ── 공통 데이터 로드 ──────────────────────────────────────────────────────────
-law_rows = _load_law_inventory()
-area_active, area_total, _ = _load_area_summary()
-img_alerts = _load_image_alerts()
-amd_anomalies = _load_amendment_test_results()
-
-try:
-    from src.ingestion.area_designation_pipeline import get_pending_proposals as _gpp
-    pending_proposals = _gpp()
-except Exception:
-    pending_proposals = []
-
-tab_dash, tab_pinecone, tab_law, tab_collect = st.tabs([
-    "📊 대시보드",
-    "🧭 Pinecone 인덱스",
-    "📜 법령 데이터",
-    "🧰 법령 수집",
+tab_pinecone, tab_law, tab_collect = st.tabs([
+    "🧭 Vector Database",
+    "📚 Local Database",
+    "🧰 Data Fetching",
 ])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 1: 총괄 대시보드
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _sys_card(col, icon: str, title: str, value: str, detail: str, status: str) -> None:
-    bg, fg = {"ok": ("#E8F5E9", "#1B5E20"), "warn": ("#FFF3E0", "#BF360C"), "error": ("#FFEBEE", "#B71C1C")}.get(
-        status, ("#F5F5F5", "#333")
-    )
-    col.markdown(
-        f'<div style="background:{bg};border-left:5px solid {fg};padding:16px 14px;border-radius:6px;min-height:100px">'
-        f'<div style="color:{fg};font-weight:700;font-size:0.85em">{icon} {title}</div>'
-        f'<div style="color:{fg};font-size:1.8em;font-weight:800;margin:6px 0">{value}</div>'
-        f'<div style="color:#555;font-size:0.78em">{detail}</div></div>',
-        unsafe_allow_html=True,
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 1: 대시보드
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_dash:
-        # Pinecone 네임스페이스별 벡터 수 로드 (API 키 없으면 빈 dict)
-        _pc_stats = _load_pinecone_stats()
-
-        _law_vec   = _pc_stats.get("tax-law", 0)
-        _ruling_ns = ["tax-ruling-nts", "tax-ruling-decisions", "tax-ruling-moef", "tax-ruling-nts-interp"]
-        _ruling_total = sum(_pc_stats.get(ns, 0) for ns in _ruling_ns)
-
-        _law_sk      = "ok" if _law_vec > 0 else "error"
-        _law_lbl     = "✅ Pinecone 인덱싱 완료" if _law_vec > 0 else "❌ 미인덱싱"
-        _law_rel     = f"{_law_vec:,}개 벡터"
-        _ruling_overall = "ok" if _ruling_total > 0 else "error"
-
-        _area_status = "ok" if area_total > 0 else "warn"
-
-        _alerts: list[tuple[str, str]] = []
-        if img_alerts:
-            _alerts.append(("warning", f"⚠️ 별표/이미지 테이블 확인 필요 {len(img_alerts)}건"))
-        if amd_anomalies:
-            _alerts.append(("warning", f"⚠️ 개정 영향 케이스 확인 필요 {len(amd_anomalies)}건"))
-
-        for _lvl, _msg in _alerts:
-            st.warning(_msg)
-        if not _alerts:
-            st.success("✅ 감지된 이상 없음")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        _c1, _c2, _c3 = st.columns(3)
-        _sys_card(_c1, "⚖️", "법령 조문", f"{len(law_rows)}개 법령", f"{_law_lbl} · {_law_rel}", _law_sk)
-        _ruling_lbl_map = {"ok": "✅ 수집 완료", "warn": "⚠️ 일부 누락", "error": "❌ 미수집"}
-        _sys_card(_c2, "📋", "유권해석 5종", f"국세청·기재부·심판원 · 총 {_ruling_total:,}건", _ruling_lbl_map.get(_ruling_overall, ""), _ruling_overall)
-        _sys_card(_c3, "🗺️", "지역데이터", f"{area_active}건 현행", f"대기 {len(pending_proposals)}건 · {_fmt_mtime(_ROOT / 'data' / 'area_designations' / 'manual_table.json')}", _area_status)
-
-        st.divider()
-        st.markdown("#### 📡 데이터 파이프라인 수집 현황")
-
-        _pipe_rows = []
-
-        # ── 법령 조문: 14개 법령 개별 행으로 펼치기 ──────────────────────────
-        for _lr in law_rows:
-            _lr_eff = str(_lr.get("최신 시행일", "") or "")
-            _lr_eff_fmt = _lr_eff if _lr_eff else "—"
-            _lr_chunks = _lr.get("총 청크", 0)
-            _pipe_rows.append({
-                "구분": "법령 조문",
-                "법령명": _lr.get("법령명", ""),
-                "분류": _lr.get("분류", ""),
-                "상태": "✅ 수집 완료",
-                "최신 시행일": _lr_eff_fmt,
-                "청크 수": f"{_lr_chunks}건",
-            })
-
-        # ── 유권해석 (Pinecone 벡터 수 기반) ────────────────────────────────
-        _ruling_pc_defs = [
-            ("유권해석", "국세청 질의회신",  "hotissue·qt·ic·pd",               "tax-ruling-nts"),
-            ("유권해석", "심판청구 결정례",  "조세심판원 (양도 필터)",            "tax-ruling-decisions"),
-            ("유권해석", "기재부 법령해석",  "전체 2,305건 · 양도 필터",         "tax-ruling-moef"),
-            ("유권해석", "국세청 법령해석",  "양도·증여·상속·상생임대·임대주택",  "tax-ruling-nts-interp"),
-            ("유권해석", "판례",             "대법원·고등법원 (미구현)",           None),
-        ]
-        for _grp, _plabel, _pdetail, _ns in _ruling_pc_defs:
-            if _ns is None:
-                _slabel, _cnt = "❌ 미구현", "—"
-            else:
-                _vec = _pc_stats.get(_ns, 0)
-                _slabel = "✅ 인덱싱 완료" if _vec > 0 else "❌ 미인덱싱"
-                _cnt = f"{_vec:,}건" if _vec > 0 else "—"
-            _pipe_rows.append({
-                "구분": _grp,
-                "법령명": _plabel,
-                "분류": _pdetail,
-                "상태": _slabel,
-                "최신 시행일": "—",
-                "청크 수": _cnt,
-            })
-
-
-        st.dataframe(
-            pd.DataFrame(_pipe_rows),
-            use_container_width=True,
-            hide_index=True,
-            height=(len(_pipe_rows) + 1) * 36 + 38,
-            column_config={
-                "구분":       st.column_config.TextColumn("구분", width="small"),
-                "법령명":     st.column_config.TextColumn("법령명", width="medium"),
-                "분류":       st.column_config.TextColumn("분류", width="medium"),
-                "상태":       st.column_config.TextColumn("상태", width="small"),
-                "최신 시행일": st.column_config.TextColumn("최신 시행일", width="small"),
-                "청크 수":    st.column_config.TextColumn("청크 수", width="small"),
-            },
-        )
-
-        change_log_preview = _load_change_log(3)
-        if change_log_preview:
-            st.markdown("**최근 개정 감지**")
-            for _rec in change_log_preview:
-                st.caption(f"{_rec.get('detected_at', '')[:16]}  {_rec.get('law_name', _rec.get('event', ''))}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 2: Pinecone 인덱스
+# 탭 1: Vector Database
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_pinecone:
@@ -982,11 +842,11 @@ with tab_pinecone:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 3: 법령 데이터 (전체 스프레드시트, 필터 없음)
+# 탭 2: Local Database (전체 스프레드시트, 필터 없음)
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_law:
-    st.caption("law.go.kr DRF API에서 수집한 법령 조문 및 유권해석 원천 데이터입니다.")
+    st.caption("현재 수집 파이프라인이 있는 로컬 원천 데이터입니다.")
 
     st.markdown("#### ⚖️ 법령 조문")
     _law_rows_d = _load_law_inventory()
@@ -1126,20 +986,29 @@ with tab_law:
         if _ni_rows:
             st.dataframe(pd.DataFrame(_ni_rows), use_container_width=True, hide_index=True)
 
-    st.markdown("#### ⚖️ 판례")
-    st.error(
-        "🚧 **(구현전)** — 대법원 종합법률정보 수집 미구현.  \n"
-        "→ 수집 대상: 대법원 판례(`law.go.kr` 또는 대법원 종합법률정보 API), 감사원 결정  \n"
-        "→ 추후 `data/rulings/precedents/` 경로로 추가 예정."
-    )
-
-
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 3: 법령 수집 명령 실행
+# 탭 3: Data Fetching 명령 실행
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_collect:
     st.caption("수집과 Pinecone 업로드 명령은 API 서버에서 비동기 작업으로 실행됩니다.")
+    st.markdown(
+        """
+<style>
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.admin-command-card-marker) {
+  min-height: 178px;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.admin-command-card-marker)
+  div[data-testid="stVerticalBlock"] {
+  height: 100%;
+}
+.admin-command-card-marker {
+  display: none;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
 
     _collect_pc_stats = _load_pinecone_stats()
     _confirm_paid_ops = st.checkbox(
