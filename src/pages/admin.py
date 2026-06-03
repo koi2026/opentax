@@ -4,19 +4,14 @@
 """
 from __future__ import annotations
 
-import asyncio
 import html
 import json
 import os
-import queue
-import subprocess
 import sys
-import threading
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -30,8 +25,6 @@ st.set_page_config(page_title="어드민", page_icon="🛠️", layout="wide")
 for key, default in [
     ("admin_result", None),
     ("admin_running_idx", None),
-    ("admin_golden_result", None),
-    ("admin_golden_running_idx", None),
     ("admin_command_result", None),
     ("admin_command_running", False),
 ]:
@@ -41,37 +34,6 @@ for key, default in [
 # ── 헬퍼: 공통 ────────────────────────────────────────────────────────────────
 
 _ROOT = Path(__file__).parent.parent.parent
-
-_VERDICT_COLOR = {
-    "비과세": "green", "감면": "blue", "중과": "red",
-    "일반과세": "orange", "단기세율": "red",
-    "고가주택": "orange", "사실관계부족": "gray",
-}
-
-_VERDICT_OPTIONS = ["비과세", "고가주택", "일반과세", "중과", "단기세율", "감면", "사실관계부족"]
-_CONFIDENCE_OPTIONS = ["높음", "보통", "낮음 (재검토 필요)"]
-
-_FACT_LABELS = {
-    "property_type": "부동산 유형",
-    "acquisition_date": "취득일",
-    "transfer_date": "양도일",
-    "acquisition_price": "취득가액",
-    "transfer_price": "양도가액",
-    "household_house_count": "세대 주택 수",
-    "residence_years": "실거주 기간(년)",
-    "is_adjustment_area_at_transfer": "양도 시 조정대상지역",
-    "is_adjustment_area_at_acquisition": "취득 시 조정대상지역",
-    "acquisition_reason": "취득 원인",
-    "holding_years": "보유 기간(년)",
-}
-
-_LABELS_PATH = _ROOT / "data" / "golden" / "expert_labels.json"
-
-_LAW_CATEGORY_LABEL = {
-    "법률": "법률", "시행령": "시행령", "시행규칙": "시행규칙",
-    "규정": "규정", "": "—",
-}
-
 
 def _fmt_mtime(path: Path) -> str:
     if not path.exists():
@@ -86,105 +48,6 @@ def _fmt_date8(v) -> str:
     return s or "—"
 
 
-def _fmt_freshness(path: Path) -> tuple[str, str, str]:
-    """파일 경로 → (상태 레이블, status_key, 상대 시간 문자열).
-
-    status_key: "ok" / "warn" / "error"
-    디렉터리가 전달되면 가장 최신 *.json 파일 기준으로 판단.
-    path=None 또는 "not_implemented" 문자열이면 (구현전) 반환.
-    """
-    if path is None:
-        return "❌ (구현전)", "error", "—"
-    p = Path(path) if not isinstance(path, Path) else path
-    if not p.exists():
-        return "❌ 데이터 없음", "error", "—"
-    # 디렉터리면 최신 json 파일 기준
-    if p.is_dir():
-        files = list(p.glob("*.json"))
-        if not files:
-            return "❌ 데이터 없음", "error", "—"
-        p = max(files, key=lambda f: f.stat().st_mtime)
-    hours_ago = (datetime.now().timestamp() - p.stat().st_mtime) / 3600
-    if hours_ago < 36:
-        rel = f"{int(hours_ago)}시간 전" if hours_ago >= 1 else "방금"
-        return "✅ 현행 검증 완료", "ok", rel
-    if hours_ago < 72:
-        rel = f"{int(hours_ago)}시간 전"
-        return "⚠️ 갱신 확인 필요", "warn", rel
-    rel = f"{int(hours_ago / 24)}일 전"
-    return "❌ 오래된 데이터", "error", rel
-
-
-def _fmt_money(v) -> str:
-    if not v:
-        return "—"
-    try:
-        v = int(v)
-        if v >= 100_000_000:
-            return f"{v / 100_000_000:,.1f}억원"
-        if v >= 10_000:
-            return f"{v / 10_000:,.0f}만원"
-        return f"{v:,}원"
-    except Exception:
-        return str(v)
-
-
-def _fmt_fact(key: str, val) -> str:
-    if val is None:
-        return "—"
-    if key in ("acquisition_price", "transfer_price"):
-        return _fmt_money(val)
-    if key in ("acquisition_date", "transfer_date"):
-        s = str(int(val)) if val else ""
-        return f"{s[:4]}년 {s[4:6]}월 {s[6:]}일" if len(s) == 8 else s or "—"
-    if key in ("residence_years", "holding_years"):
-        return f"{float(val):.1f}년"
-    if isinstance(val, bool):
-        return "예" if val else "아니오"
-    return str(val)
-
-
-def _fmt_value(v) -> str:
-    if isinstance(v, bool):
-        return "예" if v else "아니오"
-    if isinstance(v, int):
-        return f"{v:,}"
-    if isinstance(v, float):
-        return f"{v:,.3f}".rstrip("0").rstrip(".")
-    if isinstance(v, str) and len(v) == 8 and v.isdigit():
-        return f"{v[:4]}-{v[4:6]}-{v[6:]}"
-    if isinstance(v, dict):
-        return ", ".join(f"{k}: {_fmt_value(vv)}" for k, vv in v.items())
-    return str(v)
-
-
-def _fact_summary(fact: dict) -> str:
-    parts = []
-    if "transfer_date" in fact:
-        parts.append(f"양도 {_fmt_value(fact['transfer_date'])}")
-    if "property_type" in fact:
-        parts.append(fact["property_type"])
-    if "household_house_count" in fact:
-        parts.append(f"{fact['household_house_count']}주택")
-    if "transfer_price" in fact:
-        price = fact["transfer_price"]
-        parts.append(f"{price // 100_000_000}억")
-    return " · ".join(parts)
-
-
-def _run_case(fact_json: dict) -> dict:
-    import requests
-    from src.config import API_BASE_URL
-
-    response = requests.post(
-        f"{API_BASE_URL.rstrip('/')}/api/v1/chat",
-        json={"fact_json": fact_json, "enable_debate": False},
-        timeout=300,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
 def _command_text(args: list[str]) -> str:
     return " ".join(["python", "-m", *args])
 
@@ -192,6 +55,10 @@ def _command_text(args: list[str]) -> str:
 def _path_status(path: Path | None) -> str:
     if path is None:
         return "상태 파일 없음"
+    if isinstance(path, str):
+        path = Path(path)
+    if not path.is_absolute():
+        path = _ROOT / path
     if path.is_dir():
         files = list(path.glob("*.json"))
         if not files:
@@ -271,85 +138,71 @@ def _render_command_overlay(
 
 
 def _run_admin_command(command: dict, overlay_placeholder) -> dict:
-    args = list(command["args"])
-    cmd = [sys.executable, "-m", *args]
-    timeout_s = int(command.get("timeout_s", 1800))
+    import requests
+    from src.config import API_BASE_URL
+
     started = datetime.now()
     t0 = time.monotonic()
     st.session_state.admin_command_t0 = t0
     result: dict = {
         "label": command["label"],
-        "cmd": _command_text(args),
+        "cmd": _command_text(command["args"]),
         "started_at": started.strftime("%Y-%m-%d %H:%M:%S"),
         "finished_at": "",
         "elapsed_s": 0.0,
         "returncode": None,
         "timed_out": False,
     }
-    log_lines = [f"$ {_command_text(args)}"]
-    env = os.environ.copy()
-    env["PYTHONUNBUFFERED"] = "1"
+    log_lines = [f"$ {_command_text(command['args'])}"]
     _render_command_overlay(overlay_placeholder, command, log_lines, started)
     try:
-        process = subprocess.Popen(
-            cmd,
-            cwd=_ROOT,
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
+        base_url = API_BASE_URL.rstrip("/")
+        response = requests.post(
+            f"{base_url}/api/v1/admin/jobs",
+            json={
+                "command_key": command["key"],
+                "confirm_paid": bool(command.get("_paid_confirmed")),
+            },
+            timeout=20,
         )
-        assert process.stdout is not None
-        output_queue: queue.Queue[str | None] = queue.Queue()
-
-        def _read_output() -> None:
-            try:
-                for output_line in process.stdout:
-                    output_queue.put(output_line.rstrip("\n"))
-            finally:
-                output_queue.put(None)
-
-        threading.Thread(target=_read_output, daemon=True).start()
-        reader_done = False
+        response.raise_for_status()
+        job = response.json()
+        job_id = job["job_id"]
         while True:
-            if time.monotonic() - t0 > timeout_s:
-                result["timed_out"] = True
-                log_lines.append(f"명령이 {timeout_s}초 제한을 초과해 중단되었습니다.")
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                break
-
-            updated = False
-            while True:
-                try:
-                    line = output_queue.get_nowait()
-                except queue.Empty:
-                    break
-                if line is None:
-                    reader_done = True
-                    continue
-                log_lines.append(line)
-                updated = True
-            if updated:
-                _render_command_overlay(overlay_placeholder, command, log_lines, started)
-
-            if process.poll() is not None and reader_done:
-                break
+            poll = requests.get(f"{base_url}/api/v1/admin/jobs/{job_id}", timeout=20)
+            poll.raise_for_status()
+            job = poll.json()
+            log_lines = job.get("log_lines") or log_lines
+            result["returncode"] = job.get("returncode")
+            result["timed_out"] = bool(job.get("timed_out"))
+            result["elapsed_s"] = float(job.get("elapsed_s") or (time.monotonic() - t0))
+            if job.get("started_at"):
+                result["started_at"] = str(job["started_at"])[:19].replace("T", " ")
+            if job.get("finished_at"):
+                result["finished_at"] = str(job["finished_at"])[:19].replace("T", " ")
             _render_command_overlay(overlay_placeholder, command, log_lines, started)
-            time.sleep(0.1)
-
-        result["returncode"] = process.returncode if process.returncode is not None else -1
-        if result["timed_out"]:
-            result["returncode"] = -1
+            if job.get("status") in ("succeeded", "failed"):
+                break
+            time.sleep(0.5)
+        if result["returncode"] is None:
+            result["returncode"] = 0 if job.get("status") == "succeeded" else -1
+        _render_command_overlay(overlay_placeholder, command, log_lines, started, int(result["returncode"]))
+        time.sleep(0.7)
+    except requests.HTTPError as exc:
+        result["returncode"] = -1
+        detail = ""
+        try:
+            detail = f" · {exc.response.json().get('detail')}"
+        except Exception:
+            detail = f" · {exc.response.text[:160]}" if exc.response is not None else ""
+        log_lines.append(f"API 실행 요청 실패: {exc}{detail}")
+        log_lines.append(f"API_BASE_URL={API_BASE_URL} 및 API 서버 실행 상태를 확인하세요.")
         _render_command_overlay(overlay_placeholder, command, log_lines, started, result["returncode"])
         time.sleep(0.7)
     except Exception as exc:
         result["returncode"] = -1
-        log_lines.append(f"실행 오류: {exc}")
+        log_lines.append(f"API 연결/실행 오류: {exc}")
+        log_lines.append("API_BASE_URL 설정과 API 서버 실행 상태를 확인하세요.")
         _render_command_overlay(overlay_placeholder, command, log_lines, started, result["returncode"])
         time.sleep(0.7)
     finally:
@@ -385,7 +238,6 @@ def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str
         "collect": "로컬 데이터 생성",
         "upload": "Pinecone 업로드/API 비용 가능",
         "automation": "수집+업로드 혼합",
-        "eval": "LLM/eval 비용 가능",
     }.get(command.get("phase"), "명령")
 
     with st.container(border=True):
@@ -403,6 +255,7 @@ def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str
                 st.session_state.admin_command_running = True
                 _overlay = st.empty()
                 try:
+                    command["_paid_confirmed"] = paid_confirmed
                     st.session_state.admin_command_result = _run_admin_command(command, _overlay)
                 finally:
                     _overlay.empty()
@@ -410,301 +263,27 @@ def _render_command_card(command: dict, paid_confirmed: bool, pc_stats: dict[str
                     st.rerun()
 
 
-_COLLECT_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
-    ("법령 조문", [
-        {
-            "key": "law_collect",
-            "label": "법령 조문 수집",
-            "description": "law.go.kr DRF API에서 법령 XML을 수집하고 로컬 청크 파일을 갱신합니다.",
-            "args": ["src.ingestion.collect"],
-            "path": _ROOT / "data" / "processed" / "all_chunks.json",
-            "phase": "collect",
-        },
-        {
-            "key": "law_changes",
-            "label": "법령 개정 감지",
-            "description": "법령 버전 스냅샷과 최신 목록을 비교하고 개정 로그를 기록합니다. Pinecone 업로드는 하지 않습니다.",
-            "args": ["scripts.detect_law_changes"],
-            "path": _ROOT / "data" / "law_change_log.jsonl",
-            "phase": "collect",
-        },
-    ]),
-    ("유권해석 개별 수집", [
-        {
-            "key": "ruling_revision",
-            "label": "폐지 예규 목록 수집",
-            "description": "세법해석정비 목록을 수집해 폐지 예규 필터의 원천 데이터를 갱신합니다.",
-            "args": ["src.ingestion.collect_rulings_revision", "--tax", "transfer"],
-            "path": _ROOT / "data" / "rulings" / "deprecated_ids.json",
-            "phase": "collect",
-        },
-        {
-            "key": "ruling_nts",
-            "label": "국세청 질의회신 수집",
-            "description": "양도소득세 질의회신/쟁점별 사례를 resume 모드로 수집합니다.",
-            "args": ["src.ingestion.collect_rulings_nts", "--tax", "양도소득세", "--resume"],
-            "path": _ROOT / "data" / "rulings" / "nts",
-            "phase": "collect",
-        },
-        {
-            "key": "ruling_decisions",
-            "label": "심판청구 결정례 수집",
-            "description": "조세심판원 결정례를 양도 키워드로 수집합니다.",
-            "args": ["src.ingestion.collect_rulings_decisions", "--type", "tax_tribunal", "--keyword", "양도", "--resume"],
-            "path": _ROOT / "data" / "rulings" / "decisions",
-            "phase": "collect",
-        },
-        {
-            "key": "ruling_moef",
-            "label": "기재부 법령해석 수집",
-            "description": "기재부 법령해석 목록을 resume 모드로 수집합니다.",
-            "args": ["src.ingestion.collect_rulings_moef", "--resume", "--no-detail"],
-            "path": _ROOT / "data" / "rulings" / "moef",
-            "phase": "collect",
-        },
-        {
-            "key": "ruling_nts_interp",
-            "label": "국세청 법령해석 수집",
-            "description": "양도·증여·상속·상생임대·임대주택 키워드의 법령해석을 수집합니다.",
-            "args": [
-                "src.ingestion.collect_rulings_nts_interp",
-                "--keywords", "양도", "증여", "상속", "상생임대", "임대주택",
-                "--resume", "--no-detail",
-            ],
-            "path": _ROOT / "data" / "rulings" / "nts_interp",
-            "phase": "collect",
-            "long": True,
-        },
-    ]),
-    ("PDF/행정 데이터 수집", [
-        {
-            "key": "pdf_collect",
-            "label": "PDF 집행기준 파싱",
-            "description": "data/rulings/pdf_source의 PDF를 로컬 JSON 레코드로 파싱합니다. Pinecone 업로드는 하지 않습니다.",
-            "args": ["src.ingestion.collect_rulings_pdf"],
-            "path": _ROOT / "data" / "rulings" / "pdf",
-            "phase": "collect",
-        },
-        {
-            "key": "admin_notices",
-            "label": "행정 고시 수집",
-            "description": "규제지역 관련 행정/금융 고시 데이터를 갱신합니다.",
-            "args": ["src.ingestion.admin_notices"],
-            "path": _ROOT / "data" / "area_designations",
-            "phase": "collect",
-        },
-        {
-            "key": "regulatory_changes",
-            "label": "규제지역 변경 감지",
-            "description": "규제지역 변경 후보를 감지해 인박스에 기록합니다.",
-            "args": ["scripts.detect_regulatory_changes"],
-            "path": _ROOT / "data" / "area_designations" / "detection_inbox.json",
-            "phase": "collect",
-        },
-    ]),
-]
+def _load_admin_command_groups() -> dict[str, list[tuple[str, list[dict]]]]:
+    import requests
+    from src.config import API_BASE_URL
 
-_UPLOAD_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
-    ("법령 조문 업로드", [
-        {
-            "key": "law_embed",
-            "label": "법령 조문 임베딩/Pinecone 업로드",
-            "description": "data/processed/all_chunks.json을 임베딩하고 Pinecone tax-law 네임스페이스에 업로드합니다.",
-            "args": ["src.ingestion.embed"],
-            "path": _ROOT / "data" / "processed" / "all_chunks.json",
-            "namespace": "tax-law",
-            "phase": "upload",
-            "paid": True,
-        },
-    ]),
-    ("유권해석 개별 업로드", [
-        {
-            "key": "embed_nts",
-            "label": "국세청 질의회신 임베딩/Pinecone 업로드",
-            "description": "국세청 질의회신을 임베딩하고 Pinecone에 업로드합니다.",
-            "args": ["src.ingestion.embed_rulings", "nts"],
-            "path": _ROOT / "data" / "rulings" / "nts",
-            "namespace": "tax-ruling-nts",
-            "phase": "upload",
-            "paid": True,
-        },
-        {
-            "key": "embed_decisions",
-            "label": "심판청구 결정례 임베딩/Pinecone 업로드",
-            "description": "결정례 데이터를 임베딩하고 Pinecone에 업로드합니다.",
-            "args": ["src.ingestion.embed_rulings", "decisions"],
-            "path": _ROOT / "data" / "rulings" / "decisions",
-            "namespace": "tax-ruling-decisions",
-            "phase": "upload",
-            "paid": True,
-        },
-        {
-            "key": "embed_moef",
-            "label": "기재부 법령해석 임베딩/Pinecone 업로드",
-            "description": "기재부 법령해석을 임베딩하고 Pinecone에 업로드합니다.",
-            "args": ["src.ingestion.embed_rulings", "moef"],
-            "path": _ROOT / "data" / "rulings" / "moef",
-            "namespace": "tax-ruling-moef",
-            "phase": "upload",
-            "paid": True,
-        },
-        {
-            "key": "embed_nts_interp",
-            "label": "국세청 법령해석 임베딩/Pinecone 업로드",
-            "description": "국세청 법령해석을 임베딩하고 Pinecone에 업로드합니다.",
-            "args": ["src.ingestion.embed_rulings", "nts_interp"],
-            "path": _ROOT / "data" / "rulings" / "nts_interp",
-            "namespace": "tax-ruling-nts-interp",
-            "phase": "upload",
-            "paid": True,
-        },
-        {
-            "key": "embed_pdf",
-            "label": "PDF 집행기준 임베딩/Pinecone 업로드",
-            "description": "PDF 집행기준을 임베딩하고 Pinecone에 업로드합니다.",
-            "args": ["src.ingestion.embed_rulings", "pdf"],
-            "path": _ROOT / "data" / "rulings" / "pdf",
-            "namespace": "tax-ruling-pdf",
-            "phase": "upload",
-            "paid": True,
-        },
-    ]),
-]
+    response = requests.get(f"{API_BASE_URL.rstrip('/')}/api/v1/admin/commands", timeout=20)
+    response.raise_for_status()
+    commands = response.json().get("commands", [])
 
-_AUTOMATION_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
-    ("수집+업로드 통합 자동화", [
-        {
-            "key": "rulings_incremental",
-            "label": "유권해석 증분 수집 + 신규 임베딩/Pinecone 업로드",
-            "description": "수집 후 신규 파일이 있으면 임베딩까지 수행합니다. 신규 데이터가 없으면 업로드를 생략합니다.",
-            "args": ["scripts.collect_and_embed_rulings"],
-            "path": _ROOT / "data" / "rulings",
-            "phase": "automation",
-            "paid": True,
-            "long": True,
-        },
-        {
-            "key": "law_changes_embed",
-            "label": "법령 개정 감지 + 신규 법령 Pinecone 업로드",
-            "description": "개정 감지 후 신규 법령을 수집하고 Pinecone까지 업로드합니다.",
-            "args": ["scripts.detect_law_changes", "--embed"],
-            "path": _ROOT / "data" / "law_change_log.jsonl",
-            "namespace": "tax-law",
-            "phase": "automation",
-            "paid": True,
-        },
-    ]),
-]
+    result: dict[str, list[tuple[str, list[dict]]]] = {"collect": [], "upload": [], "automation": []}
+    by_phase_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for command in commands:
+        phase = command.get("phase", "")
+        if phase not in result:
+            continue
+        by_phase_group[(phase, command.get("group", "기타"))].append(command)
 
-_EVAL_COMMAND_GROUPS: list[tuple[str, list[dict]]] = [
-    ("평가/골든셋", [
-        {
-            "key": "golden_eval",
-            "label": "골든셋 평가",
-            "description": "qa_pairs.json 전체를 현재 파이프라인으로 평가합니다.",
-            "args": ["scripts.run_golden_eval"],
-            "path": _ROOT / "data" / "eval_results" / "golden_eval_latest.json",
-            "phase": "eval",
-            "paid": True,
-        },
-        {
-            "key": "baseline_eval",
-            "label": "Baseline 평가",
-            "description": "종합 baseline 평가를 워커 3개로 실행합니다.",
-            "args": ["scripts.run_baseline_eval", "--workers", "3"],
-            "path": _ROOT / "data" / "eval_results",
-            "phase": "eval",
-            "paid": True,
-            "long": True,
-            "timeout_s": 7200,
-        },
-        {
-            "key": "baseline_debate",
-            "label": "Baseline 평가 + Debate",
-            "description": "비용과 시간이 큰 debate 포함 평가를 실행합니다.",
-            "args": ["scripts.run_baseline_eval", "--debate", "--workers", "3"],
-            "path": _ROOT / "data" / "eval_results",
-            "phase": "eval",
-            "paid": True,
-            "long": True,
-            "timeout_s": 7200,
-        },
-    ]),
-    ("Reranker 루프", [
-        {
-            "key": "extract_reranker_pairs",
-            "label": "Debate 훈련쌍 추출",
-            "description": "debate 기록에서 reranker 훈련쌍을 생성합니다.",
-            "args": ["scripts.extract_reranker_pairs"],
-            "path": _ROOT / "data" / "reranker_pairs.jsonl",
-            "phase": "eval",
-        },
-        {
-            "key": "extract_ruling_pairs",
-            "label": "유권해석 훈련쌍 추출",
-            "description": "유권해석과 법령 검색 결과를 연결해 reranker 훈련쌍을 생성합니다.",
-            "args": ["scripts.extract_ruling_pairs"],
-            "path": _ROOT / "data" / "reranker_pairs.jsonl",
-            "phase": "eval",
-            "paid": True,
-            "long": True,
-        },
-        {
-            "key": "finetune_reranker",
-            "label": "Reranker 파인튜닝",
-            "description": "로컬 환경에서 BGE reranker 파인튜닝을 실행합니다.",
-            "args": ["scripts.finetune_reranker"],
-            "path": _ROOT / "data" / "models" / "bge-reranker-tax-rag",
-            "phase": "eval",
-            "paid": True,
-            "long": True,
-            "timeout_s": 7200,
-        },
-    ]),
-]
-
-def _render_result(result: dict, expected_verdict: str | None = None) -> None:
-    verdict = result["verdict"]
-    color = _VERDICT_COLOR.get(verdict, "gray")
-    c1, c2, c3 = st.columns([2, 2, 4])
-    with c1:
-        st.markdown(f"**판단: :{color}[{verdict}]**")
-    with c2:
-        st.metric("신뢰도", f"{result['confidence']:.0%}")
-    with c3:
-        if expected_verdict:
-            match = verdict == expected_verdict
-            badge = "✅ 정답" if match else f"❌ 오답 (예상: {expected_verdict})"
-            st.markdown(f"**{badge}**")
-    st.markdown(result["answer"])
-    col_left, col_right = st.columns(2)
-    with col_left:
-        if result.get("citations"):
-            with st.expander("근거 법령"):
-                for c in result["citations"]:
-                    st.markdown(f"- {c}")
-        if result.get("missing_facts"):
-            with st.expander("추가 확인 필요"):
-                for m in result["missing_facts"]:
-                    st.warning(m, icon="⚠️")
-    with col_right:
-        if result.get("chunk_ids"):
-            with st.expander("검색 조문 ID"):
-                st.write(result["chunk_ids"])
-        if result.get("debate_record"):
-            dr = result["debate_record"]
-            label = {
-                "blue_won": "🔵 Blue 방어 성공",
-                "red_won": "🔴 Red 지적 수용",
-                "no_contest": "✅ Red 이의 없음",
-                "draw": "⚖️ 무승부",
-            }.get(dr.get("outcome", ""), "논쟁 실행됨")
-            _model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-            _ts = dr.get("timestamp", "")
-            _ts_fmt = f"{_ts[:4]}-{_ts[5:7]}-{_ts[8:10]} {_ts[11:16]}" if len(_ts) >= 16 else _ts
-            with st.expander(f"Red Team: {label}  |  {_ts_fmt}  |  {_model}"):
-                st.json(dr)
-
+    for phase in ("collect", "upload", "automation"):
+        for (group_phase, group_name), group_commands in by_phase_group.items():
+            if group_phase == phase:
+                result[phase].append((group_name, group_commands))
+    return result
 
 # ── 헬퍼: 데이터 로드 ─────────────────────────────────────────────────────────
 
@@ -771,66 +350,6 @@ def _load_area_summary() -> tuple[int, int, str]:
         return 0, 0, "—"
     active = sum(1 for r in data if not r.get("released_at"))
     return active, len(data), _fmt_mtime(p)
-
-
-def _load_expert_labels() -> dict[str, dict]:
-    if not _LABELS_PATH.exists():
-        return {}
-    try:
-        return json.loads(_LABELS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _save_expert_labels(labels: dict[str, dict]) -> None:
-    _LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _LABELS_PATH.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _load_golden_summary() -> tuple[int, str]:
-    p = _ROOT / "data" / "golden" / "qa_pairs.json"
-    if not p.exists():
-        return 0, "—"
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return len(data), _fmt_mtime(p)
-    except Exception:
-        return 0, "—"
-
-
-def _load_debate_summary() -> tuple[int, str]:
-    d = _ROOT / "data" / "debates"
-    if not d.exists():
-        return 0, "—"
-    files = list(d.glob("*.json"))
-    if not files:
-        return 0, "—"
-    latest = max(files, key=lambda f: f.stat().st_mtime)
-    return len(files), _fmt_mtime(latest)
-
-
-def _load_ruling_summary() -> dict[str, tuple[int, str]]:
-    """유권해석 소스별 (파일 수, 마지막수정일) 반환."""
-    sources = {
-        "nts":        ("data/rulings/nts",        "국세청 질의회신"),
-        "decisions":  ("data/rulings/decisions",  "심판청구 결정례"),
-        "pdf":        ("data/rulings/pdf",         "해석례 PDF"),
-        "moef":       ("data/rulings/moef",        "기재부 법령해석"),
-        "nts_interp": ("data/rulings/nts_interp",  "국세청 법령해석"),
-    }
-    result: dict[str, tuple[int, str]] = {}
-    for key, (rel_path, _) in sources.items():
-        d = _ROOT / rel_path
-        if not d.exists():
-            result[key] = (0, "—")
-            continue
-        files = list(d.glob("*.json"))
-        if not files:
-            result[key] = (0, "—")
-            continue
-        latest = max(files, key=lambda f: f.stat().st_mtime)
-        result[key] = (len(files), _fmt_mtime(latest))
-    return result
 
 
 # ── 헬퍼: Pinecone 네임스페이스 통계 ──────────────────────────────────────────
@@ -900,72 +419,13 @@ def _load_amendment_test_results() -> list[dict]:
     return anomalies
 
 
-def _load_stale_golden() -> list[dict]:
-    p = _ROOT / "data" / "law_change_log.jsonl"
-    if not p.exists():
-        return []
-    stale: list[dict] = []
-    for line in p.read_text(encoding="utf-8").strip().splitlines():
-        try:
-            rec = json.loads(line)
-            if rec.get("event") == "golden_stale_candidates":
-                stale.extend(rec.get("stale_cases", []))
-        except Exception:
-            pass
-    seen = set()
-    unique = []
-    for s in reversed(stale):
-        cid = s.get("case_id", "")
-        if cid not in seen:
-            seen.add(cid)
-            unique.append(s)
-    return unique
-
-
-def _load_red_win_progress() -> tuple[int, int]:
-    d = _ROOT / "data" / "red_wins"
-    if not d.exists():
-        return 0, 50
-    return len(list(d.glob("*.json"))), 50
-
-
-# ── 헬퍼: 골든셋 평가 로드 ────────────────────────────────────────────────────
-
-def _load_golden_eval_latest() -> dict:
-    p = _ROOT / "data" / "eval_results" / "golden_eval_latest.json"
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _status_badge(case: dict) -> str:
-    if case.get("invalidated"):
-        return "⚠️ 재검토"
-    ev = case.get("last_eval") or {}
-    if not ev:
-        return "🔘 미평가"
-    if ev.get("error"):
-        return "🚫 오류"
-    if ev.get("blocked"):
-        return "🟡 차단"
-    match = ev.get("match")
-    if match is True:
-        return "✅ PASS"
-    if match is False:
-        return "❌ FAIL"
-    return "— 비교불가"
-
-
 # ── 사이드바 ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.title("🛠️ 어드민")
     st.divider()
-    _debate_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-    st.caption(f"모델: `{_debate_model}`")
+    _llm_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+    st.caption(f"모델: `{_llm_model}`")
 
 # ── 탭 ────────────────────────────────────────────────────────────────────────
 
@@ -980,22 +440,9 @@ import pandas as pd
 
 # ── 공통 데이터 로드 ──────────────────────────────────────────────────────────
 law_rows = _load_law_inventory()
-area_active, area_total, area_mtime = _load_area_summary()
-golden_cnt, golden_mtime = _load_golden_summary()
-debate_cnt, debate_mtime = _load_debate_summary()
-ruling_summary = _load_ruling_summary()
+area_active, area_total, _ = _load_area_summary()
 img_alerts = _load_image_alerts()
 amd_anomalies = _load_amendment_test_results()
-stale_cases = _load_stale_golden()
-red_wins, red_target = _load_red_win_progress()
-
-_gp_file = _ROOT / "data" / "golden" / "qa_pairs.json"
-golden_pairs: list[dict] = []
-if _gp_file.exists():
-    try:
-        golden_pairs = json.loads(_gp_file.read_text(encoding="utf-8"))
-    except Exception:
-        golden_pairs = []
 
 try:
     from src.ingestion.area_designation_pipeline import get_pending_proposals as _gpp
@@ -1003,17 +450,10 @@ try:
 except Exception:
     pending_proposals = []
 
-passed_cnt = sum(1 for g in golden_pairs if (g.get("last_eval") or {}).get("match") is True)
-failed_cnt = sum(1 for g in golden_pairs if (g.get("last_eval") or {}).get("match") is False)
-needs_review_cnt = sum(1 for g in golden_pairs if g.get("invalidated"))
-_red_pct = int(red_wins / red_target * 100) if red_target else 0
-_high_stale = [s for s in stale_cases if s.get("sensitivity") == "high"]
-
-tab_dash, tab_law, tab_collect, tab_scenarios = st.tabs([
+tab_dash, tab_law, tab_collect = st.tabs([
     "📊 대시보드",
     "📜 법령 데이터",
     "🧰 법령 수집",
-    "🎯 평가 현황",
 ])
 
 
@@ -1042,13 +482,6 @@ with tab_dash:
         # Pinecone 네임스페이스별 벡터 수 로드 (API 키 없으면 빈 dict)
         _pc_stats = _load_pinecone_stats()
 
-        _NS_MAP = {
-            "tax-law":              "법령 조문",
-            "tax-ruling-nts":       "국세청 질의회신",
-            "tax-ruling-decisions": "심판청구 결정례",
-            "tax-ruling-moef":      "기재부 법령해석",
-            "tax-ruling-nts-interp":"국세청 법령해석",
-        }
         _law_vec   = _pc_stats.get("tax-law", 0)
         _ruling_ns = ["tax-ruling-nts", "tax-ruling-decisions", "tax-ruling-moef", "tax-ruling-nts-interp"]
         _ruling_total = sum(_pc_stats.get(ns, 0) for ns in _ruling_ns)
@@ -1059,21 +492,16 @@ with tab_dash:
         _ruling_overall = "ok" if _ruling_total > 0 else "error"
 
         _area_status = "ok" if area_total > 0 else "warn"
-        _ft_status   = "ok" if (red_wins >= red_target and red_target > 0) else ("warn" if red_wins > 0 else "error")
 
         _alerts: list[tuple[str, str]] = []
-        if needs_review_cnt:
-            _alerts.append(("warning", f"⚠️ 골든셋 재검토 {needs_review_cnt}건 (법령 개정 영향)"))
-        if failed_cnt:
-            _alerts.append(("warning", f"⚠️ 시나리오 평가 실패 {failed_cnt}건"))
+        if img_alerts:
+            _alerts.append(("warning", f"⚠️ 별표/이미지 테이블 확인 필요 {len(img_alerts)}건"))
+        if amd_anomalies:
+            _alerts.append(("warning", f"⚠️ 개정 영향 케이스 확인 필요 {len(amd_anomalies)}건"))
 
-        if _alerts:
-            for _lvl, _msg in _alerts:
-                if _lvl == "error":
-                    st.error(_msg)
-                else:
-                    st.warning(_msg)
-        else:
+        for _lvl, _msg in _alerts:
+            st.warning(_msg)
+        if not _alerts:
             st.success("✅ 감지된 이상 없음")
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1307,13 +735,13 @@ with tab_law:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_collect:
-    st.caption("UI/API/MCP 런타임과 별도로 실행해야 하는 명령입니다. 수집과 Pinecone 업로드를 단계별로 분리했습니다.")
+    st.caption("수집과 Pinecone 업로드 명령은 API 서버에서 비동기 작업으로 실행됩니다.")
 
     _collect_pc_stats = _load_pinecone_stats()
     _confirm_paid_ops = st.checkbox(
-        "임베딩/Pinecone 업로드/평가 등 비용 가능 작업 실행을 허용합니다.",
+        "임베딩/Pinecone 업로드 비용 가능 작업 실행을 허용합니다.",
         key="admin_confirm_paid_ops",
-        help="순수 수집 명령은 체크 없이 실행할 수 있습니다. 업로드, 통합 자동화, LLM 평가, debate, finetune 작업은 API 비용 또는 장시간 실행이 발생할 수 있습니다.",
+        help="순수 수집 명령은 체크 없이 실행할 수 있습니다. 업로드와 통합 자동화 작업은 임베딩/Pinecone API 비용 또는 장시간 실행이 발생할 수 있습니다.",
     )
 
     if st.session_state.admin_command_running:
@@ -1323,16 +751,26 @@ with tab_collect:
 
     st.divider()
 
+    try:
+        _command_groups = _load_admin_command_groups()
+    except Exception as exc:
+        st.error(f"API 서버에서 실행 명령 목록을 불러오지 못했습니다: {exc}")
+        st.caption("API_BASE_URL 설정과 API 서버 실행 상태를 확인하세요.")
+        _command_groups = {"collect": [], "upload": [], "automation": []}
+
     _sections = [
-        ("1. 데이터 수집", "로컬 파일과 JSON 원천 데이터를 생성합니다. Pinecone 업로드는 하지 않습니다.", _COLLECT_COMMAND_GROUPS, True),
-        ("2. 임베딩/Pinecone 업로드", "이미 수집된 로컬 데이터를 임베딩하고 Pinecone 네임스페이스에 업로드합니다.", _UPLOAD_COMMAND_GROUPS, True),
-        ("3. 통합 자동화", "수집 후 신규 데이터가 있으면 업로드까지 이어서 수행하는 혼합 명령입니다.", _AUTOMATION_COMMAND_GROUPS, False),
-        ("4. 평가/학습", "골든셋 평가, baseline 평가, reranker 학습 루프 명령입니다.", _EVAL_COMMAND_GROUPS, False),
+        ("1. 데이터 수집", "로컬 파일과 JSON 원천 데이터를 생성합니다. Pinecone 업로드는 하지 않습니다.", _command_groups["collect"], True),
+        ("2. 임베딩/Pinecone 업로드", "이미 수집된 로컬 데이터를 임베딩하고 Pinecone 네임스페이스에 업로드합니다.", _command_groups["upload"], True),
+        ("3. 통합 자동화", "수집 후 신규 데이터가 있으면 업로드까지 이어서 수행하는 혼합 명령입니다.", _command_groups["automation"], False),
     ]
 
     for _section_title, _section_caption, _groups, _expanded in _sections:
         st.markdown(f"#### {_section_title}")
         st.caption(_section_caption)
+        if not _groups:
+            st.info("표시할 명령이 없습니다.")
+            st.divider()
+            continue
         for _group_name, _commands in _groups:
             with st.expander(_group_name, expanded=_expanded):
                 _cols = st.columns(2)
@@ -1340,126 +778,3 @@ with tab_collect:
                     with _cols[_idx % 2]:
                         _render_command_card(_command, _confirm_paid_ops, _collect_pc_stats)
         st.divider()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 탭 4: 평가 현황
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_scenarios:
-    _GOLDEN_FILE = _ROOT / "data" / "golden" / "qa_pairs.json"
-
-    st.markdown("""
-<div style="padding:12px 0 16px 0">
-    <div style="font-size:1.1em; font-weight:700; color:#1a1a2e">📊 골든셋 평가 현황</div>
-    <div style="color:#888; font-size:0.82em">AI 합성 시나리오 기반 판단 정확도 측정</div>
-</div>
-""", unsafe_allow_html=True)
-
-    _ev_c1, _ev_c2 = st.columns(2)
-    _debate_lbl3 = f"✅ {debate_cnt}건" if debate_cnt > 0 else "⚠️ 없음"
-    _ft_lbl3 = "✅ 완료" if (red_wins >= red_target and red_target > 0) else (f"⚠️ {red_wins}/{red_target}건 진행중" if red_wins > 0 else "🔘 대기 중")
-    _sys_card(_ev_c1, "🧩", "케이스 생성", f"{debate_cnt}건", "논쟁 기반 골든셋 승격", "ok" if debate_cnt > 0 else "warn")
-    _sys_card(_ev_c2, "🤖", "AI 학습 진행률", f"{red_wins}/{red_target}건 ({_red_pct}%)", _ft_lbl3, "ok" if red_wins >= red_target and red_target > 0 else "warn")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if not _GOLDEN_FILE.exists():
-        st.warning("data/golden/qa_pairs.json 파일이 없습니다.")
-    else:
-        try:
-            sc_pairs = json.loads(_GOLDEN_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            st.error("qa_pairs.json 파싱 오류")
-            sc_pairs = []
-
-        latest_report_sc = _load_golden_eval_latest()
-        last_run_sc = latest_report_sc.get("run_at", "")
-        last_run_sc_fmt = last_run_sc[:16].replace("T", " ") if last_run_sc else "미실행"
-
-        sc_total = len(sc_pairs)
-        sc_passed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is True)
-        sc_failed = sum(1 for g in sc_pairs if (g.get("last_eval") or {}).get("match") is False)
-        sc_needs_review = sum(1 for g in sc_pairs if g.get("invalidated"))
-        sc_not_run = sum(1 for g in sc_pairs if not g.get("last_eval"))
-        sc_has_expected = sum(1 for g in sc_pairs if g.get("expected_verdict") or g.get("verdict"))
-        sc_acc_str = f"{sc_passed}/{sc_has_expected} ({sc_passed/sc_has_expected*100:.0f}%)" if sc_has_expected else "—"
-
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("총 케이스", sc_total)
-        m2.metric("✅ PASS", sc_passed)
-        m3.metric("❌ FAIL", sc_failed)
-        m4.metric("⚠️ 재검토", sc_needs_review)
-        m5.metric("정확도", sc_acc_str)
-        m6.metric("마지막 평가", last_run_sc_fmt)
-
-        st.divider()
-
-        filter_choice = st.radio(
-            "보기",
-            ["전체", "미검증", "검증됨", "재검토필요"],
-            horizontal=True,
-            key="sc_filter",
-        )
-
-        if filter_choice == "미검증":
-            filtered_pairs = [g for g in sc_pairs if not g.get("last_eval")]
-        elif filter_choice == "검증됨":
-            filtered_pairs = [g for g in sc_pairs if g.get("last_eval") and not g.get("invalidated")]
-        elif filter_choice == "재검토필요":
-            filtered_pairs = [
-                g for g in sc_pairs
-                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
-            ]
-        else:
-            filtered_pairs = sc_pairs
-
-        if not sc_pairs:
-            st.info("골든셋이 비어 있습니다.")
-        else:
-            sc_rows = []
-            for g in filtered_pairs:
-                ev = g.get("last_eval") or {}
-                exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
-                actual_v = ev.get("verdict", "—")
-                conf = ev.get("confidence")
-                run_at = ev.get("run_at", "")
-                run_at_fmt = f"{run_at[:4]}-{run_at[4:6]}-{run_at[6:8]}" if len(run_at) >= 8 else "—"
-                sc_rows.append({
-                    "ID": (g.get("id") or g.get("case_id", ""))[:10],
-                    "설명": g.get("description", "")[:45],
-                    "출처": g.get("source", "manual"),
-                    "예상판결": exp_v,
-                    "실제판결": actual_v,
-                    "신뢰도": f"{conf:.2f}" if conf is not None else "—",
-                    "상태": _status_badge(g),
-                    "평가일": run_at_fmt,
-                })
-
-            st.caption(f"{len(filtered_pairs)}건 표시 중")
-            st.dataframe(pd.DataFrame(sc_rows), use_container_width=True, hide_index=True)
-
-            problem_cases_sc = [
-                g for g in filtered_pairs
-                if g.get("invalidated") or (g.get("last_eval") or {}).get("match") is False
-            ]
-            if problem_cases_sc:
-                with st.expander(f"⚠️ 조치 필요 케이스 ({len(problem_cases_sc)}건)", expanded=True):
-                    for g in problem_cases_sc:
-                        ev = g.get("last_eval") or {}
-                        badge = _status_badge(g)
-                        exp_v = g.get("expected_verdict") or g.get("verdict") or "—"
-                        gid = (g.get("id") or g.get("case_id", ""))[:10]
-                        st.markdown(
-                            f"**{badge}** `{gid}` — {g.get('description', '')}  \n"
-                            f"예상: **{exp_v}** → 실제: **{ev.get('verdict', '—')}** "
-                            f"(신뢰도 {ev.get('confidence', 0):.2f})"
-                        )
-                        if g.get("invalidated"):
-                            deps = g.get("law_deps", [])
-                            st.caption(f"법령 개정 영향: {', '.join(deps) or '알 수 없음'}")
-                        if ev.get("error"):
-                            st.caption(f"오류: {ev['error']}")
-                        st.divider()
-
-            if sc_not_run > 0:
-                st.info(f"미평가 케이스 {sc_not_run}건 — `python -m scripts.run_golden_eval` 으로 평가를 실행하세요.")

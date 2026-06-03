@@ -45,6 +45,7 @@ data/blue_wins/
 
 # Runtime logs
 logs/
+data/admin_jobs/
 
 # Environment
 .env

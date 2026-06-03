@@ -1,0 +1,20 @@
+[
+  {
+    "region": "서울특별시 용산구",
+    "area_type": "투기과열지구",
+    "status": "해제",
+    "effective_date": "2024-01-05",
+    "announcement_no": "국토교통부공고 제2024-XXX호",
+    "source_url": "https://www.molit.go.kr/...",
+    "detected_at": "2026-06-02T13:13:54.595421"
+  },
+  {
+    "region": "서울특별시 용산구",
+    "area_type": "투기과열지구",
+    "status": "해제",
+    "effective_date": "2024-01-05",
+    "announcement_no": "국토교통부공고 제2024-XXX호",
+    "source_url": "https://www.molit.go.kr/...",
+    "detected_at": "2026-06-02T13:13:54.595428"
+  }
+]

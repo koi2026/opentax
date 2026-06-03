@@ -1,0 +1,24 @@
+[
+  {
+    "success": true,
+    "source": "hardcoded_fallback",
+    "match": true,
+    "diff": {},
+    "note": "XML에 별표 텍스트 없음 — 알려진 기준값으로 검증",
+    "table_id": "별표1",
+    "registry_key": "LONG_TERM_DEDUCTION_RATE_TABLE1",
+    "law_name": "소득세법",
+    "mst": "285523"
+  },
+  {
+    "success": true,
+    "source": "hardcoded_fallback",
+    "match": true,
+    "diff": {},
+    "note": "XML에 별표 텍스트 없음 — 알려진 기준값으로 검증",
+    "table_id": "별표2",
+    "registry_key": "LONG_TERM_DEDUCTION_RATE_TABLE2",
+    "law_name": "소득세법",
+    "mst": "285523"
+  }
+]

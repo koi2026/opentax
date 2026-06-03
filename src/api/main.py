@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from src.api.routes.admin import router as admin_router
 from src.api.routes.chat import router as chat_router
 
 app = FastAPI(
@@ -12,9 +13,9 @@ app = FastAPI(
 )
 
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
