@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 import random
 import sys
 from pathlib import Path
@@ -11,12 +12,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import requests
 import streamlit as st
 
+import src.ui.chrome as ui_chrome
 from src.api.sample_cases import SAMPLE_CASES
 from src.ui.api_client import stream_chat
 from src.ui.renderers import render_fact_korean, render_pipeline_result, render_realtime_event
 
 
-st.set_page_config(page_title="양도소득세 판단", page_icon="⚖️", layout="wide")
+ui_chrome = importlib.reload(ui_chrome)
+st.set_page_config(page_title="opentax", page_icon="o", layout="wide")
+ui_chrome.apply_chatgpt_style()
 
 for key, default in [
     ("fact_json_str", ""),
@@ -28,10 +32,9 @@ for key, default in [
         st.session_state[key] = default
 
 with st.sidebar:
-    st.title("양도소득세 판단")
-    st.caption("법령 조문 기반 — 법률 자문이 아닌 정보 제공 목적입니다.")
-    st.divider()
-    st.subheader("케이스 생성기")
+    ui_chrome.render_sidebar_nav("chat")
+    st.markdown('<div class="opentax-sidebar-bottom-spacer"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="opentax-sidebar-label">케이스 생성기</div>', unsafe_allow_html=True)
 
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -62,7 +65,18 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-st.markdown("## 양도소득세 판단 채팅")
+is_empty_chat = not st.session_state.messages and not st.session_state.run_analysis
+
+if is_empty_chat:
+    st.markdown(
+        """
+<div class="opentax-empty-chat"></div>
+<h1 class="opentax-empty-chat-title">법령과 사실관계를 기반으로 양도소득세를 판단합니다.</h1>
+""",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown("## 법령과 사실관계를 기반으로 양도소득세를 판단합니다.")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
