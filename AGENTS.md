@@ -31,7 +31,7 @@ JSON 사실관계 입력 → L2(팩트체크) → L3(쿼리 보강) → L4(법�
 | 버전 관리 | effective_date / expiration_date 정수(YYYYMMDD) |
 | 임베딩 | Upstage Solar (solar-embedding-1-large-passage), fallback: OpenAI text-embedding-3-large |
 | 벡터 DB | Pinecone Serverless (cosine, dim=4096) |
-| Reranker | BAAI/bge-reranker-v2-m3 (CrossEncoder) |
+| Reranker | 세법 파인튜닝 BGE CrossEncoder (`data/models/bge-reranker-tax-rag`, 별도 다운로드) |
 | LLM | Claude Sonnet 4.6 (기본), Claude Opus 4.7 (고정밀) |
 | 파이프라인 | src/domain/pipeline.py — L2~L5 오케스트레이터 |
 | 채팅 API | src/api/main.py — POST /api/v1/chat + POST /api/v1/chat/stream |
@@ -236,6 +236,8 @@ scripts/detect_law_changes.py
 > 4. Drive → 로컬 `data/models/bge-reranker-tax-rag/` 교체
 > 5. `.env`: `BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag`
 > 6. `python -m scripts.run_baseline_eval --workers 3` → 정확도 85% 이상 확인
+>
+> **모델 배포 원칙:** `data/models/`는 `.gitignore` 대상이다. 파인튜닝된 BGE 모델 가중치는 Git에 커밋하지 않고 Drive/S3 등 별도 저장소에서 다운로드해 `data/models/bge-reranker-tax-rag/`에 배치한다. 모델 교체 후 API/MCP 프로세스를 재시작해야 새 reranker가 적용된다.
 >
 > **재파인튜닝 트리거:** `data/red_wins/` 50건 초과 시.
 
@@ -512,7 +514,7 @@ PINECONE_NAMESPACE=tax-law
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 
-BGE_RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag
 RETRIEVER_TOP_K=20
 RETRIEVER_RERANK_TOP_N=7
 

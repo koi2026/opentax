@@ -110,12 +110,32 @@ cd korean-tax-rag
 pip install -r requirements.txt
 cp .env.example .env   # API 키 입력
 
+# BGE reranker 파인튜닝 모델은 저장소에 포함되지 않습니다.
+# 별도 다운로드 후 아래 경로에 배치하세요.
+# data/models/bge-reranker-tax-rag/
+
 python -m src.mcp.server --sse   # MCP 검색 서버 → http://localhost:8001
 uvicorn src.api.main:app         # API → http://localhost:8000
 streamlit run src/ui/app.py      # UI  → http://localhost:8501
 ```
 
 역할 경계: UI는 API만 호출하고, API는 MCP의 `retrieve_tax_context` 도구로 검색한 chunk만 사용해 L2~L5 판단을 수행합니다.
+
+### BGE 파인튜닝 모델 적용
+
+세법 도메인 파인튜닝된 BGE reranker 모델은 대용량 파일이므로 Git에 커밋하지 않습니다. 운영·개발 환경에서는 별도 공유 스토리지에서 모델을 다운로드해 다음 경로에 둡니다.
+
+```text
+data/models/bge-reranker-tax-rag/
+```
+
+`.env`에는 아래 값을 사용합니다.
+
+```env
+BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag
+```
+
+모델 교체 후에는 API/MCP 프로세스를 재시작해야 새 CrossEncoder가 로드됩니다.
 
 ---
 
@@ -149,7 +169,7 @@ src/
 data/
 ├── golden/                # 골든셋 (142건 종합 케이스)
 ├── tax_tables/            # 세율표 JSON (TaxConstantsRegistry 소스)
-└── models/                # BGE 파인튜닝 모델 (별도 관리)
+└── models/                # BGE 파인튜닝 모델 (별도 다운로드, Git 제외)
 
 scripts/
 ├── collect_and_embed_rulings.py  # 증분 수집 + 임베딩 스케줄러
