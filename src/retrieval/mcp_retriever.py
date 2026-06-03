@@ -32,11 +32,18 @@ async def _call_mcp_tool_async(
             await session.initialize()
             result = await session.call_tool(tool_name, arguments)
 
+    content = getattr(result, "content", None) or []
+    if getattr(result, "isError", False):
+        message = ""
+        if content:
+            first = content[0]
+            message = first.get("text", "") if isinstance(first, dict) else getattr(first, "text", "")
+        raise RuntimeError(f"MCP tool {tool_name} failed: {message or result}")
+
     structured = getattr(result, "structuredContent", None) or getattr(result, "structured_content", None)
     if isinstance(structured, dict):
         return structured
 
-    content = getattr(result, "content", None) or []
     if content:
         first = content[0]
         if isinstance(first, dict):
@@ -46,7 +53,10 @@ async def _call_mcp_tool_async(
         else:
             text = getattr(first, "text", None)
         if text:
-            parsed = json.loads(text)
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"MCP tool {tool_name} returned non-JSON text: {text}") from exc
             if isinstance(parsed, dict):
                 return parsed
 
@@ -120,4 +130,3 @@ class McpTaxLawRetriever(TaxLawRetriever):
     def _get_content(self, chunk_id: str) -> str:
         chunk = self._cache.get(chunk_id)
         return chunk.content if chunk else ""
-

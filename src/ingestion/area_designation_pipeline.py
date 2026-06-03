@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import smtplib
@@ -377,3 +378,21 @@ def get_degraded_warning() -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="규제지역 변경 감지 파이프라인을 실행합니다."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="소스만 점검하고 제안서 저장/알림/manual_table 반영은 생략합니다.",
+    )
+    args = parser.parse_args()
+    summary = run_pipeline(dry_run=args.dry_run)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

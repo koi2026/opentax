@@ -1,25 +1,8 @@
-"""
-행정 고시 수집 모듈
+"""Administrative notice data models and area designation lookup helpers.
 
-수집 범위 확장 로드맵:
-  ① 세법   : law.go.kr           → src/ingestion/collect.py  (기구현)
-  ② 행정   : 국토부/MOEF 고시    → 이 모듈 (조정대상지역, 투기과열지구, 공시지가 기준)
-  ③ 금융   : 금융위/금감원 고시  → 이 모듈 (DSR, LTV, 특례보금자리론 한도)
-
-관계부처 합동 발표 패턴:
-  부동산 대책 = 기획재정부 + 국토교통부 + 금융위원회 동시 발표
-  → ① 세제(collect.py) + ② 행정(이 모듈) + ③ 금융(이 모듈)을 함께 수집해야
-    "비과세 요건 + 현재 조정대상지역 여부 + DSR 규제" 통합 상담이 가능함
-
-API 연동 현황:
-  ② 조정대상지역: 국토교통부 공공데이터포털 API (TODO: MOEF_API_KEY 발급)
-  ② 투기과열지구: 동일 API
-  ③ 금융규제:     금융위원회 OpenAPI (TODO: FSC_API_KEY 발급)
-
-환경변수:
-  MOEF_API_KEY=   # 국토교통부 공공데이터포털 API 키
-  FSC_API_KEY=    # 금융위원회 OpenAPI 키
-  ADMIN_NOTICES_DIR=data/admin_notices  # 수집 결과 저장 경로
+Canonical regulatory-area data lives in ``data/area_designations/manual_table.json``.
+Change detection is handled by ``src.ingestion.area_designation_pipeline``.
+This module remains as a lookup/model compatibility layer for API and MCP tools.
 """
 from __future__ import annotations
 
@@ -316,5 +299,6 @@ async def run_collect_all() -> AdminNoticesDB:
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(run_collect_all())
+    from src.ingestion.area_designation_pipeline import main
+
+    main()

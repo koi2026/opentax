@@ -12,6 +12,7 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -354,6 +355,37 @@ def _load_area_summary() -> tuple[int, int, str]:
 
 # ── 헬퍼: Pinecone 네임스페이스 통계 ──────────────────────────────────────────
 
+_PINECONE_NAMESPACE_LABELS = {
+    "tax-law": "법령 조문",
+    "tax-ruling-moef": "기재부 법령해석",
+    "tax-ruling-nts": "국세청 질의회신",
+    "tax-ruling-nts-interp": "국세청 법령해석",
+    "tax-ruling-decisions": "심판청구·판례",
+    "tax-ruling-pdf": "세법집행기준 PDF",
+}
+
+
+def _obj_to_dict(value: Any) -> dict:
+    """Pinecone SDK 응답 객체를 Streamlit 표시용 dict로 정규화."""
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "to_dict"):
+        try:
+            return value.to_dict()
+        except Exception:
+            pass
+    if hasattr(value, "dict"):
+        try:
+            return value.dict()
+        except Exception:
+            pass
+    return {}
+
+
+def _vector_count(ns_info: Any) -> int:
+    data = _obj_to_dict(ns_info)
+    return int(data.get("vector_count") or data.get("vectorCount") or 0)
+
 @st.cache_data(ttl=300)
 def _load_pinecone_stats() -> dict[str, int]:
     """Pinecone describe_index_stats() → 네임스페이스별 벡터 수 반환.
@@ -364,10 +396,260 @@ def _load_pinecone_stats() -> dict[str, int]:
         from src.infra.pinecone_client import get_pinecone_index
         idx = get_pinecone_index()
         stats = idx.describe_index_stats()
-        ns = stats.get("namespaces") or {}
-        return {k: v.get("vector_count", 0) for k, v in ns.items()}
+        stats_d = _obj_to_dict(stats)
+        ns = stats_d.get("namespaces") or {}
+        return {k: _vector_count(v) for k, v in ns.items()}
     except Exception:
         return {}
+
+
+@st.cache_data(ttl=300)
+def _load_pinecone_overview() -> dict:
+    """Pinecone 인덱스 구성과 namespace 통계를 live API에서 조회."""
+    try:
+        from src.config import PINECONE_INDEX_NAME
+        from src.infra.pinecone_client import get_pinecone_index
+
+        idx = get_pinecone_index()
+        raw_stats = _obj_to_dict(idx.describe_index_stats())
+        namespaces = raw_stats.get("namespaces") or {}
+        ns_rows = []
+        for ns, info in sorted(namespaces.items()):
+            ns_rows.append({
+                "namespace": ns,
+                "라벨": _PINECONE_NAMESPACE_LABELS.get(ns, "기타"),
+                "벡터 수": _vector_count(info),
+            })
+
+        return {
+            "ok": True,
+            "index_name": PINECONE_INDEX_NAME,
+            "dimension": raw_stats.get("dimension", "—"),
+            "metric": raw_stats.get("metric", "—"),
+            "vector_type": raw_stats.get("vector_type") or raw_stats.get("vectorType") or "—",
+            "total_vector_count": int(raw_stats.get("total_vector_count") or raw_stats.get("totalVectorCount") or 0),
+            "index_fullness": raw_stats.get("index_fullness") or raw_stats.get("indexFullness") or 0,
+            "namespace_rows": ns_rows,
+            "raw": raw_stats,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "namespace_rows": []}
+
+
+_NAMESPACE_ACCENTS = {
+    "tax-law": ("#0f766e", "#ecfdf5"),
+    "tax-ruling-moef": ("#7c3aed", "#f5f3ff"),
+    "tax-ruling-nts": ("#2563eb", "#eff6ff"),
+    "tax-ruling-nts-interp": ("#0891b2", "#ecfeff"),
+    "tax-ruling-decisions": ("#b45309", "#fffbeb"),
+    "tax-ruling-pdf": ("#be123c", "#fff1f2"),
+}
+
+
+def _fmt_count(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except Exception:
+        return "0"
+
+
+def _render_namespace_callouts(namespace_rows: list[dict], total_count: int) -> None:
+    """Render Pinecone namespace stats as compact callout cards."""
+    if not namespace_rows:
+        st.warning("namespace 통계가 비어 있습니다.")
+        return
+
+    sorted_rows = sorted(namespace_rows, key=lambda row: int(row.get("벡터 수") or 0), reverse=True)
+    active_count = sum(1 for row in sorted_rows if int(row.get("벡터 수") or 0) > 0)
+    top_row = sorted_rows[0]
+    top_pct = (int(top_row.get("벡터 수") or 0) / total_count * 100) if total_count else 0
+
+    st.markdown(
+        f"""
+<div style="
+    border:1px solid #d9e2ec;
+    border-left:5px solid #0f766e;
+    background:#f8fafc;
+    border-radius:8px;
+    padding:14px 16px;
+    margin:8px 0 14px 0;
+">
+  <div style="display:flex;gap:18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;">
+    <div>
+      <div style="font-size:13px;color:#475569;font-weight:700;margin-bottom:4px;">Namespace 현황</div>
+      <div style="font-size:15px;color:#111827;line-height:1.5;">
+        활성 namespace <strong>{active_count}</strong>개 · 전체 벡터 <strong>{_fmt_count(total_count)}</strong>개
+      </div>
+    </div>
+    <div style="font-size:13px;color:#475569;text-align:right;line-height:1.5;">
+      최대 비중: <strong>{html.escape(str(top_row.get("라벨", "기타")))}</strong><br>
+      {top_pct:.1f}% · {html.escape(str(top_row.get("namespace", "")))}
+    </div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    card_html = ['<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:12px;">']
+    for row in sorted_rows:
+        namespace = str(row.get("namespace", ""))
+        label = str(row.get("라벨", "기타"))
+        count = int(row.get("벡터 수") or 0)
+        pct = (count / total_count * 100) if total_count else 0
+        accent, bg = _NAMESPACE_ACCENTS.get(namespace, ("#64748b", "#f8fafc"))
+        card_html.append(
+            f"""
+<div style="
+    border:1px solid #d8dee9;
+    border-left:5px solid {accent};
+    background:{bg};
+    border-radius:8px;
+    padding:13px 14px 12px 14px;
+    min-height:112px;
+    box-sizing:border-box;
+">
+  <div style="color:{accent};font-size:13px;font-weight:800;margin-bottom:8px;white-space:normal;overflow-wrap:anywhere;">
+    {html.escape(label)}
+  </div>
+  <div style="color:#0f172a;font-size:24px;font-weight:850;line-height:1.1;margin-bottom:8px;">
+    {_fmt_count(count)}
+  </div>
+  <div style="height:6px;background:rgba(15,23,42,0.10);border-radius:999px;overflow:hidden;margin-bottom:8px;">
+    <div style="width:{max(2 if count else 0, min(pct, 100)):.2f}%;height:100%;background:{accent};"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;gap:10px;color:#475569;font-size:12px;line-height:1.35;">
+    <span style="overflow-wrap:anywhere;">{html.escape(namespace)}</span>
+    <strong>{pct:.1f}%</strong>
+  </div>
+</div>
+"""
+        )
+    card_html.append("</div>")
+    st.markdown("".join(card_html), unsafe_allow_html=True)
+
+
+def _list_namespace_ids(index, namespace: str, limit: int) -> list[str]:
+    ids: list[str] = []
+    try:
+        for page in index.list(namespace=namespace):
+            for item in page:
+                if isinstance(item, dict):
+                    item_id = item.get("id")
+                else:
+                    item_id = getattr(item, "id", None) or item
+                if item_id:
+                    ids.append(str(item_id))
+            if len(ids) >= limit:
+                return ids[:limit]
+    except Exception:
+        return []
+    return ids[:limit]
+
+
+def _summarize_namespace_records(namespace: str, vectors: dict) -> dict:
+    rows: list[dict] = []
+    warnings: list[str] = []
+    field_missing = defaultdict(int)
+    law_counts = defaultdict(int)
+    source_counts = defaultdict(int)
+    article_type_counts = defaultdict(int)
+    anchor_counts = defaultdict(int)
+    min_eff: int | None = None
+    max_eff: int | None = None
+    current_count = 0
+
+    required_common = ["full_text", "source_label"]
+    required_law = ["law_name", "article_number", "effective_date", "expiration_date"]
+    required_ruling = ["title", "issued_at", "doc_number"]
+
+    for vector_id, vec in vectors.items():
+        vec_d = _obj_to_dict(vec)
+        meta = _obj_to_dict(vec_d.get("metadata") or getattr(vec, "metadata", {}) or {})
+        required = required_common + (required_law if namespace == "tax-law" else required_ruling)
+        for key in required:
+            if meta.get(key) in (None, "", []):
+                field_missing[key] += 1
+
+        law_name = str(meta.get("law_name") or "")
+        source_label = str(meta.get("source_label") or meta.get("source") or "")
+        if law_name:
+            law_counts[law_name] += 1
+        if source_label:
+            source_counts[source_label] += 1
+        if meta.get("article_type"):
+            article_type_counts[str(meta["article_type"])] += 1
+        if meta.get("applicability_anchor"):
+            anchor_counts[str(meta["applicability_anchor"])] += 1
+
+        eff = meta.get("effective_date")
+        exp = meta.get("expiration_date")
+        try:
+            eff_i = int(float(eff)) if eff not in (None, "") else 0
+            if eff_i:
+                min_eff = eff_i if min_eff is None else min(min_eff, eff_i)
+                max_eff = eff_i if max_eff is None else max(max_eff, eff_i)
+        except Exception:
+            field_missing["effective_date_format"] += 1
+        try:
+            if int(float(exp)) == 99991231:
+                current_count += 1
+        except Exception:
+            if namespace == "tax-law":
+                field_missing["expiration_date_format"] += 1
+
+        full_text = str(meta.get("full_text") or "")
+        rows.append({
+            "chunk_id": str(vec_d.get("id") or vector_id),
+            "출처": source_label or "—",
+            "법령/제목": law_name or str(meta.get("title") or "—"),
+            "조문/문서번호": str(meta.get("article_number") or meta.get("doc_number") or "—"),
+            "시행/발행일": _fmt_date8(meta.get("effective_date") or meta.get("issued_at")),
+            "만료일": _fmt_date8(meta.get("expiration_date")) if namespace == "tax-law" else "—",
+            "본문 미리보기": full_text[:180] + ("..." if len(full_text) > 180 else ""),
+        })
+
+    sample_count = len(rows)
+    for key, count in sorted(field_missing.items()):
+        if count:
+            warnings.append(f"{key} 누락/이상 {count}/{sample_count}건")
+
+    return {
+        "rows": rows,
+        "warnings": warnings,
+        "law_counts": dict(sorted(law_counts.items(), key=lambda x: x[1], reverse=True)[:20]),
+        "source_counts": dict(sorted(source_counts.items(), key=lambda x: x[1], reverse=True)[:20]),
+        "article_type_counts": dict(article_type_counts),
+        "anchor_counts": dict(anchor_counts),
+        "min_effective_date": min_eff,
+        "max_effective_date": max_eff,
+        "current_count": current_count,
+        "sample_count": sample_count,
+    }
+
+
+@st.cache_data(ttl=300)
+def _load_pinecone_namespace_sample(namespace: str, limit: int = 50) -> dict:
+    """namespace 샘플 ID를 list/fetch로 조회해 metadata 품질을 요약."""
+    try:
+        from src.infra.pinecone_client import get_pinecone_index
+
+        idx = get_pinecone_index()
+        ids = _list_namespace_ids(idx, namespace, limit)
+        if not ids:
+            return {
+                "ok": False,
+                "error": "ID 목록을 가져오지 못했습니다. serverless list 지원 여부와 namespace를 확인하세요.",
+                "rows": [],
+            }
+        res = idx.fetch(ids=ids, namespace=namespace)
+        res_d = _obj_to_dict(res)
+        vectors = res_d.get("vectors") or {}
+        summary = _summarize_namespace_records(namespace, vectors)
+        summary.update({"ok": True, "ids": ids})
+        return summary
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "rows": []}
 
 
 # ── 헬퍼: 모니터링 데이터 로드 ─────────────────────────────────────────────────
@@ -450,8 +732,9 @@ try:
 except Exception:
     pending_proposals = []
 
-tab_dash, tab_law, tab_collect = st.tabs([
+tab_dash, tab_pinecone, tab_law, tab_collect = st.tabs([
     "📊 대시보드",
+    "🧭 Pinecone 인덱스",
     "📜 법령 데이터",
     "🧰 법령 수집",
 ])
@@ -577,8 +860,129 @@ with tab_dash:
             for _rec in change_log_preview:
                 st.caption(f"{_rec.get('detected_at', '')[:16]}  {_rec.get('law_name', _rec.get('event', ''))}")
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# 탭 2: 법령 데이터 (전체 스프레드시트, 필터 없음)
+# 탭 2: Pinecone 인덱스
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_pinecone:
+    st.caption("Pinecone live API 기준입니다. 샘플 분석은 namespace별 앞쪽 ID 일부를 fetch해 metadata 품질을 점검합니다.")
+
+    _pc_overview = _load_pinecone_overview()
+    if not _pc_overview.get("ok"):
+        st.error(f"Pinecone 정보를 불러오지 못했습니다: {_pc_overview.get('error', 'unknown error')}")
+        st.caption("PINECONE_API_KEY, PINECONE_INDEX_NAME, 네트워크 접근 권한을 확인하세요.")
+    else:
+        _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+        _m1.metric("인덱스", _pc_overview.get("index_name", "—"))
+        _m2.metric("전체 벡터", f"{_pc_overview.get('total_vector_count', 0):,}")
+        _m3.metric("차원", _pc_overview.get("dimension", "—"))
+        _m4.metric("metric", _pc_overview.get("metric", "—"))
+        _m5.metric("vector type", _pc_overview.get("vector_type", "—"))
+
+        _ns_rows = _pc_overview.get("namespace_rows", [])
+        st.markdown("#### Namespace 현황")
+        if _ns_rows:
+            _render_namespace_callouts(_ns_rows, _pc_overview.get("total_vector_count", 0))
+        else:
+            st.warning("namespace 통계가 비어 있습니다.")
+
+        st.markdown("#### 샘플 metadata 점검")
+        _available_namespaces = [row["namespace"] for row in _ns_rows]
+        _default_ns = "tax-law" if "tax-law" in _available_namespaces else (_available_namespaces[0] if _available_namespaces else "")
+        if not _available_namespaces:
+            st.info("샘플을 조회할 namespace가 없습니다.")
+        else:
+            _pcol1, _pcol2 = st.columns([2, 1])
+            with _pcol1:
+                _selected_ns = st.selectbox(
+                    "namespace",
+                    _available_namespaces,
+                    index=_available_namespaces.index(_default_ns),
+                    format_func=lambda ns: f"{ns} · {_PINECONE_NAMESPACE_LABELS.get(ns, '기타')}",
+                )
+            with _pcol2:
+                _sample_limit = st.slider("샘플 수", min_value=10, max_value=200, value=50, step=10)
+
+            _sample = _load_pinecone_namespace_sample(_selected_ns, _sample_limit)
+            if not _sample.get("ok"):
+                st.warning(_sample.get("error", "샘플 조회 실패"))
+            else:
+                _s1, _s2, _s3, _s4 = st.columns(4)
+                _s1.metric("샘플", f"{_sample.get('sample_count', 0):,}건")
+                _s2.metric("현행 법령", f"{_sample.get('current_count', 0):,}건" if _selected_ns == "tax-law" else "—")
+                _s3.metric("최초 시행일", _fmt_date8(_sample.get("min_effective_date")) if _selected_ns == "tax-law" else "—")
+                _s4.metric("최신 시행일", _fmt_date8(_sample.get("max_effective_date")) if _selected_ns == "tax-law" else "—")
+
+                _warnings = _sample.get("warnings", [])
+                if _warnings:
+                    with st.expander("무결성 경고", expanded=True):
+                        for _warning in _warnings:
+                            st.warning(_warning)
+                else:
+                    st.success("샘플 기준 필수 metadata 누락이 없습니다.")
+
+                _dist_col1, _dist_col2 = st.columns(2)
+                with _dist_col1:
+                    if _selected_ns == "tax-law":
+                        _law_counts = _sample.get("law_counts", {})
+                        st.markdown("**법령명 분포**")
+                        if _law_counts:
+                            st.dataframe(
+                                pd.DataFrame([{"법령명": k, "샘플 수": v} for k, v in _law_counts.items()]),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                        else:
+                            st.caption("법령명 metadata가 없습니다.")
+                    else:
+                        _source_counts = _sample.get("source_counts", {})
+                        st.markdown("**출처 분포**")
+                        if _source_counts:
+                            st.dataframe(
+                                pd.DataFrame([{"출처": k, "샘플 수": v} for k, v in _source_counts.items()]),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                        else:
+                            st.caption("출처 metadata가 없습니다.")
+                with _dist_col2:
+                    st.markdown("**유형/앵커 분포**")
+                    _type_counts = _sample.get("article_type_counts", {})
+                    _anchor_counts = _sample.get("anchor_counts", {})
+                    _dist_rows = (
+                        [{"구분": "조문 유형", "값": k, "샘플 수": v} for k, v in _type_counts.items()]
+                        + [{"구분": "적용 앵커", "값": k, "샘플 수": v} for k, v in _anchor_counts.items()]
+                    )
+                    if _dist_rows:
+                        st.dataframe(pd.DataFrame(_dist_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("유형/앵커 metadata가 없습니다.")
+
+                st.markdown("#### 샘플 청크")
+                _sample_rows = _sample.get("rows", [])
+                if _sample_rows:
+                    st.dataframe(
+                        pd.DataFrame(_sample_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=min(520, max(180, (len(_sample_rows) + 1) * 35)),
+                        column_config={
+                            "chunk_id": st.column_config.TextColumn("chunk_id", width="medium"),
+                            "출처": st.column_config.TextColumn("출처", width="medium"),
+                            "법령/제목": st.column_config.TextColumn("법령/제목", width="large"),
+                            "조문/문서번호": st.column_config.TextColumn("조문/문서번호", width="small"),
+                            "시행/발행일": st.column_config.TextColumn("시행/발행일", width="small"),
+                            "만료일": st.column_config.TextColumn("만료일", width="small"),
+                            "본문 미리보기": st.column_config.TextColumn("본문 미리보기", width="large"),
+                        },
+                    )
+                else:
+                    st.caption("표시할 샘플 청크가 없습니다.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 탭 3: 법령 데이터 (전체 스프레드시트, 필터 없음)
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_law:

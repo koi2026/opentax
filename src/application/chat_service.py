@@ -57,6 +57,23 @@ def _empty_input_response(session_id: str) -> dict[str, Any]:
     }
 
 
+def _runtime_error_response(session_id: str, exc: Exception) -> dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "verdict": "사실관계부족",
+        "answer": f"검색/판단 처리 중 오류가 발생했습니다: {exc}",
+        "confidence": 0.0,
+        "citations": [],
+        "chunk_ids": [],
+        "missing_facts": [],
+        "warnings": [str(exc)],
+        "blocked": True,
+        "mode": "pipeline",
+        "consulting_scenarios": [],
+        "debate_record": None,
+    }
+
+
 async def run_chat(
     fact_json: Optional[dict[str, Any]] = None,
     question: Optional[str] = None,
@@ -74,14 +91,17 @@ async def run_chat(
             return _input_error_response(sid, exc)
 
         retriever = McpTaxLawRetriever(fact_json=fact_json)
-        result = await run_rag_pipeline(
-            query,
-            retriever,
-            llm_fn,
-            fact_json=fact_json,
-            enable_debate=enable_debate,
-            query_mode=query_mode,
-        )
+        try:
+            result = await run_rag_pipeline(
+                query,
+                retriever,
+                llm_fn,
+                fact_json=fact_json,
+                enable_debate=enable_debate,
+                query_mode=query_mode,
+            )
+        except Exception as exc:
+            return _runtime_error_response(sid, exc)
         return pipeline_result_to_response(result, session_id=sid, mode="pipeline")
 
     if question:
@@ -134,15 +154,18 @@ async def stream_chat(
         return
 
     retriever = McpTaxLawRetriever(fact_json=fact_json)
-    async for item in run_rag_pipeline_stream(
-        query,
-        retriever,
-        llm_fn_stream,
-        fact_json=fact_json,
-        enable_debate=enable_debate,
-        query_mode=query_mode,
-    ):
-        if isinstance(item, PipelineResult):
-            yield pipeline_result_to_response(item, session_id=sid, mode="pipeline")
-        else:
-            yield item
+    try:
+        async for item in run_rag_pipeline_stream(
+            query,
+            retriever,
+            llm_fn_stream,
+            fact_json=fact_json,
+            enable_debate=enable_debate,
+            query_mode=query_mode,
+        ):
+            if isinstance(item, PipelineResult):
+                yield pipeline_result_to_response(item, session_id=sid, mode="pipeline")
+            else:
+                yield item
+    except Exception as exc:
+        yield _runtime_error_response(sid, exc)
