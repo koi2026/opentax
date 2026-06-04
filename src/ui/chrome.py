@@ -24,11 +24,11 @@ def apply_chatgpt_style() -> None:
 <style>
 :root {
   --opentax-navy: #112052;
-  --opentax-sky: #73C9FF;
+  --opentax-sky: #112052;
   --opentax-white: #FFFFFF;
   --opentax-sidebar: #F8FBFF;
   --opentax-sidebar-muted: rgba(17, 32, 82, 0.58);
-  --opentax-sidebar-active: rgba(115, 201, 255, 0.34);
+  --opentax-sidebar-active: rgba(17, 32, 82, 0.10);
   --opentax-border: rgba(17, 32, 82, 0.10);
   --opentax-main: #FFFFFF;
   --opentax-text: #112052;
@@ -149,28 +149,56 @@ section[data-testid="stSidebar"] button {
   color: var(--opentax-navy);
 }
 
+div[data-testid="stSidebar"] .stButton,
+section[data-testid="stSidebar"] .stButton {
+  margin-bottom: 0;
+}
+
+div[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] .stButton > button {
+  min-height: 36px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"],
 section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"][kind="primary"],
 div[data-testid="stSidebar"] button[kind="primary"],
 div[data-testid="stSidebar"] .stButton > button[kind="primary"] {
   background: var(--opentax-sky) !important;
-  color: var(--opentax-navy) !important;
+  color: var(--opentax-white) !important;
   border-color: var(--opentax-sky) !important;
 }
 
 div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] p,
 div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] span {
-  color: var(--opentax-navy) !important;
+  color: var(--opentax-white) !important;
+}
+
+[data-testid="stBaseButton-primary"],
+button[data-testid="stBaseButton-primary"][kind="primary"],
+.stButton > button[kind="primary"] {
+  color: var(--opentax-white) !important;
+}
+
+[data-testid="stBaseButton-primary"] p,
+[data-testid="stBaseButton-primary"] span,
+.stButton > button[kind="primary"] p,
+.stButton > button[kind="primary"] span {
+  color: var(--opentax-white) !important;
 }
 
 .opentax-logo {
   display: flex;
   align-items: center;
   height: 44px;
-  margin-top: -84px;
-  padding: 0 42px 0 0;
-  position: relative;
-  z-index: 2;
+  width: 158px;
+  margin: 0;
+  padding: 0;
+  position: fixed;
+  top: 14px;
+  left: 22px;
+  z-index: 30;
   pointer-events: none;
 }
 
@@ -184,7 +212,7 @@ div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] span {
 
 .opentax-logo-card img {
   display: block;
-  width: min(154px, 100%);
+  width: min(118px, 100%);
   height: auto;
 }
 
@@ -192,8 +220,8 @@ div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] span {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 18px;
-  margin-bottom: 12px;
+  margin-top: -24px;
+  margin-bottom: 24px;
 }
 
 .opentax-nav a {
@@ -212,7 +240,6 @@ div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] span {
 .opentax-nav a.active {
   background: var(--opentax-sidebar-active);
   color: var(--opentax-navy) !important;
-  box-shadow: inset 3px 0 0 var(--opentax-sky);
 }
 
 .opentax-sidebar-label {
@@ -222,27 +249,132 @@ div[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] span {
   margin: 14px 0 8px 2px;
 }
 
-div[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(.opentax-sidebar-bottom-spacer),
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(.opentax-sidebar-bottom-spacer) {
-  min-height: calc(100vh - 42px);
+.opentax-sidebar-footer {
+  position: fixed;
+  left: 24px;
+  bottom: 18px;
+  width: min(236px, calc(100vw - 48px));
+  z-index: 5;
 }
 
-div[data-testid="stMarkdownContainer"]:has(.opentax-sidebar-bottom-spacer) {
-  flex: 1 1 auto;
-  min-height: clamp(180px, 38vh, 320px);
+.opentax-sidebar-footer .opentax-sidebar-label {
+  margin-top: 0;
 }
 
-.opentax-sidebar-bottom-spacer {
-  height: 100%;
+.opentax-sidebar-footer p {
+  margin-bottom: 0;
+}
+
+.opentax-case-summary-slot {
+  min-height: 46px;
+}
+
+.opentax-case-summary {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #E7F0FF;
+  color: var(--opentax-navy);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.opentax-case-summary span {
+  font-weight: 600;
+}
+
+div[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"]:has(.opentax-case-summary),
+section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"]:has(.opentax-case-summary),
+div[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"]:has(.opentax-case-summary-slot),
+section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"]:has(.opentax-case-summary-slot) {
+  margin-bottom: 0;
+}
+
+div[data-testid="stSidebar"] div[data-testid="stAlert"],
+section[data-testid="stSidebar"] div[data-testid="stAlert"] {
+  box-sizing: border-box;
+}
+
+div[data-testid="stSidebar"] div[data-testid="stAlert"] p,
+section[data-testid="stSidebar"] div[data-testid="stAlert"] p {
+  margin-bottom: 0;
+}
+
+div[data-testid="stSidebar"] .st-key-case_generator_block,
+section[data-testid="stSidebar"] .st-key-case_generator_block {
+  padding-bottom: 18px;
+}
+
+div[data-testid="stSidebar"] div:has(> .st-key-case_generator_block),
+section[data-testid="stSidebar"] div:has(> .st-key-case_generator_block) {
+  margin-top: auto !important;
+}
+
+div[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(.st-key-case_generator_block),
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"]:has(.st-key-case_generator_block) {
+  min-height: calc(100vh - 116px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
 }
 
 .stApp {
   background: var(--opentax-main);
 }
 
+.opentax-empty-chat {
+  position: fixed;
+  top: 50%;
+  left: calc(50% + 150px);
+  width: min(920px, 76vw);
+  height: min(640px, 62vh);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.82;
+  filter: blur(34px) saturate(122%);
+  background:
+    radial-gradient(circle at 50% 48%, rgba(115, 201, 255, 0.58) 0%, rgba(115, 201, 255, 0.32) 22%, transparent 58%),
+    radial-gradient(circle at 30% 62%, rgba(115, 201, 255, 0.28) 0%, transparent 44%),
+    radial-gradient(circle at 72% 36%, rgba(17, 32, 82, 0.13) 0%, transparent 38%),
+    conic-gradient(from 120deg at 50% 50%, transparent 0deg, rgba(115, 201, 255, 0.28) 82deg, transparent 168deg, rgba(115, 201, 255, 0.20) 250deg, transparent 360deg);
+  animation: opentax-diffuse 8s ease-in-out infinite alternate;
+}
+
+.stApp:has(.opentax-empty-chat) div[data-testid="stSidebar"],
+.stApp:has(.opentax-empty-chat) section[data-testid="stSidebar"] {
+  position: relative;
+  z-index: 20;
+}
+
+@keyframes opentax-diffuse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.88) rotate(-2deg);
+    border-radius: 46% 54% 52% 48%;
+  }
+
+  55% {
+    transform: translate(-50%, -50%) scale(1.04) rotate(3deg);
+    border-radius: 58% 42% 46% 54%;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1.16) rotate(-1deg);
+    border-radius: 50% 50% 58% 42%;
+  }
+}
+
 .opentax-empty-chat-title {
   position: fixed;
-  top: calc(50vh - 30px);
+  top: calc(50vh - 54px);
   left: calc(50% + 150px);
   transform: translateX(-50%);
   width: min(760px, calc(100vw - 360px));
@@ -261,7 +393,7 @@ div[data-testid="stMarkdownContainer"]:has(.opentax-sidebar-bottom-spacer) {
 .stApp:has(.opentax-empty-chat) div[data-testid="stChatInput"] {
   position: fixed !important;
   bottom: auto !important;
-  top: calc(50vh + 28px) !important;
+  top: calc(50vh + 4px) !important;
   left: calc(50% + 150px) !important;
   transform: translateX(-50%);
   width: min(760px, calc(100vw - 360px));
@@ -270,6 +402,12 @@ div[data-testid="stMarkdownContainer"]:has(.opentax-sidebar-bottom-spacer) {
 }
 
 @media (max-width: 900px) {
+  .opentax-empty-chat {
+    left: 50% !important;
+    width: min(680px, 96vw);
+    height: min(560px, 58vh);
+  }
+
   .opentax-empty-chat-title {
     left: 50% !important;
     width: min(760px, calc(100vw - 32px));
@@ -308,7 +446,7 @@ div[data-testid="stChatInput"] div:has(> textarea) {
 
 div[data-testid="stChatInput"] button {
   background: var(--opentax-sky);
-  color: var(--opentax-navy);
+  color: var(--opentax-white);
 }
 
 .main .block-container {

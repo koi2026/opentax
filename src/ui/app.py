@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import html
 import importlib
 import random
 import sys
@@ -33,37 +34,44 @@ for key, default in [
 
 with st.sidebar:
     ui_chrome.render_sidebar_nav("chat")
-    st.markdown('<div class="opentax-sidebar-bottom-spacer"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="opentax-sidebar-label">케이스 생성기</div>', unsafe_allow_html=True)
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("랜덤 케이스", use_container_width=True):
-            pool = [c for c in SAMPLE_CASES if c["category"] != "사실관계부족"]
-            case = random.choice(pool)
-            st.session_state.fact_json_str = json.dumps(case["fact_json"], ensure_ascii=False, indent=2)
-            st.session_state.current_case_label = case["label"]
+    with st.container(key="case_generator_block"):
+        st.markdown('<div class="opentax-sidebar-label">케이스 생성기</div>', unsafe_allow_html=True)
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("랜덤 케이스", use_container_width=True):
+                pool = [c for c in SAMPLE_CASES if c["category"] != "사실관계부족"]
+                case = random.choice(pool)
+                st.session_state.fact_json_str = json.dumps(case["fact_json"], ensure_ascii=False, indent=2)
+                st.session_state.current_case_label = case["label"]
+                st.rerun()
+        with col_btn2:
+            if st.button("초기화", use_container_width=True):
+                st.session_state.fact_json_str = ""
+                st.session_state.current_case_label = ""
+                st.rerun()
+
+        if st.session_state.current_case_label:
+            label = st.session_state.current_case_label
+            summary = label.split("—")[0].strip() if "—" in label else label
+            st.markdown(
+                f'<div class="opentax-case-summary"><span>요약</span> {html.escape(summary)}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="opentax-case-summary-slot"></div>', unsafe_allow_html=True)
+
+        fact_json_str = st.session_state.fact_json_str
+        st.divider()
+
+        if st.button("분석 시작", type="primary", use_container_width=True):
+            st.session_state.run_analysis = True
             st.rerun()
-    with col_btn2:
-        if st.button("초기화", use_container_width=True):
-            st.session_state.fact_json_str = ""
-            st.session_state.current_case_label = ""
+
+        if st.button("대화 초기화", use_container_width=True):
+            st.session_state.messages = []
             st.rerun()
-
-    if st.session_state.current_case_label:
-        label = st.session_state.current_case_label
-        st.info(f"**요약**\n{label.split('—')[0].strip() if '—' in label else label}")
-
-    fact_json_str = st.session_state.fact_json_str
-    st.divider()
-
-    if st.button("분석 시작", type="primary", use_container_width=True):
-        st.session_state.run_analysis = True
-        st.rerun()
-
-    if st.button("대화 초기화", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
 
 is_empty_chat = not st.session_state.messages and not st.session_state.run_analysis
 

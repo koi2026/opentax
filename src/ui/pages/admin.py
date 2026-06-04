@@ -703,16 +703,23 @@ def _load_amendment_test_results() -> list[dict]:
 
 with st.sidebar:
     ui_chrome.render_sidebar_nav("settings")
-    st.markdown('<div class="opentax-sidebar-label">시스템</div>', unsafe_allow_html=True)
     _llm_model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
-    st.caption(f"모델: `{_llm_model}`")
+    st.markdown(
+        f"""
+<div class="opentax-sidebar-footer">
+  <div class="opentax-sidebar-label">시스템</div>
+  <p style="color:rgba(17, 32, 82, 0.58); font-size:13px;">모델: <code>{html.escape(_llm_model)}</code></p>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 # ── 탭 ────────────────────────────────────────────────────────────────────────
 
 st.markdown("""
 <div style="padding:20px 0 10px 0; border-bottom:2px solid #e0e0e0; margin-bottom:20px">
     <div style="font-size:1.6em; font-weight:800; color:#1a1a2e">설정</div>
-    <div style="color:#666; font-size:0.9em; margin-top:4px">RAW Agent — 법령 RAG 파이프라인 운영 현황</div>
+    <div style="color:#666; font-size:0.9em; margin-top:4px">법령 데이터 운영 현황</div>
 </div>
 """, unsafe_allow_html=True)
 
