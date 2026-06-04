@@ -1,6 +1,8 @@
 """Streamlit render helpers."""
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 
@@ -20,15 +22,15 @@ FIELD_LABELS = {
     "special_cases": "특례 사항",
 }
 
-VERDICT_COLOR = {
-    "비과세": "green",
-    "감면": "blue",
-    "중과": "red",
-    "일반과세": "orange",
-    "단기세율": "red",
-    "고가주택": "orange",
-    "사실관계부족": "gray",
-    "전문가검토": "gray",
+VERDICT_HEX_COLOR = {
+    "비과세": "#188038",
+    "감면": "#1a73e8",
+    "중과": "#c5221f",
+    "일반과세": "#b06000",
+    "단기세율": "#c5221f",
+    "고가주택": "#b06000",
+    "사실관계부족": "#5f6368",
+    "전문가검토": "#5f6368",
 }
 
 VERDICT_RATE = {
@@ -196,18 +198,72 @@ def render_realtime_event(event: str, data: dict, placeholders: dict) -> None:
 def render_pipeline_result(result: dict) -> None:
     verdict = result.get("verdict", "사실관계부족")
     confidence = float(result.get("confidence", 0.0) or 0.0)
+    verdict_text = html.escape(str(verdict))
+    rate_text = html.escape(VERDICT_RATE.get(verdict, ""))
+    color = VERDICT_HEX_COLOR.get(verdict, "#5f6368")
     st.markdown("---")
     st.markdown("#### 최종 판단")
-    col_v, col_r, col_c = st.columns([2, 3, 2])
-    with col_v:
-        st.markdown("**판단**")
-        st.markdown(f"## :{VERDICT_COLOR.get(verdict, 'gray')}[{verdict}]")
-    with col_r:
-        st.markdown("**적용 세율**")
-        st.markdown(f"**{VERDICT_RATE.get(verdict, '')}**")
-    with col_c:
-        st.markdown("**신뢰도**")
-        st.markdown(f"**{confidence:.0%}**")
+    st.markdown(
+        f"""
+<style>
+.tax-result-summary {{
+    display: grid;
+    grid-template-columns: minmax(110px, 0.75fr) minmax(150px, 1fr) minmax(90px, 0.7fr);
+    gap: 8px clamp(24px, 5vw, 72px);
+    align-items: start;
+    max-width: 820px;
+    margin: 0.35rem 0 1.25rem;
+}}
+.tax-result-item {{
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+}}
+.tax-result-label {{
+    color: #111f4d;
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.25;
+}}
+.tax-result-value {{
+    color: #111f4d;
+    font-size: 1.08rem;
+    font-weight: 800;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}}
+.tax-result-verdict {{
+    color: {color};
+    font-size: 2.35rem;
+    font-weight: 900;
+    line-height: 1;
+}}
+@media (max-width: 640px) {{
+    .tax-result-summary {{
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        max-width: none;
+    }}
+}}
+</style>
+<div class="tax-result-summary">
+  <div class="tax-result-item">
+    <div class="tax-result-label">판단</div>
+    <div class="tax-result-verdict">{verdict_text}</div>
+  </div>
+  <div class="tax-result-item">
+    <div class="tax-result-label">적용 세율</div>
+    <div class="tax-result-value">{rate_text}</div>
+  </div>
+  <div class="tax-result-item">
+    <div class="tax-result-label">신뢰도</div>
+    <div class="tax-result-value">{confidence:.0%}</div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
     with st.expander("판단 근거 설명", expanded=True):
         st.markdown(result.get("answer", ""))
