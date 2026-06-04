@@ -14,33 +14,43 @@
 
 ## 빠른 시작
 
+Docker Compose가 권장 실행 방식입니다.
+
 ```bash
 git clone https://github.com/Raw-Agent/opentax.git
 cd opentax
-pip install -r requirements.txt
 cp .env.example .env
 
 # .env에 API 키와 Pinecone 설정을 입력합니다.
 # BGE reranker 파인튜닝 모델은 Git에 포함되지 않습니다.
 # 별도 저장소에서 받아 data/models/bge-reranker-tax-rag/에 배치하세요.
 
-python -m src.mcp.server --sse
-uvicorn src.api.main:app
-streamlit run src/ui/app.py
+docker compose up --build
 ```
 
-기본 포트는 다음과 같습니다.
+서비스는 기본적으로 아래 포트에서 실행됩니다.
 
 | 서비스 | 주소 |
 |------|------|
-| MCP 검색 서버 | `http://localhost:8001` |
 | FastAPI | `http://localhost:8000` |
+| MCP 검색 서버 | `http://localhost:8001` |
 | Streamlit UI | `http://localhost:8501` |
 
-개발 검증은 가능하면 Docker 기준으로 실행합니다.
+상태 확인과 테스트도 Docker 기준으로 실행합니다.
 
 ```bash
+docker compose ps
+docker compose logs --tail=100 api
 docker compose exec api pytest
+```
+
+로컬 Python 환경에서 직접 실행하려면 별도 터미널에서 각 서비스를 띄웁니다.
+
+```bash
+pip install -r requirements.txt
+python -m src.mcp.server --sse
+uvicorn src.api.main:app
+streamlit run src/ui/app.py
 ```
 
 필수 환경 변수 예시는 아래와 같습니다.
@@ -77,7 +87,7 @@ L3 쿼리 보강
     ↓
 L4 검색 + 추론
     - Pinecone 날짜 필터
-    - 법령/유권해석 멀티 네임스페이스 검색
+    - 법령/유권해석 멀티소스 검색
     - BGE reranker 재정렬
     - Claude 기반 조문 근거 추론
     ↓
@@ -107,67 +117,29 @@ TaxAnswer
 ## 시스템 아키텍처
 
 ```text
-src/api/main.py
-    ↓
-src/api/routes/chat.py
-    ↓
-src/api/fact_input.py
-    ↓
-src/domain/pipeline.py
-    ├── confirmation.py
-    ├── fact_checker.py
-    ├── query_enrichment.py
-    ├── special_case_finder.py
-    ├── retriever.py
-    └── output_validator.py
-    ↓
-src/mcp/server.py
-    ↓
-src/retrieval/retriever_impl.py
-    ├── Pinecone dense search
-    ├── BM25/article exact match
-    └── BGE reranker
-    ↓
-src/retrieval/llm_fn.py
-    ↓
-TaxAnswer
++--------------------+
+| Streamlit UI       |
+| fact/question input|
++---------+----------+
+          |
+          v
++--------------------+       +--------------------+
+| FastAPI Chat API   | ----> | MCP Search Server  |
+| request/streaming  |       | retrieve context   |
++---------+----------+       +---------+----------+
+          |                            |
+          v                            v
++--------------------+       +--------------------+
+| Domain Pipeline    | <---- | Retrieval Layer    |
+| L1.5 ~ L5          |       | Pinecone + BGE     |
++---------+----------+       +--------------------+
+          |
+          v
++--------------------+       +--------------------+
+| Claude Reasoning   | ----> | TaxAnswer          |
+| cited chunks only  |       | verdict/citations  |
++--------------------+       +--------------------+
 ```
-
-검색 계층은 적용일 기준 법령 버전을 분리합니다.
-
-| 메타데이터 | 설명 |
-|------|------|
-| `effective_date` | 법령 시행 시작일, `YYYYMMDD` 정수 |
-| `expiration_date` | 법령 효력 종료일, 현행은 `99991231` |
-| `source_label` | 법령, 국세청 질의회신, 조세심판원 결정례 등 사용자 표시 출처 |
-
-Pinecone 네임스페이스는 출처별로 분리되어 있습니다.
-
-| 네임스페이스 | 내용 |
-|------|------|
-| `tax-law` | 법령 조문 |
-| `tax-ruling-moef` | 기재부 법령해석 |
-| `tax-ruling-nts` | 국세청 질의회신·판단사례 |
-| `tax-ruling-nts-interp` | 국세청 법령해석 |
-| `tax-ruling-decisions` | 심판청구·이의신청·판례 |
-| `tax-ruling-pdf` | 세법집행기준 PDF |
-
-## 달성 현황
-
-| 영역 | 상태 | 내용 |
-|------|------|------|
-| 법령 수집 | 완료 | law.go.kr DRF API 기반 조문 수집 |
-| 법령 임베딩 | 완료 | Upstage Solar/OpenAI 임베딩 후 Pinecone 업로드 |
-| L2~L5 파이프라인 | 완료 | 팩트체크, 쿼리 보강, 검색, 출력 검증 |
-| 확인서 Gate | 완료 | 미확인 책임 항목이 있으면 판단 차단 |
-| 유권해석 수집기 | 완료 | 국세청, 조세심판원, PDF 집행기준 수집 코드 |
-| 유권해석 임베딩 | 완료 | 복수 네임스페이스 업로드 지원 |
-| Red-Blue debate | 완료 | 저신뢰 판단에 대한 반박/방어 루프 |
-| Golden set 루프 | 완료 | debate 결과를 다음 평가·few-shot에 누적 |
-| BGE 파인튜닝 파이프라인 | 완료 | pair 추출, 학습, baseline promotion gate |
-| 세법 개정 감지 | 일부 완료 | 법령 변경 감지와 registry 자동 PR 흐름 구현 |
-| 특례 발굴 | 진행 중 | SpecialCaseFinder 확장 |
-| 결정론 세액 계산 | 진행 중 | LLM 없는 납부세액 계산 레이어 확장 |
 
 ## 기술 스택
 
@@ -221,22 +193,9 @@ tests/                      # Unit and regression tests
 
 ## 개발 기여
 
-기여 전에는 프로젝트의 도메인 계약을 먼저 확인해 주세요.
+기여 방법, 개발 환경, 테스트, PR 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고해 주세요.
 
-- [AGENTS.md](AGENTS.md): AI 코딩 어시스턴트용 프로젝트 규칙
-- [CLAUDE.md](CLAUDE.md): 설계 계약과 개발 원칙
-- [DEVELOPERS.md](DEVELOPERS.md): 업무 요청서와 태스크 번들
-
-커밋 메시지: 한국어, `feat/fix/docs/refactor/test/chore: 요약`
-
-개발 원칙:
-
-- 모든 public 함수에는 Python type hint를 작성합니다.
-- 도메인 모델은 `src/domain/` dataclass를 우선 사용합니다.
-- Pydantic은 API schema 경계에서만 사용합니다.
-- 사용자 노출 텍스트는 한국어로 작성합니다.
-- 세율, 기간, 한도 같은 수치는 `TaxConstantsRegistry` 또는 기준표에서 조회합니다.
-- 법령 질문에 대해 RAG를 우회하는 직접 LLM 답변을 추가하지 않습니다.
+도메인 계약과 AI-assisted PR 규칙은 [AGENTS.md](AGENTS.md), [DEVELOPERS.md](DEVELOPERS.md), [CLAUDE.md](CLAUDE.md)에 함께 정리되어 있습니다.
 
 ## 라이센스
 
