@@ -10,6 +10,7 @@
   <a href="https://github.com/Raw-Agent/opentax/actions/workflows/ci.yml" target="_blank"><img src="https://github.com/Raw-Agent/opentax/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Raw-Agent/opentax/releases/latest" target="_blank"><img src="https://img.shields.io/github/v/release/Raw-Agent/opentax?label=Release" alt="Release"></a>
   <a href="https://polyformproject.org/licenses/noncommercial/1.0.0" target="_blank"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-red" alt="PyPI - License"></a>
+  <a href="README.en.md"><img src="https://img.shields.io/badge/README-English-blue" alt="README in English"></a>
 </div>
 
 ## 빠른 시작
