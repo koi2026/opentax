@@ -12,200 +12,240 @@
   <a href="https://polyformproject.org/licenses/noncommercial/1.0.0" target="_blank"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-red" alt="PyPI - License"></a>
 </div>
 
-## 핵심 철학
+## 빠른 시작
 
-세금 판단의 오류는 납세자에게 실제 피해가 됩니다.  
-그렇기 때문에 이 시스템은 두 가지 원칙을 동시에 지킵니다.
+```bash
+git clone https://github.com/Raw-Agent/opentax.git
+cd opentax
+pip install -r requirements.txt
+cp .env.example .env
 
-### 완전 자동화
-법령 수집 → 임베딩 → 검색 → 추론 → 출력까지 전 과정이 에이전트 파이프라인으로 자동화됩니다.  
-법령이 개정되면 자동 감지 → 재인덱스 → 시스템 전체 반영.  
-사람이 개입하는 지점은 예외 처리와 최종 승인에 한정됩니다.
+# .env에 API 키와 Pinecone 설정을 입력합니다.
+# BGE reranker 파인튜닝 모델은 Git에 포함되지 않습니다.
+# 별도 저장소에서 받아 data/models/bge-reranker-tax-rag/에 배치하세요.
 
-### 인간 즉각 개입 가능
-모든 판단의 근거(fact_json, 검색 조문, 인용 chunk_id, debate 기록)가 항상 노출됩니다.  
-세무사·전문가가 어느 단계에서든 판단 과정을 확인하고 즉시 개입할 수 있습니다.  
-블랙박스 판단은 허용하지 않습니다.
-
----
-
-## 지금 이 시스템이 하는 것
-
-```
-[사건 사실관계 입력]
-     ↓
-[L1.5] 확인서 체크 — 세대구성·취득일·특수관계 등 미확인 시 차단
-     ↓
-[L2]  팩트체크 — 판단에 필요한 결정적 정보 누락 검출
-     ↓
-[L3]  쿼리 보강 — 세법 특화 검색 키워드 생성
-     ↓
-[L4]  법령·유권해석 멀티소스 검색 + LLM 추론
-     │  ┌──────────────────────────────────────────────────────┐
-     │  │ Pinecone 5개 네임스페이스             │
-     │  │  · tax-law              (법령 조문 — 소득세법 등)     │
-     │  │  · tax-ruling-moef      (기재부 법령해석 )            │
-     │  │  · tax-ruling-nts       (국세청 질의회신)            │
-     │  │  · tax-ruling-nts-interp (국세청 법령해석)           │
-     │  │  · tax-ruling-decisions  (심판원 결정례)             │
-     │  └──────────────────────────────────────────────────────┘
-     │  BGE Reranker (세법 도메인 파인튜닝) 적용
-     ↓
-[L5]  출력 검증 — phantom citation 검출, confidence 계산
-     ↓
-[판단 결과]  verdict + 근거 조문 + debate 기록 + 감사 추적
+python -m src.mcp.server --sse
+uvicorn src.api.main:app
+streamlit run src/ui/app.py
 ```
 
-**판단 유형:** 비과세 / 고가주택 / 일반과세 / 단기세율 / 중과 / 감면 / 사실관계부족
+기본 포트는 다음과 같습니다.
 
----
+| 서비스 | 주소 |
+|------|------|
+| MCP 검색 서버 | `http://localhost:8001` |
+| FastAPI | `http://localhost:8000` |
+| Streamlit UI | `http://localhost:8501` |
+
+개발 검증은 가능하면 Docker 기준으로 실행합니다.
+
+```bash
+docker compose exec api pytest
+```
+
+필수 환경 변수 예시는 아래와 같습니다.
+
+```env
+ANTHROPIC_API_KEY=
+UPSTAGE_API_KEY=
+OPENAI_API_KEY=
+PINECONE_API_KEY=
+PINECONE_INDEX_NAME=tax-rag
+PINECONE_NAMESPACE=tax-law
+BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag
+```
+
+## 어떻게 동작하는가?
+
+OpenTax는 사용자가 입력한 사실관계를 바로 LLM에 넘기지 않습니다. 먼저 확인서와 팩트체크를 통과한 뒤, 검색된 법령 조문과 유권해석 chunk만 근거로 판단합니다.
+
+```text
+JSON fact_json 또는 자연어 질문
+    ↓
+L1.5 확인서 Gate
+    - 세대 전체 주택 수
+    - 잔금일/등기접수일 중 빠른 날
+    - 특수관계인 거래 여부
+    - 실제 거주 기간
+    - 취득서류 보유 여부
+    ↓
+L2 팩트체크
+    - 필수 사실관계 누락 시 LLM 호출 차단
+    ↓
+L3 쿼리 보강
+    - 세법 위험 플래그와 조문 키워드 주입
+    ↓
+L4 검색 + 추론
+    - Pinecone 날짜 필터
+    - 법령/유권해석 멀티 네임스페이스 검색
+    - BGE reranker 재정렬
+    - Claude 기반 조문 근거 추론
+    ↓
+L5 출력 검증
+    - phantom citation 차단
+    - confidence 상한 조정
+    ↓
+TaxAnswer
+    - verdict
+    - citations
+    - chunk_ids
+    - missing_facts
+    - warnings
+    - expert_review_signals
+```
+
+판단 유형은 `비과세`, `감면`, `중과`, `일반과세`, `단기세율`, `고가주택`, `사실관계부족` 중 하나입니다.
+
+핵심 원칙은 세 가지입니다.
+
+| 원칙 | 의미 |
+|------|------|
+| RAG 우회 금지 | 검색된 조문 없이 LLM 기억으로 답하지 않습니다. |
+| Phantom citation 금지 | 실제 검색 결과에 있는 `chunk_id`만 인용합니다. |
+| 결론 유보 우선 | 불확실한 사실관계가 있으면 `missing_facts`로 재요청합니다. |
+
+## 시스템 아키텍처
+
+```text
+src/api/main.py
+    ↓
+src/api/routes/chat.py
+    ↓
+src/api/fact_input.py
+    ↓
+src/domain/pipeline.py
+    ├── confirmation.py
+    ├── fact_checker.py
+    ├── query_enrichment.py
+    ├── special_case_finder.py
+    ├── retriever.py
+    └── output_validator.py
+    ↓
+src/mcp/server.py
+    ↓
+src/retrieval/retriever_impl.py
+    ├── Pinecone dense search
+    ├── BM25/article exact match
+    └── BGE reranker
+    ↓
+src/retrieval/llm_fn.py
+    ↓
+TaxAnswer
+```
+
+검색 계층은 적용일 기준 법령 버전을 분리합니다.
+
+| 메타데이터 | 설명 |
+|------|------|
+| `effective_date` | 법령 시행 시작일, `YYYYMMDD` 정수 |
+| `expiration_date` | 법령 효력 종료일, 현행은 `99991231` |
+| `source_label` | 법령, 국세청 질의회신, 조세심판원 결정례 등 사용자 표시 출처 |
+
+Pinecone 네임스페이스는 출처별로 분리되어 있습니다.
+
+| 네임스페이스 | 내용 |
+|------|------|
+| `tax-law` | 법령 조문 |
+| `tax-ruling-moef` | 기재부 법령해석 |
+| `tax-ruling-nts` | 국세청 질의회신·판단사례 |
+| `tax-ruling-nts-interp` | 국세청 법령해석 |
+| `tax-ruling-decisions` | 심판청구·이의신청·판례 |
+| `tax-ruling-pdf` | 세법집행기준 PDF |
 
 ## 달성 현황
 
-| 단계 | 내용 | 상태 |
+| 영역 | 상태 | 내용 |
 |------|------|------|
-| Phase 1 | 법령 수집 파이프라인 (law.go.kr DRF) | ✅ |
-| Phase 2 | Pinecone 임베딩 + Solar 4096차원 | ✅ |
-| Phase 3 | L2~L5 판단 파이프라인 | ✅ |
-| Phase 4 | 유권해석 5개 네임스페이스 통합 | ✅ |
-| Phase 5 | BGE Reranker 세법 파인튜닝 (acc 0.9545) | ✅ |
-| Phase 6 | 확인서(L1.5) + 책임소재 관리 | ✅ |
-| 진행 중 | 유권해석 본문 수집 (37,400건 + 2,305건) | 🔄 |
-| 예정 | BGE 재파인튜닝 (본문 데이터 기반) | ⏳ |
-| 예정 | 조정대상지역 자동조회 API | ⏳ |
-
-> 115개 커밋, 8일 연속 활성 개발 (2026-05-21 ~ 2026-05-28)
-
----
+| 법령 수집 | 완료 | law.go.kr DRF API 기반 조문 수집 |
+| 법령 임베딩 | 완료 | Upstage Solar/OpenAI 임베딩 후 Pinecone 업로드 |
+| L2~L5 파이프라인 | 완료 | 팩트체크, 쿼리 보강, 검색, 출력 검증 |
+| 확인서 Gate | 완료 | 미확인 책임 항목이 있으면 판단 차단 |
+| 유권해석 수집기 | 완료 | 국세청, 조세심판원, PDF 집행기준 수집 코드 |
+| 유권해석 임베딩 | 완료 | 복수 네임스페이스 업로드 지원 |
+| Red-Blue debate | 완료 | 저신뢰 판단에 대한 반박/방어 루프 |
+| Golden set 루프 | 완료 | debate 결과를 다음 평가·few-shot에 누적 |
+| BGE 파인튜닝 파이프라인 | 완료 | pair 추출, 학습, baseline promotion gate |
+| 세법 개정 감지 | 일부 완료 | 법령 변경 감지와 registry 자동 PR 흐름 구현 |
+| 특례 발굴 | 진행 중 | SpecialCaseFinder 확장 |
+| 결정론 세액 계산 | 진행 중 | LLM 없는 납부세액 계산 레이어 확장 |
 
 ## 기술 스택
 
 | 영역 | 기술 |
 |------|------|
-| LLM | Claude Sonnet 4.6 / Opus 4.7 |
-| 임베딩 | Upstage Solar `solar-embedding-1-large-passage` (dim=4096) |
-| 벡터 DB | Pinecone Serverless (5 namespace) |
-| Reranker | BGE `bge-reranker-v2-m3` (세법 파인튜닝, CrossEncoder) |
-| 파이프라인 | Python / FastAPI / Streamlit |
-| MCP | FastMCP (Claude Desktop 연동, 7개 도구) |
-| 법령 소스 | law.go.kr DRF API / taxlaw.nts.go.kr |
-
----
-
-## 핵심 설계 계약 (변경 불가)
-
-| 원칙 | 구현 |
-|------|------|
-| 근거 없는 답변 금지 | 검색된 chunk_id가 있는 조문만 인용 |
-| 수치 리터럴 코드 삽입 금지 | 세율·기간·금액 → `TaxConstantsRegistry` 전용 |
-| BGE Reranker 생략 금지 | 최종 조문 선택 전 반드시 reranking |
-| 판단 전 확인서 차단 | L1.5 미확인 항목 있으면 답변 출력 불가 |
-| 전 과정 감사 추적 | verdict + chunk_id + debate 기록 항상 보존 |
-
----
-
-## 빠른 시작
-
-```bash
-git clone https://github.com/Raw-Agent/korean-tax-rag.git
-cd korean-tax-rag
-pip install -r requirements.txt
-cp .env.example .env   # API 키 입력
-
-# BGE reranker 파인튜닝 모델은 저장소에 포함되지 않습니다.
-# 별도 다운로드 후 아래 경로에 배치하세요.
-# data/models/bge-reranker-tax-rag/
-
-python -m src.mcp.server --sse   # MCP 검색 서버 → http://localhost:8001
-uvicorn src.api.main:app         # API → http://localhost:8000
-streamlit run src/ui/app.py      # UI  → http://localhost:8501
-```
-
-역할 경계: UI는 API만 호출하고, API는 MCP의 `retrieve_tax_context` 도구로 검색한 chunk만 사용해 L2~L5 판단을 수행합니다.
-
-### BGE 파인튜닝 모델 적용
-
-세법 도메인 파인튜닝된 BGE reranker 모델은 대용량 파일이므로 Git에 커밋하지 않습니다. 운영·개발 환경에서는 별도 공유 스토리지에서 모델을 다운로드해 다음 경로에 둡니다.
-
-```text
-data/models/bge-reranker-tax-rag/
-```
-
-`.env`에는 아래 값을 사용합니다.
-
-```env
-BGE_RERANKER_MODEL=data/models/bge-reranker-tax-rag
-```
-
-모델 교체 후에는 API/MCP 프로세스를 재시작해야 새 CrossEncoder가 로드됩니다.
+| 언어 | Python |
+| API | FastAPI, Uvicorn |
+| UI | Streamlit |
+| MCP | FastMCP |
+| LLM | Claude Sonnet 4.6, Claude Opus 4.7 |
+| 임베딩 | Upstage Solar `solar-embedding-1-large-passage`, OpenAI fallback |
+| 벡터 DB | Pinecone Serverless |
+| Reranker | BGE CrossEncoder, 세법 도메인 파인튜닝 모델 |
+| 수집 | law.go.kr DRF API, taxlaw.nts.go.kr, PDF parser |
+| 평가 | pytest, Red-Blue debate, golden set |
 
 ---
 
 ## 디렉터리 구조
 
-```
+```text
 src/
-├── application/
-│   ├── chat_service.py    # API 오케스트레이션 — L2~L5 + MCP 검색 호출
-│   └── serializers.py     # API/MCP 공통 직렬화
-├── api/
-│   └── main.py            # FastAPI — 외부 연동 REST
-├── mcp/
-│   └── server.py          # FastMCP — RAG 검색 실행 계층
-├── domain/
-│   ├── pipeline.py        # L1.5 ~ L5 메인 파이프라인
-│   ├── confirmation.py    # 확인서 체크 (L1.5)
-│   ├── tax_calculator.py  # 세액 계산
-│   └── constants.py       # TaxConstantsRegistry
-├── retrieval/
-│   ├── retriever_impl.py  # Pinecone 멀티 네임스페이스 + BGE reranking
-│   ├── mcp_retriever.py   # API에서 MCP 검색 tool 호출
-│   └── tax_law_search.py  # 자연어 법령 검색 helper
-├── ingestion/             # 법령·유권해석 수집기
-├── eval/                  # RVRL debate, golden set 관리
-├── agents/prompts.py      # 프롬프트 버전 관리
-└── ui/
-    ├── app.py             # Streamlit 메인
-    └── pages/admin.py     # 어드민 — 수집 현황·파이프라인 상태
+├── api/                    # FastAPI app, chat routes, request/response schema
+├── application/            # API service orchestration and serializers
+├── domain/                 # L1.5~L5 pipeline, dataclasses, tax rules
+├── retrieval/              # Pinecone retriever, MCP retriever, LLM call wrapper
+├── infra/                  # Embedding, Pinecone client, reranker adapter
+├── ingestion/              # 법령·유권해석·PDF 수집과 임베딩
+├── calculator/             # 결정론 세액 계산
+├── mcp/                    # FastMCP search tools
+├── eval/                   # Debate, golden set, retrieval evaluation
+├── services/               # 상담 라우팅 등 서비스 계층
+├── agents/                 # Prompt registry
+└── ui/                     # Streamlit UI and admin pages
 
 data/
-├── golden/                # 골든셋 (142건 종합 케이스)
-├── tax_tables/            # 세율표 JSON (TaxConstantsRegistry 소스)
-└── models/                # BGE 파인튜닝 모델 (별도 다운로드, Git 제외)
+├── golden/                 # 평가용 QA/golden cases
+├── rulings/                # 수집된 유권해석 원천 데이터
+├── area_designations/      # 규제지역 수동 기준표와 소스 상태
+├── tax_tables/             # 세율표·공제표 등 결정론 기준표
+└── models/                 # BGE 모델 배치 경로, Git 제외
 
 scripts/
-├── dev/browser/           # Playwright 디버그·스크린샷 도구
-├── eval/                  # 골든셋·검색 품질 eval 실행
-├── ingestion/             # 수집/임베딩 오케스트레이션
-├── ops/                   # 법령·규제 변경 감지, registry 자동화
-└── training/              # reranker pair 추출·파인튜닝
-```
+├── eval/                   # Baseline eval and golden refresh
+├── ingestion/              # 수집/임베딩 운영 스크립트
+├── ops/                    # 법령 변경 감지와 registry 자동화
+└── training/               # Reranker pair 추출과 파인튜닝
 
----
+tests/                      # Unit and regression tests
+```
 
 ## 개발 기여
 
-- 코드 기여 전 [CLAUDE.md](CLAUDE.md) 필독 (설계 계약 명시)
-- 업무 요청서 및 태스크 번들: [DEVELOPERS.md](DEVELOPERS.md)
-- 세부 아키텍처·법령 도메인 규칙: [AGENTS.md](AGENTS.md)
+기여 전에는 프로젝트의 도메인 계약을 먼저 확인해 주세요.
+
+- [AGENTS.md](AGENTS.md): AI 코딩 어시스턴트용 프로젝트 규칙
+- [CLAUDE.md](CLAUDE.md): 설계 계약과 개발 원칙
+- [DEVELOPERS.md](DEVELOPERS.md): 업무 요청서와 태스크 번들
 
 커밋 메시지: 한국어, `feat/fix/docs/refactor/test/chore: 요약`
 
----
+개발 원칙:
 
-## 현재 한계 (Limitations)
+- 모든 public 함수에는 Python type hint를 작성합니다.
+- 도메인 모델은 `src/domain/` dataclass를 우선 사용합니다.
+- Pydantic은 API schema 경계에서만 사용합니다.
+- 사용자 노출 텍스트는 한국어로 작성합니다.
+- 세율, 기간, 한도 같은 수치는 `TaxConstantsRegistry` 또는 기준표에서 조회합니다.
+- 법령 질문에 대해 RAG를 우회하는 직접 LLM 답변을 추가하지 않습니다.
 
-> **해커톤 프로토타입입니다.** 실제 세금 신고·납부에 사용하기 전에 반드시 공인 세무사 검토가 필요합니다.
+## 라이센스
 
-- 평가셋: AI 합성 시나리오 기준 (실제 납세자 사례 아님)
-- 분양권 단기세율(70%) 판정 불안정
-- 법인 양도·조정대상지역 자동조회·취득세 미지원
-- 일부 조문 누락 가능성 (BGE 재파인튜닝 필요)
-- Pinecone 장애 시 fallback 없음
+이 프로젝트는 [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)에 따라 배포됩니다.
 
----
+상업적 사용, 서비스 제공, 재판매, SaaS 제공 등은 별도 허가 없이 허용되지 않습니다.
 
 ## 법률 고지
 
-본 시스템은 정보 제공 목적으로 개발되었으며 법률 자문이 아닙니다.  
-양도소득세 신고·납부에 관한 최종 판단은 반드시 공인 세무사와 상담하시기 바랍니다.
+OpenTax는 정보 제공과 연구·개발 목적으로 제공되는 소프트웨어입니다. 본 시스템의 출력은 법률 자문, 세무 대리, 세무 신고 검토 의견이 아닙니다.
+
+양도소득세 신고·납부, 불복, 세무조사 대응, 과세관청 제출 자료 작성에 관한 최종 판단은 반드시 공인 세무사, 변호사 또는 관계 기관과 상담해 확인해야 합니다. OpenTax의 개발자와 기여자는 본 시스템의 사용 결과로 발생하는 세액 차이, 가산세, 신고 오류, 행정상 불이익에 대해 책임을 지지 않습니다.
