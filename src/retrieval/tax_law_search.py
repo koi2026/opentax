@@ -1,7 +1,7 @@
 """Human-facing tax-law search helpers.
 
 This module owns the legacy natural-language law search path that is still used
-by MCP helper tools, eval utilities, and CrewAI tools. Structured JSON cases
+by MCP helper tools and eval utilities. Structured JSON cases
 continue to use the MCP-backed pipeline retriever.
 """
 from __future__ import annotations
